@@ -13,7 +13,6 @@ The steps arrive three ways, and they compose freely in one test:
 | **Decorated step helpers** | `[Given]`, `[When]`, `[Then]`, `[Check]` or `[Step]` on a method you write. Every call to it renders as that step, with its own timing and verdict |
 | **Marker comments** | `// Given …`, `// When …`, `// Then …` in a test body, declaring the narrative of a test that calls no decorated helper at all |
 
-<!-- JEREMY -->
 The constraint that shaped all three: a large existing suite has to be able to adopt this **one class
 at a time**, without a base class, a signature change, or a rewrite. Marten's `DaemonTests` was the
 first real subject ([JasperFx/marten#5363](https://github.com/JasperFx/marten/pull/5363)) --
@@ -694,7 +693,6 @@ pipes are optional, cells are trimmed -- so the table in the specification, the 
 request and the table in the test are the same text. Markdown's escaping and inline formatting are
 deliberately not supported: a cell is the text between pipes.
 
-<!-- JEREMY -->
 The two alternatives were both worse. Calling a row helper once per row renders as N steps and loses
 the grid. A collection-of-tuples argument (`void Sum((int x, int y, int sum)[] rows)`) grids up fine
 but reads as code rather than as a table.
@@ -1067,8 +1065,6 @@ are HTTP acts, a constant route beats a computed one whatever order they are rea
 
 ### The act's route -- a template, an interpolation or a route name (bobcat#500) {#act-route}
 
-<!-- JEREMY -->
-
 An HTTP act's route reaches the slice as `TriggerOrigin.HttpRoute`. The generator works it out from the
 argument the test passes:
 
@@ -1123,7 +1119,7 @@ public Task WhenPutTo(object command, string routeName, params object[] routeVal
     => send("PUT", command, templateNamed(routeName), routeValues);
 ```
 
-[The BankAccountES sample](https://github.com/JasperFx/bobcat/blob/ff7d15addf7da476a6d4654755fdff06cbcd0c1f/samples/BankAccountES) (in the Wolverine repository since Bobcat 1.0.0-rc.2) uses it: `update_a_client` calls `WhenPutTo(…, "UpdateClient", clientId)` against
+[The BankAccountES sample](https://github.com/JasperFx/wolverine/tree/main/src/Samples/Bobcat/BankAccountES) (in the Wolverine repository since Bobcat 1.0.0-rc.2) uses it: `update_a_client` calls `WhenPutTo(…, "UpdateClient", clientId)` against
 `[WolverinePut("/api/clients/{clientId}", RouteName = "UpdateClient")]`. The slice gets
 `PUT /api/clients/{clientId}`, the same route Wolverine derives from the chain, so the two sources agree.
 

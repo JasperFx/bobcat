@@ -150,9 +150,11 @@ public class SupervisorEndToEndTests : IDisposable
             ["BOBCAT_CONNECTION_PROBE"] = probe
         })
         {
+            // #region worker-connection-strings
             ConnectionStrings = new WorkerConnectionStrings()
                 .Add("postgres", worker => $"Host=localhost;Database=specs_w{worker.Lane}")
                 .Add("rabbitmq", "amqp://guest:guest@localhost:5672")
+            // #endregion worker-connection-strings
         })
         {
             MaxParallelWorkers = 1

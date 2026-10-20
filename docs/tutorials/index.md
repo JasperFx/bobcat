@@ -1,15 +1,10 @@
 # Tutorials
 
-The rest of these docs are organized around Bobcat's parts -- the generator, the runner adapters, the
-supervisor, the wire format. That is the right shape once you know what you are looking for, and
-the wrong shape when you are starting, because it asks you to already know which part solves your
-problem.
+We're following the old Martin Fowler idea of a ["Duplex Book"](https://martinfowler.com/bliki/DuplexBook.html),
+where technical content is organized first as readable tutorials, narratives focused on the problems
+you're trying to solve. Then comes a second series of breakout topics on the nitty-gritty of Bobcat's APIs.
 
-These tutorials are organized around the problem instead. Each one starts from something you are
-trying to accomplish, walks the whole path, and links into the reference pages for the detail. They
-are meant to be read in order and typed along with.
-
-## Start with the one that sounds like your week
+We advise you to start here on your first look at Bobcat.
 
 | If you want to | Read |
 |---|---|
@@ -18,18 +13,15 @@ are meant to be read in order and typed along with.
 | Set up a lot of data, and verify a lot of data | [Data Intensive Specifications](data-intensive-specifications.md) |
 | Run specs in a build pipeline and get useful failures back | [Integrating Bobcat with CI](continuous-integration.md) |
 | Run and debug specs from your IDE's test explorer | [Integrating Bobcat with Your IDE](ide-integration.md) |
-| Design a system as an Event Model and build from it | [Event Modeling and Spec Driven Development](event-modeling.md) |
+| Design a system as an Event Model and build from it with the Critter Stack | [Event Modeling and Spec Driven Development](event-modeling.md) |
 | Stop a large, slow integration suite from being flaky | [Reliable Integration Testing](reliable-integration-testing.md) |
-| Make failures legible to a coding agent | [Agent Friendly Integration Tests](agent-friendly-tests.md) |
+| Give a coding agent a fast feedback loop: failures that say what the system did, and a rerun of only what was red | [Agent Friendly Integration Tests](agent-friendly-tests.md) |
 
-## How these differ from the rest of the docs
+## Bobcat's History
 
-A tutorial teaches a path. A reference page pins a fact. When the two disagree, the reference page
-is right -- tutorials link to the reference rather than restating it, precisely so there is one
-place each fact lives and one place to fix it.
+The original goal of Bobcat was to be an improved successor to the [Storyteller](https://storyteller.github.io/) testing tool from
+the 2010's which in turn was heavily influenced by [FitNesse](https://en.wikipedia.org/wiki/FitNesse).
 
-The pages under **Guides** are how-to and lookup: a single task or tool, assumed context, no
-narrative. The Critter Stack vocabulary is documented with Wolverine, in
-[Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat), and **Supervising** covers the
-out-of-process runner and the wire a run publishes. Several of those pages also record *why* a
-behaviour is shaped the way it is, and they are the right read when one surprises you.
+Bobcat is obviously influenced by [Gherkin tools like Cucumber](https://cucumber.io/docs/gherkin/) as well, but the Critter Stack
+community made the decision to eschew Gherkin or any other kind of [Domain Specific Language](https://martinfowler.com/books/dsl.html) approach and instead
+focus on newer .NET tricks to "project" readable specifications out of C# or F# tests written with the testing tools we already use today.

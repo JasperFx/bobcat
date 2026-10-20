@@ -54,7 +54,9 @@ public class SupervisorObserverTests
                 uid == "clean" || attempt >= 2 ? WorkerTestState.Passed : WorkerTestState.Failed
         };
 
+        // #region retry-budget
         var supervisor = new Supervisor(factory) { RetryBudget = new RetryBudget { MaxAttemptsPerTest = 2 } };
+        // #endregion retry-budget
         supervisor.AddObserver(observer);
 
         await supervisor.Run();

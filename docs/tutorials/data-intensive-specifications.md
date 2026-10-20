@@ -30,13 +30,7 @@ takes the whole table as one argument:
 
 <<< ../../src/Bobcat.Xunit.Samples/Grammars/RosterGrammar.cs#roster-is{cs}
 
-```csharp
-_roster.TheRosterIs("""
-    | player       | position |
-    | Nolan Ryan   | Pitcher  |
-    | Johnny Bench | Catcher  |
-    """);
-```
+<<< ../../src/Bobcat.Xunit.Samples/Specs/TableSpecs.cs#table-step-call{cs}
 
 A markdown table pastes in unchanged -- the alignment row is recognised and dropped, outer pipes are
 optional, cells are trimmed -- so the table in the specification, the table in the pull request and
@@ -64,13 +58,7 @@ before/after hooks are simply the lines either side of the call:
 
 <<< ../../src/Bobcat.Projected.Acceptance.Tests/RunTableTests.cs#subscription-record{cs}
 
-```csharp
-_grammar.TheSubscriptionsAre("""
-    | Customer | Tier | RenewsOn |
-    | Ada      | Pro  | TODAY+30 |
-    | Grace    | Free | TODAY    |
-    """);
-```
+<<< ../../src/Bobcat.Projected.Acceptance.Tests/RunTableTests.cs#subscriptions-call{cs}
 
 Columns bind to the record's constructor first and then to settable properties, `TODAY+30` is read as a real `DateOnly`, and
 `Currency` can be left out of the table entirely because the record declares a default for it.
@@ -103,13 +91,7 @@ expected output:
 
 <<< ../../src/Bobcat.Projected.Acceptance.Tests/RunTableTests.cs#doubling-gives{cs}
 
-```csharp
-_grammar.DoublingGives("""
-    | input | doubled |
-    | 2     | 4       |
-    | 3     | 7       |
-    """);
-```
+<<< ../../src/Bobcat.Projected.Acceptance.Tests/RunTableTests.cs#doubling-call{cs}
 
 The second row fails in the `doubled` column -- `expected '7', got '6'` -- and the first passes. A
 `bool` return is compared like any other value, so a table of yes/no answers needs no special grammar.
@@ -123,14 +105,16 @@ The comparison supersedes the value the table wrote for that column, which is wh
 
 ### A row that throws is that row's failure
 
+The shape of the grid, for a division table whose second row divides by zero:
+
 ```
-╭───┬────┬───┬──────────┬────────╮
-│ # │ x  │ y │ quotient │ Status │
-├───┼────┼───┼──────────┼────────┤
-│ 1 │ 10 │ 5 │ 2        │   OK   │
-│ 2 │ 3  │ 0 │ !        │ ERROR  │
-│ 3 │ 9  │ 3 │ 3        │   OK   │
-╰───┴────┴───┴──────────┴────────╯
+╭───┬────┬───┬──────────┬─────────╮
+│ # │ x  │ y │ quotient │ Verdict │
+├───┼────┼───┼──────────┼─────────┤
+│ 1 │ 10 │ 5 │ 2        │   OK    │
+│ 2 │ 3  │ 0 │ !        │  ERROR  │
+│ 3 │ 9  │ 3 │ 3        │   OK    │
+╰───┴────┴───┴──────────┴─────────╯
   row 2: DivideByZeroException: cannot divide by zero
 ```
 
@@ -148,7 +132,6 @@ The rows already reached stay on the grid even then.
 
 ## Decision tables with out parameters
 
-<!-- JEREMY -->
 `out` parameters are the most natural way to write a table where one set of inputs produces more
 than one answer. A returned value only gives you one output column. Out parameters give you as many
 as you need, and each one is named right there in the method signature.
@@ -191,28 +174,26 @@ is not part of the claim unless you say so:
 
 <<< ../../src/Bobcat.Projected.Acceptance.Tests/VerifySetTests.cs#inventory-should-be{cs}
 
-```csharp
-_grammar.TheInventoryShouldBe("""
-    | Sku     | ProductName | Quantity |
-    | SKU-001 | Widget      | 90       |
-    | SKU-002 | Gadget      | 12       |
-    """);
-```
+<<< ../../src/Bobcat.Projected.Acceptance.Tests/VerifySetTests.cs#inventory-call{cs}
 
 `keyColumns` is comma-separated; leave it empty to match on every column the table names.
 
 ### The four row markers
 
+From `SetSpecs.every_cell_is_part_of_the_evaluation` in `Bobcat.Xunit.Samples`, run on 2026-10-20:
+
 ```
-    ✗ Then  the unordered details should be
-╭───┬─────────────────────────┬──────────────────────┬────────────┬─────────╮
-│ # │ Amount                  │ Date                 │ Name       │ Status  │
-├───┼─────────────────────────┼──────────────────────┼────────────┼─────────┤
-│ 1 │ expected '11', got '10' │ 2026-09-29 (TODAY-2) │ Socks      │  FAIL   │
-│ 2 │ 200                     │ expected …, got …    │ The Pants  │  FAIL   │
-│ 3 │ 100                     │ TODAY                │ Sweatpants │ MISSING │
-│ 4 │ 100                     │ 2026-10-01           │ The Shirts │  EXTRA  │
-╰───┴─────────────────────────┴──────────────────────┴────────────┴─────────╯
+    ✗ Then  the unordered details should be (6ms)
+╭───┬─────────────────────────┬─────────────────────────┬────────────┬─────────╮
+│ # │ Amount                  │ Date                    │ Name       │ Verdict │
+├───┼─────────────────────────┼─────────────────────────┼────────────┼─────────┤
+│ 1 │ expected '11', got '10' │ 2026-10-18 (TODAY-2)    │ Socks      │  FAIL   │
+│ 2 │ 200                     │ expected '2026-10-15',  │ The Pants  │  FAIL   │
+│   │                         │ got '2026-10-19'        │            │         │
+│   │                         │ (TODAY-5)               │            │         │
+│ 3 │ 100                     │ TODAY                   │ Sweatpants │ MISSING │
+│ 4 │ 100                     │ 2026-10-20              │ The Shirts │  EXTRA  │
+╰───┴─────────────────────────┴─────────────────────────┴────────────┴─────────╯
 ```
 
 | | |
@@ -220,7 +201,7 @@ _grammar.TheInventoryShouldBe("""
 | `FAIL` | the row matched and a cell disagrees |
 | `MISSING` | the specification describes a row the system never produced -- **shown with the values it expected**, not a row of dashes |
 | `EXTRA` | the system produced a row the specification does not describe. This fails the step: a set verification says the set is *exactly* this |
-| `ORDER` | with `Ordered = true`, a row that turned up behind one written before it, and where it actually was |
+| `ORDER` | with `ordered: true`, a row that turned up behind one written before it, and where it actually was |
 
 **A mismatch reads as one missing row beside one extra**, not as a row with a wrong cell, whenever
 the disagreeing column is a key column -- rows 3 and 4 above are the single `Sweatpants`/`The Shirts`
@@ -229,12 +210,9 @@ back into a cell-level difference.
 
 ### Ordered sets, and sets of plain values
 
-```csharp
-SetVerificationComparer.Verify(_inventory, expected, keyColumns: "Sku", ordered: true);
+<<< ../../src/Bobcat.Projected.Acceptance.Tests/VerifySetTests.cs#inventory-in-order{cs}
 
-// A one-column table over plain values needs no column named
-SetVerificationComparer.Verify(_tags, expected);
-```
+<<< ../../src/Bobcat.Projected.Acceptance.Tests/VerifySetTests.cs#tags-should-be{cs}
 
 `ordered: true` is one argument on the assertion that already exists, because whether order is part of
 the claim is a property of the assertion rather than a different kind of assertion. **Order is checked
@@ -252,13 +230,7 @@ A set's columns are the result type's **properties**, so the property is where `
 
 <<< ../../src/Bobcat.Projected.Acceptance.Tests/SetVerificationTests.cs#ledger-record{cs}
 
-```csharp
-_grammar.TheLedgerShouldBe("""
-    | Line Item | The Amount |
-    | Drill     | 200        |
-    | Cord      | 100        |
-    """);
-```
+<<< ../../src/Bobcat.Projected.Acceptance.Tests/SetVerificationTests.cs#ledger-call{cs}
 
 **The title replaces the name rather than aliasing it**, and that is deliberate: one column with two
 spellings is how a grid ends up with two columns for one property. So `keyColumns` names columns as
@@ -279,12 +251,7 @@ row names are compared against the public properties or fields of those names:
 
 <<< ../../src/Bobcat.Xunit.Samples/Grammars/ObjectsGrammar.cs#address-should-be{cs}
 
-```csharp
-_objects.TheAddressShouldBe("""
-    | Address1     | Address2 | City   |
-    | 3 1st Street | EMPTY    | Dallas |
-    """);
-```
+<<< ../../src/Bobcat.Xunit.Samples/Specs/ObjectSpecs.cs#address-should-be-call{cs}
 
 **Only the columns the row names are compared.** An address has six fields and a specification that
 names three means nothing by the other three, which is the same partial rule set verification and the
@@ -295,24 +262,21 @@ same check.
 It renders as a one-row grid with a verdict per column:
 
 ```
-    ✗ Then  the address should be
-╭───┬─────────────────────┬─────────────────────┬─────────────────────┬────────╮
-│ # │ Address1            │ City                │ StateOrProvince     │ Status │
-├───┼─────────────────────┼─────────────────────┼─────────────────────┼────────┤
-│ 1 │ expected '9 Ninth   │ expected 'Houston', │ expected 'OK', got  │  FAIL  │
-│   │ Way', got '2 Second │ got 'Austin'        │ 'TX'                │        │
-│   │ Lane'               │                     │                     │        │
-╰───┴─────────────────────┴─────────────────────┴─────────────────────┴────────╯
+    ✗ Then  the address should be (2ms)
+╭───┬─────────────────────┬─────────────────────┬────────────────────┬─────────╮
+│ # │ Address1            │ City                │ StateOrProvince    │ Verdict │
+├───┼─────────────────────┼─────────────────────┼────────────────────┼─────────┤
+│ 1 │ expected '9 Ninth   │ expected 'Houston', │ expected 'OK', got │  FAIL   │
+│   │ Way', got '2 Second │ got 'Austin'        │ 'TX'               │         │
+│   │ Lane'               │                     │                    │         │
+╰───┴─────────────────────┴─────────────────────┴────────────────────┴─────────╯
 ```
 
 ### A column may reach into a nested object
 
 A column name containing `.` follows the path, member by member -- properties and fields alike:
 
-```
-| Id    | Customer.Name | Customer.Address.City |
-| ORD-1 | Hannah        | Austin                |
-```
+<<< ../../src/Bobcat.Tests/Runtime/PropertyCellsTests.cs#dotted-columns{cs}
 
 `[Header]` titling applies at **every** segment, so a property renamed for the table stays
 addressable nested as well as at the top.
@@ -378,7 +342,7 @@ it is refused as a number, which is the better message.
 The grid shows the resolved value with the token as its note:
 
 ```
-│ 1 │ 10     │ 2026-09-28 (TODAY-2) │ Socks      │   OK   │
+│ 1 │ 10     │ 2026-10-18 (TODAY-2) │ Socks      │   OK    │
 ```
 
 ### A cell of your own type
@@ -392,10 +356,9 @@ type -- a strong-typed id, a `Dimension("1 x 1 x 36")` -- through the first of t
 3. a `TypeConverter` that converts from a string
 4. a public constructor taking one string
 
-```csharp
-// once, before the specs run -- a module initializer or the suite's fixture
-CellValues.Register(text => Money.Parse(text.Replace("$", "")));
-```
+Register it once, before the specs run, in a module initializer or the suite's fixture:
+
+<<< ../../src/Bobcat.Tests/Verification/CellValuesConversionTests.cs#register-reader{cs}
 
 A registration is global to the process and **wins over everything else**, the conventions and the
 built-in readers alike, so it is how a suite reads a type it does not own the way its specifications
@@ -410,15 +373,9 @@ A row-method parameter that is an array, `List<T>`, `HashSet<T>` or one of the c
 interfaces (`IEnumerable<T>`, `IReadOnlyList<T>`, `IList<T>`, `ICollection<T>`,
 `IReadOnlyCollection<T>`, `ISet<T>`, `IReadOnlySet<T>`) reads from a comma-delimited cell:
 
-```csharp
-public void Place(string customer, int[] quantities, IReadOnlyList<OrderId> ids) { ... }
-```
+<<< ../../src/Bobcat.Tests/Runtime/TableRunnerListTests.cs#list-cell-method{cs}
 
-```
-| customer | quantities | ids                                     |
-| ann      | 1, 2, 3    | 0198c4f2-…-a1, 0198c4f2-…-b2            |
-| bob      | EMPTY      |                                         |
-```
+<<< ../../src/Bobcat.Tests/Runtime/TableRunnerListTests.cs#list-cell-table{cs}
 
 - Each item is trimmed and read **exactly as a cell of the item's type is** -- a registration,
   `IParsable<T>`, an enum name, `TODAY+1` -- so a list of strong-typed ids needs nothing extra.

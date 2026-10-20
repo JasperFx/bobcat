@@ -1,6 +1,109 @@
 # The `bobcat` Tool
 
-A global .NET tool with these commands:
+## Installing it
+
+```bash
+dotnet tool install -g Bobcat.Console     # first time
+dotnet tool update -g Bobcat.Console      # after that
+```
+
+`bobcat` is a global .NET tool, and `Bobcat.Console` carries the whole free toolset in one package:
+the run commands, the Event Model import, the resident runner, the [Bobcat UI](bobcat-ui.md) and
+the queries over it. Most commands start, do their job and exit; `ui` is the one that stays up until
+you stop it.
+
+**It is an alternative to `dotnet test` for a spec project.** `dotnet test` still runs the project
+and tells you pass or fail. `bobcat run` drives the same test host and shows you the
+**specifications** it produced: the Given/When/Then tree, every step with its verdict and timing,
+every table as a grid, and the reports a failure wrote. `bobcat preview` shows the specifications a
+project declares **without running anything**, because the steps are known at build time.
+
+Both below are real, over the Getting Started and Specifications with Code samples in
+`src/Bobcat.Xunit.Samples`, narrowed to one feature each. `bobcat run` prints the specifications a
+run produced, then the timing of where the run spent its time:
+
+```
+$ bobcat run src/Bobcat.Xunit.Samples --feature "Calculator, getting started"
+Listing Bobcat.Xunit.Samples…
+Running the selected specifications in Bobcat.Xunit.Samples…
+Feature: Calculator, getting started
+═════════════════════════════════════
+  using sentences OK
+  ─────────────────────────
+    ✓ Given Start with 3
+    ✓ When  Multiply by 2
+    ✓ Then  The value should be 6 (3ms)
+    ✓ And   Adding 2 to 3 should equal 5
+  Succeeded with Rights: 4, Wrongs: 0, Errors: 0
+  Duration: 10ms (steps 3ms)
+1 specification(s) — all green
+  Succeeded with Rights: 4, Wrongs: 0, Errors: 0
+  Timing — 10ms measured across 1 scenario(s)
+    • using sentences 10ms (100% of measured time) — steps 3ms, outside steps 7ms
+    step The value should be {number} cost 3ms across 1 occurrence(s)
+    step Start with {number} cost 0ms across 1 occurrence(s)
+    step Multiply by {number} cost 0ms across 1 occurrence(s)
+    lifecycle not measured -- fixture setup belongs to the test runner in the projected lane
+All green in 0.6s · host log: /var/folders/…/bobcat-tool/Bobcat.Xunit.Samples.log
+```
+
+`bobcat preview` prints every specification with the steps it declares, each step's template with
+its placeholders unfilled, and the helper it binds to, because nothing has run:
+
+```
+$ bobcat preview src/Bobcat.Xunit.Samples
+Feature: Withdrawals
+═════════════════════
+  a withdrawal is decided
+  ─────────────────────────────────
+      ○ Given an account with a balance of {balance}
+        ↳ AccountSteps.AnAccountWithABalanceOf
+      ○ When  {amount} is withdrawn
+        ↳ AccountSteps.IsWithdrawn
+      ○ Then  the withdrawal is {outcome}
+        ↳ AccountSteps.TheWithdrawalIs
+  a withdrawal larger than the balance is refused
+  ─────────────────────────────────────────────────────────
+      ○ Given an account with a balance of {balance}
+        ↳ AccountSteps.AnAccountWithABalanceOf
+      ○ When  {amount} is withdrawn
+        ↳ AccountSteps.IsWithdrawn
+      ○ Then  the withdrawal is {outcome}
+        ↳ AccountSteps.TheWithdrawalIs
+      ○ Then  the balance is {balance}
+        ↳ AccountSteps.TheBalanceIs
+  a withdrawal larger than the balance is refused narrated
+  ────────────────────────────────────────────────────────────
+    ○ Given an account with a balance of 100
+    ○ When  200 is withdrawn
+    ○ Then  the withdrawal is refused and the balance is still 100
+      ○ Then  accepted should be false
+        ↳ ShouldBeBooleanExtensions.ShouldBeFalse
+      ○ Then  account.Balance should be 100
+        ↳ ShouldBeTestExtensions.ShouldBe
+  …
+```
+
+## What do you want to do?
+
+| You want to | Run |
+|---|---|
+| Run the specs and read them as specifications, not as a test log | `bobcat run`, or a bare `bobcat` in the spec project |
+| See what a project specifies before running it | `bobcat preview` |
+| Run only what was red last time, or the same selection again | `bobcat run --failed`, `bobcat run --repeat` |
+| Pick specifications from a menu | `bobcat pick` |
+| Rerun on every change while you work | `bobcat watch` |
+| Run one slice, chapter, domain or pattern of the Event Model | `bobcat run --slice …`, `--chapter …`, `--domain …`, `--pattern …` |
+| Keep a JSON record of the run, with its schema, for CI or a coding agent | `bobcat run --results <dir>`, or `bobcat run --json` to stdout |
+| Turn results files into one HTML page to open from a downloaded artifact | `bobcat run --html <file>`, `bobcat results-html <dir>` |
+| Retry what is allowed to be retried, or split the suite across worker processes | `bobcat run --retries N`, `bobcat run --workers N` |
+| Watch runs live and see the Event Model coloured by them | `bobcat ui` |
+| Keep an application's Event Model live in the UI as you edit it | `bobcat watch-event-model <project>` |
+| Turn an eventmodelers.ai board into C# stubs and an `EventModelDefinition` | `bobcat import-event-model <board>` |
+| Ask about a run or the model from a script or an agent, as JSON | `bobcat failing-tests`, `failing-spec`, `await-run`, `slice-coverage`, … |
+| Let the UI's run buttons drive a suite | `bobcat resident <host>` |
+
+## The commands
 
 | | |
 |---|---|
@@ -16,16 +119,6 @@ A global .NET tool with these commands:
 | **[`watch-event-model`](bobcat-ui.md#getting-a-model-onto-it)** | keep an application's Event Model live in the Bobcat UI as you edit it, starting a UI if none is running |
 | **[`list-runs`](agent-queries.md)**, **`run-status`**, **`failing-tests`**, **`failing-spec`**, **`flaky-ledger`**, **`await-run`**, **`export-run`** | read the runs a running Bobcat UI holds, as JSON -- see [Querying Runs from the Command Line](agent-queries.md) |
 | **[`event-model`](agent-queries.md)**, **`slice-coverage`** | read the Event Model a running Bobcat UI holds, and what of it is untested, as JSON |
-
-`dotnet test`, or running the test executable, still runs a spec project; the run commands are a
-friendlier view of the same test host.
-
-```bash
-dotnet tool install -g Bobcat.Console
-```
-
-`Bobcat.Console` carries the whole free toolset. Most of its commands start, do their job and exit;
-`ui` is the one that stays up, serving the [Bobcat UI](bobcat-ui.md) until you stop it.
 
 ::: tip The UI came back
 The run board and the Event Model canvas lived in [Stoat](https://github.com/JasperFx/stoat) from
@@ -650,8 +743,9 @@ Each one's `fix` is the edit to make by hand, e.g. `Delete .Emits<ReminderSchedu
 declaration of slice ConfirmAppointment in BookingModel.cs.` The board can't tell a removal from
 something you added yourself, so a role or slice you declared by hand is reported too; leave it.
 
-<!-- JEREMY: why additive -- the board keeps moving after the first import, and the files are where the
-corrections live. -->
+A re-import is additive because the board keeps moving after the first import, and the generated
+files are where the corrections live: an import that rewrote them would throw away every edit that
+made the guesses right.
 
 Two details the generated code is careful about, both of which failed loudly the first time:
 
@@ -732,10 +826,12 @@ command (`cold`), or one host held open between commands (`warm`), as the consol
 | `--list` | print what the host specifies and exit, registering with nothing |
 
 ```
-$ bobcat resident ./artifacts/MySpecs --list
-Bobcat.Xunit.Samples (projected/xunit), 41 specification(s):
-  Calculator/asserting values
-  Calculator/bad values
+$ bobcat resident ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples --list
+Bobcat.Xunit.Samples (projected/xunit), 90 specification(s):
+  Acceptance specifications/a wrong is gathered before the behaviour is finished
+  Acceptance specifications/an acceptance spec that passes is ready to promote
+  Acceptance specifications/the behaviour throws because it does not exist yet
+  Actions/custom logging from a step
   …
 ```
 

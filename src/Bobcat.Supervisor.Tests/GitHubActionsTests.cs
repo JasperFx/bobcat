@@ -42,6 +42,52 @@ public class GitHubActionsTests
         [FakeWorkerFactory.Test("a"), FakeWorkerFactory.Test("b")],
         (_, _, _) => WorkerTestState.Passed);
 
+    /// <summary>
+    /// The "supervisor host of your own" sample in <c>docs/tutorials/continuous-integration.md</c>,
+    /// compiled and run so the page cannot drift from the API. Off GitHub Actions both writes are
+    /// no-ops, which is what lets this run anywhere.
+    /// </summary>
+    [Fact]
+    public async Task the_ci_tutorials_supervisor_host_sample_runs()
+    {
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("a"), FakeWorkerFactory.Test("b")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+        var workers = 1;
+        Func<WorkerTest, bool> shardFilter = _ => true;
+
+        // #region ci-supervisor-host
+        var supervisor = new Supervisor(factory)
+        {
+            MaxParallelWorkers = workers,
+            TestFilter = shardFilter,
+
+            // A run with no test left to run aborts (exit code 2) instead of passing:
+            // a renamed namespace or a stale filter must not read as a green job
+            FailWhenNoTests = true,
+
+            // A theory whose rows collapsed under one test id fails the run (exit code 1) even when
+            // every row passed: make its data serializable, or pass a row key instead
+            FailOnCollapsed = true
+        };
+
+        var results = await supervisor.Run();
+
+        // One row per project in $GITHUB_STEP_SUMMARY, with the failures, retries, stalls and
+        // worker faults under each project. Does nothing off GitHub Actions.
+        new GitHubSummary("Supervised tests").Add("MyApp.Tests (net10.0)", results).Write();
+
+        // ::error per failed or indeterminate test and for an aborted run, ::warning for a pass on
+        // retry, a stall or a partial run, so they reach the Annotations panel of a green run too
+        GitHubAnnotations.Write(results, "MyApp.Tests (net10.0)");
+        // #endregion ci-supervisor-host
+
+        results.ExitCode.ShouldBe(0);
+        results.Tests.Count.ShouldBe(2);
+    }
+
     // ---------------------------------------------------------------- the summary
 
     [Fact]

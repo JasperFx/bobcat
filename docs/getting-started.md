@@ -4,7 +4,6 @@ Bobcat is a toolset for authoring, supervising, and executing integration tests 
 specification is an ordinary test -- xUnit v3, TUnit, NUnit or MSTest -- that also renders as a
 Given/When/Then specification and reports itself, step by step, to whatever is watching the run.
 
-<!-- JEREMY -->
 This page gets one specification running end to end. It takes about five minutes.
 
 ::: tip Wolverine, Marten, Polecat or Fisher?
@@ -29,7 +28,7 @@ A spec project is an xUnit v3 test project on Microsoft.Testing.Platform with th
   <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
 
   <!-- the same version for all three Bobcat packages -->
-  <BobcatVersion>1.0.0</BobcatVersion>
+  <BobcatVersion>1.0.0-rc.2</BobcatVersion>
 </PropertyGroup>
 
 <ItemGroup>
@@ -121,52 +120,13 @@ The specification below needs nothing hosted, so it skips this step.
 A step is a method you decorate with `[Given]`, `[When]` or `[Then]`. Put the steps on a class of
 their own -- a *grammar* -- so every specification that calls them reads the same way:
 
-```csharp
-using Bobcat;
+<<< ../src/Bobcat.Xunit.Samples/Grammars/CalculatorSteps.cs#calculator-steps{cs}
 
-public class CalculatorGrammar
-{
-    private readonly Calculator _calculator = new();
+Then write an ordinary test that calls them, in a class marked `[BobcatFeature]`. (The sample
+project references Bobcat by project rather than by package, so it states `[BobcatScenario]` as
+well; with the packages, `[BobcatFeature]` alone is enough on xUnit.)
 
-    [Given("Start with {value}")]
-    internal void StartWith(double value) => _calculator.Value = value;
-
-    [When("Multiply by {value}")]
-    internal void MultiplyBy(double value) => _calculator.MultiplyBy(value);
-
-    [Then("The value should be {value}")]
-    internal void TheValueShouldBe(double value) => SpecAssert.Check("value", _calculator.Value, value);
-
-    [Then("Adding {x} to {y} should equal {returnValue}")]
-    internal void AddingNumbersTogether(double x, double y, double returnValue)
-    {
-        _calculator.Value = x;
-        _calculator.Add(y);
-        SpecAssert.Check("returnValue", _calculator.Value, returnValue);
-    }
-}
-```
-
-Then write an ordinary test that calls them, in a class marked `[BobcatFeature]`:
-
-```csharp
-using Bobcat.Xunit;
-
-[BobcatFeature("Calculator")]
-public class CalculatorSpecs
-{
-    private readonly CalculatorGrammar _calculator = new();
-
-    [Fact]
-    public void using_sentences()
-    {
-        _calculator.StartWith(3);
-        _calculator.MultiplyBy(2);
-        _calculator.TheValueShouldBe(6);
-        _calculator.AddingNumbersTogether(2, 3, 5);
-    }
-}
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/GettingStartedSpecs.cs#getting-started-spec{cs}
 
 Every call to a decorated helper is a step: the generator intercepts it at build time, and each
 `{placeholder}` is filled from the argument of that name. `SpecAssert.Check` records an
@@ -175,8 +135,9 @@ specification shows every disagreement, and the adapter fails the test once at t
 are `internal` rather than `private` because the interceptor is an extension method, which cannot
 reach a private member ([BOBCAT039](diagnostics.md#bobcat039)).
 
-This is the Calculator sample in `src/Bobcat.Xunit.Samples`, Storyteller's own first example
-recreated as a projected test.
+This is Storyteller's own first example, recreated as a projected test in `src/Bobcat.Xunit.Samples`,
+with the grammar cut down to the four steps this specification uses. `CalculatorGrammar.cs` next to
+it is the full one.
 
 ## 4. Run it
 
@@ -187,15 +148,15 @@ dotnet test
 In a terminal, with no run console listening, the run prints the specification it produced:
 
 ```
-Feature: Calculator
-════════════════════
-
+Feature: Calculator, getting started
+═════════════════════════════════════
   using sentences OK
   ─────────────────────────
     ✓ Given Start with 3 (1ms)
     ✓ When  Multiply by 2
     ✓ Then  The value should be 6 (3ms)
     ✓ And   Adding 2 to 3 should equal 5
+  Succeeded with Rights: 4, Wrongs: 0, Errors: 0
 ```
 
 Your IDE's test explorer shows each specification as the ordinary test it is, so you can run and

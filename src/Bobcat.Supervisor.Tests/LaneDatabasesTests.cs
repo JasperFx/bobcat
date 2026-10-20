@@ -50,8 +50,10 @@ public class LaneDatabasesTests
     [Fact]
     public void it_plugs_into_worker_connection_strings()
     {
+        // #region lane-databases
         var lanes = LaneDatabases.Postgres(new RecordingProvider(), PostgresAdmin);
         var connectionStrings = new WorkerConnectionStrings().Add("postgres", lanes.ForWorker);
+        // #endregion lane-databases
 
         connectionStrings.EnvironmentFor(new WorkerLaunchContext(3, WorkerPurpose.Lane))["ConnectionStrings__postgres"]
             .ShouldBe(lanes.ConnectionStringFor(3));

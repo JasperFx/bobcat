@@ -28,13 +28,16 @@ things guard against it, both at build time:
 
 - **`Bobcat.Generators` must be referenced.** Without it a step helper is an ordinary method call and a
   `SpecAssert` inside one reports to nothing.
-- **BOBCAT028** warns about a `[BobcatFeature]` class that opens no recording. Treat it as an error in
-  CI: `<WarningsAsErrors>$(WarningsAsErrors);BOBCAT028</WarningsAsErrors>`.
+- **BOBCAT028** warns about a `[BobcatFeature]` class that binds an Event Model slice while nothing
+  opens a recording, so its specifications would reach the model as none at all. Treat it as an error
+  in CI: `<WarningsAsErrors>$(WarningsAsErrors);BOBCAT028</WarningsAsErrors>`
+  ([BOBCAT028](../diagnostics.md#bobcat028)).
 
 ## 3. Filter deliberately
 
 Filter with your framework's own options -- `--filter-class`, `--filter-method` and
-`--filter-trait` on xUnit v3's Microsoft.Testing.Platform runner, or `dotnet test --filter`. A
+`--filter-trait` on xUnit v3's Microsoft.Testing.Platform runner, given straight to the executable or
+to `dotnet test` in its MTP mode (`dotnet test --project MySpecs --filter-class "*Wallet*"`). A
 Bobcat identity, `{Feature}/{Scenario}`, is translated to the framework's filter for you by the
 [resident runner](../resident-runner.md), and `BOBCAT_LIST_SPECS` writes what the suite specifies;
 see [Spec Identities](../spec-identities.md#listing-and-running-by-identity).
@@ -56,8 +59,8 @@ A failed specification fails its test with every gathered disagreement in the me
 says which step was wrong and what the system actually did:
 
 ```
-failed CalculatorSpecs.asserting_values
-  SpecAssertionException : 1 specification step failed:
+failed Bobcat.Xunit.Samples.Specs.CalculatorSpecs.asserting_values (0ms)
+  Xunit.MicrosoftTestingPlatform.XunitException: Bobcat.Engine.SpecAssertionException : 1 specification step failed:
     And For X=4 and Y=4, the Sum should be 6 and the Product should be 8 => Sum: expected '6', got '8'
 ```
 
@@ -112,12 +115,13 @@ which is how a build becomes something you can watch rather than something you r
 receiving console is the [Bobcat UI](../bobcat-ui.md), `bobcat ui`; a run publishes to it when one
 answers and skips publishing when none does, so a CI job with no UI running pays nothing for it.
 
-<!-- JEREMY: a CI job could also start `bobcat ui --no-browser` itself and use `bobcat export-run`
-or `bobcat failing-tests` at the end. I left that out rather than invent a recipe nobody has run. -->
+A CI job can also be its own console: start `bobcat ui --no-browser`, run the suite, then ask it
+`bobcat failing-tests` or `bobcat export-run` before the job ends. That loop is written up, for a
+coding agent, in [Agent Friendly Integration Tests](agent-friendly-tests.md#ask-a-running-console-instead).
 
-Set `BOBCAT_RUN_TAG` in the pipeline so the evidence a run produces can be attributed back to the
-commit or job that asked for it. Agents override this variable, so set it explicitly rather than
-relying on a default.
+Set `BOBCAT_RUN_TAG` in the pipeline, to the commit or the job id, so the evidence a run produces can
+be attributed back to what asked for it. Bobcat stamps the tag on the run and never interprets it; a
+coordination tool that launches a run sets its own.
 
 The full vocabulary -- the events, the transport, the `BOBCAT_MONITOR*` variables and how to silence
 the whole thing -- is in [What a Run Publishes](../monitor-design.md).
@@ -145,31 +149,7 @@ tutorial: [Reliable Integration Testing](reliable-integration-testing.md).
 
 `Bobcat.Supervisor` ships the reporting every adopter used to write by hand (bobcat#700):
 
-```csharp
-var supervisor = new Supervisor(factory)
-{
-    MaxParallelWorkers = workers,
-    TestFilter = shardFilter,
-
-    // A run with no test left to run aborts (exit code 2) instead of passing:
-    // a renamed namespace or a stale filter must not read as a green job
-    FailWhenNoTests = true,
-
-    // A theory whose rows collapsed under one test id fails the run (exit code 1) even when
-    // every row passed: make its data serializable, or pass a row key instead
-    FailOnCollapsed = true
-};
-
-var results = await supervisor.Run();
-
-// One row per project in $GITHUB_STEP_SUMMARY, with the failures, retries, stalls and
-// worker faults under each project. Does nothing off GitHub Actions.
-new GitHubSummary("Supervised tests").Add("MyApp.Tests (net10.0)", results).Write();
-
-// ::error per failed or indeterminate test and for an aborted run, ::warning for a pass on
-// retry, a stall or a partial run, so they reach the Annotations panel of a green run too
-GitHubAnnotations.Write(results, "MyApp.Tests (net10.0)");
-```
+<<< ../../src/Bobcat.Supervisor.Tests/GitHubActionsTests.cs#ci-supervisor-host{cs}
 
 - **Collect every project, then write once.** A Markdown table is only a table while its rows are
   contiguous, so `GitHubSummary.Add` each project's results and call `Write()` at the end; the static

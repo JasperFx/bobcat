@@ -127,6 +127,7 @@ public class NarratedSpecs
     /// The run ends at the next ACTION, which never runs — it would be operating on state the
     /// assertions have already shown to be wrong, and anything it reported after that is noise.
     /// </summary>
+    // #region run-before-next-action
     [Fact]
     public void the_run_throws_before_the_next_action()
     {
@@ -141,6 +142,7 @@ public class NarratedSpecs
         // Then this is never reached
         calculator.Value.ShouldBe(6);
     }
+    // #endregion run-before-next-action
 
     /// <summary>
     /// Issue #384: a cell says what it actually compared, so a non-equality assertion cannot state
@@ -151,6 +153,7 @@ public class NarratedSpecs
     /// for every one of them, because N is a bound rather than an expectation. The sentence was
     /// always right; only the cell lied, which is why it survived so long.
     /// </remarks>
+    // #region comparison-cells
     [Fact]
     public void a_cell_says_which_comparison_it_made()
     {
@@ -162,6 +165,7 @@ public class NarratedSpecs
         calculator.Value.ShouldNotBe(3);
         calculator.Value.ShouldBe(3.5, 0.01);
     }
+    // #endregion comparison-cells
 
     /// <summary>
     /// Issue #384 acceptance 4: an assertion outside the closed set renders as a plain step line and
@@ -173,6 +177,7 @@ public class NarratedSpecs
     /// verdict and its duration, and the closed enum is what makes that the only option available
     /// rather than one choice among several.
     /// </remarks>
+    // #region no-cell
     [Fact]
     public void an_assertion_bobcat_cannot_describe_still_renders_as_a_step()
     {
@@ -181,4 +186,5 @@ public class NarratedSpecs
         // Then a comparison outside the closed set reports no cell
         (calculator.Value > 10).ShouldBeTrue();
     }
+    // #endregion no-cell
 }
