@@ -145,23 +145,13 @@ A result you can't trust is worse than no result, because people learn to ignore
 test can't be fixed or rewritten, delete it.** A reliable suite with less coverage is more useful
 than a broad one nobody believes.
 
-**Retry is a last resort**, the 2015 post's rule, and Bobcat is built that way. The
-[Bobcat Supervisor](https://jasperfx.net/news/introducing-bobcat-supervisor) is the part that runs a
-large suite across worker processes and applies that rule at the only altitude that can act on it:
-it retries *selectively*, only the tests that opted in and only within a budget; it can restart a
-wedged or crashed worker process, or recycle a Docker container, before a retry; and it collects
-what it saw about flaky tests across runs, so flakiness becomes a measured rate instead of an
-impression. It runs Wolverine's own CI, and it needs no change to the tests, because it drives the
-compiled test host through Microsoft.Testing.Platform and never loads the test assembly.
+**Retry is a last resort**, the 2015 post's rule, and Bobcat is built that way:
 
 - **Retries are opt-in.** A test with no `Retry` trait is never retried, even when a budget is
-  configured. A recovery hint narrows it further, to one failure class and what fixes it: retry
-  in a fresh process for this exception, recycle these containers for that one, never retry this
-  deterministic bug. When a test does pass on a retry, that is reported as `PassOnRetry`, never
-  folded into the clean passes ([Reliable Integration Testing](reliable-integration-testing.md#step-4-report-flakiness-instead-of-hiding-it)).
+  configured. When a test does pass on a retry, that is reported as `PassOnRetry`, never folded into
+  the clean passes ([Reliable Integration Testing](reliable-integration-testing.md#step-4-report-flakiness-instead-of-hiding-it)).
 - **Flakiness has a memory.** The ledger keeps every attempt across runs, so "this test is
-  flaky" is a claim with evidence behind it, and the hints it proposes are text a person accepts
-  by writing into the code. Nothing reads them back into a policy on its own.
+  flaky" is a claim with evidence behind it.
 - **A hang is reported, not just suffered.** Stall detection names the test that stopped making
   progress, and can kill and retry it if you opt in
   ([When a parallel run hangs](../parallel-ready-suites.md#when-a-parallel-run-hangs-bloats-or-is-cut-short)).
@@ -178,10 +168,19 @@ then papering over it with a `Thread.Sleep`. Wait for the work instead of for th
 - `SpecAssert.EventuallyAsync` polls anything else, and records one cell saying how long it took
   ([Waiting for an answer that arrives later](../marker-steps.md#waiting-for-an-answer-that-arrives-later)).
 
-A failure nobody can diagnose gets retried until it passes, and becomes the flaky test you were
-trying to avoid. That is the next item.
+Nobody trusts flaky tests to the point where they can become an albatross around a team's neck as the test code often
+has to evolve with the rest of the system even though it's not providing any value. And also, our new AI centric way
+of working is also leading to more ambitious and longer running Continuous Integration runs, and there's no point in 
+making that problem worse by executing tests you don't trust anyway!
 
 ### 5. Failures that explain why and how
+
+::: tip
+Sorry to break this to you, but your automated tests will fail from time to time -- and hopefully just because the actual code
+is broken! Especially with data intensive scenarios or any kind of asynchronous processing or *shudder* user interface testing, it's
+going to be essential to add more contextual information to the output of a test failure to have any reasonable chance of
+being able to fix the failure.
+:::
 
 `Expected 100, got 200` tells you that a test failed. It doesn't tell you *why* the system answered
 200, or *how* it got there, so the next step is a rerun under a debugger, and after that a guess.
@@ -197,6 +196,17 @@ What Bobcat writes out for a failed specification:
   and the specification keeps running, so a failure says "the balance is wrong *and* no email was
   sent", which is a different diagnosis than either on its own
   ([gather every disagreement before anything throws](agent-friendly-tests.md#step-1-gather-every-disagreement-before-anything-throws)).
+- **A collection failure says which rows, and how.** A set verification compares the rows the system
+  produced against the rows the specification describes, matched by the columns that identify them,
+  and writes the whole comparison out as one table. A row that matched but disagrees on a cell is
+  `FAIL` with the expected and actual value in that cell; a row the specification describes and the
+  system never produced is `MISSING`, shown with the values it expected; a row the system produced
+  that the specification doesn't describe is `EXTRA`; and when order was part of the claim, a row
+  that arrived in the wrong place is `ORDER`. Shouldly's `ShouldBe` on a list says "the collections
+  differ"; this says "the Sweatpants line is missing and a Shirts line turned up instead"
+  ([Set verification](data-intensive-specifications.md#set-verification)). The same comparison runs
+  inside an expected object, so a collection member reports its items the same way
+  ([A collection member is a set](../expected-objects.md#a-collection-member-is-a-set)).
 - **A validation rule that refused the request is named.** `ThenRefusedWith("Insufficient funds")`
   checks the endpoint's ProblemDetails or the exception the handler threw, and
   `ThenRefusedWithProblem(Specify<ProblemDetails>().With(x => x.Detail, …))` compares the problem
