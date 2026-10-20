@@ -83,6 +83,7 @@ public sealed class ClusterSteps : IAsyncDisposable
     /// <c>"1=6, 2=6"</c>. Narrates every change it sees while it waits as a step log, and on timeout
     /// records one cell per node plus the placement report, instead of a string in a TimeoutException.
     /// </summary>
+    // #region agents-settle-as
     [Then("the agents settle as {placement}")]
     public async Task AgentsSettleAs(string placement)
     {
@@ -108,6 +109,7 @@ public sealed class ClusterSteps : IAsyncDisposable
             SpecAssert.Check($"node {number}", final[number], count);
         }
     }
+    // #endregion agents-settle-as
 
     /// <summary>
     /// Wolverine's <c>expectExactlyOneCopyOfEachAsync</c> + <c>expectOneCopyWithARowNamingItsNodeAsync</c>:
@@ -140,10 +142,12 @@ public sealed class ClusterSteps : IAsyncDisposable
 
         AgentPlacementReport.Capture(Network);
 
+        // #region every-agent-checks
         var wrong = placement().Where(x => !healthy(x)).ToArray();
         SpecAssert.Check("duplicated agents", wrong.Count(x => x.Runners.Length > 1), 0);
         SpecAssert.Check("agents running nowhere", wrong.Count(x => x.Runners.Length == 0), 0);
         SpecAssert.Check("rows naming the wrong node", wrong.Count(x => x.Runners.Length == 1), 0);
+        // #endregion every-agent-checks
     }
 
     /// <summary>
@@ -151,6 +155,7 @@ public sealed class ClusterSteps : IAsyncDisposable
     /// changes -- a handful of lines per wait, not one per poll, which is what keeps the step under
     /// <see cref="Bobcat.Engine.StepLog.MaxLines"/>.
     /// </summary>
+    // #region poll
     private async Task<bool> pollAsync(Func<bool> done, Func<string> describe)
     {
         var started = Telemetry.Elapsed;
@@ -175,6 +180,7 @@ public sealed class ClusterSteps : IAsyncDisposable
         SpecLog.Write($"gave up after {Timeout.TotalSeconds:0.#}s");
         return false;
     }
+    // #endregion poll
 
     public async ValueTask DisposeAsync()
     {

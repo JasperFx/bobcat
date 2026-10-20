@@ -1,10 +1,5 @@
 # Agent Friendly Integration Tests
 
-<!-- JEREMY: first full draft, replacing the outline. The Wolverine code is quoted from the checkout
-at 3eb4b6db9 (Reports.cs, WolverineScenario.cs, LeadershipElectionCompliance.cs, TestingExtensions.cs)
-and the leadership example from spikes/leadership-telemetry. The "Message activity" rendering in Step 2
-is illustrative: the columns and the red-cell rule are from Reports.cs, the rows are made up. -->
-
 **The problem:** a coding agent iterating on a red integration test is working from whatever the
 failure said. When that is `Expected True but was False`, or a `TimeoutException` with two lists of
 URIs in it, the agent's next move is to add logging and run again. Every one of those round trips
@@ -82,12 +77,7 @@ has to rerun to learn whether the others hold.
 ([Checks that gather](../marker-steps.md#checks-that-gather-instead-of-throwing)). The same three
 claims, as the spike writes them:
 
-```csharp
-var wrong = placement().Where(x => !healthy(x)).ToArray();
-SpecAssert.Check("duplicated agents", wrong.Count(x => x.Runners.Length > 1), 0);
-SpecAssert.Check("agents running nowhere", wrong.Count(x => x.Runners.Length == 0), 0);
-SpecAssert.Check("rows naming the wrong node", wrong.Count(x => x.Runners.Length == 1), 0);
-```
+<<< ../../spikes/leadership-telemetry/Compliance/ClusterSteps.cs#every-agent-checks{cs}
 
 Three cells on the step, each named, each with its expected and actual, all three reported however
 many fail. The runner is still told at the end: the gathered wrongs become the test's verdict once,
@@ -122,7 +112,7 @@ one step further by making the activity a **scenario report** that every act rec
 author has to remember to ask for it:
 
 ```csharp
-// src/Bobcat/Wolverine.Bobcat/Reports.cs, abbreviated
+// src/Bobcat/Wolverine.Bobcat/Reports.cs in the Wolverine repository, without its comments
 public sealed class MessageActivityReport : TableReport
 {
     public override string Title => "Message activity";
@@ -138,9 +128,14 @@ public sealed class MessageActivityReport : TableReport
             {
                 new("at (ms)", ResultStatus.ok, record.SessionTime.ToString()),
                 failed
-                    ? new CellResult("event", ResultStatus.failed) { Actual = record.MessageEventType.ToString(), Note = record.Exception?.Message }
+                    ? new CellResult("event", ResultStatus.failed)
+                    {
+                        Expected = "",
+                        Actual = record.MessageEventType.ToString(),
+                        Note = record.Exception?.Message
+                    }
                     : new CellResult("event", ResultStatus.ok, record.MessageEventType.ToString()),
-                new("message", ResultStatus.ok, record.Message?.GetType().Name ?? ""),
+                new("message", ResultStatus.ok, record.Message?.GetType().Name ?? record.Envelope?.MessageType ?? ""),
                 new("destination", ResultStatus.ok, record.Envelope?.Destination?.ToString() ?? ""),
                 new("attempt", ResultStatus.ok, record.AttemptNumber.ToString()),
                 new("service", ResultStatus.ok, record.ServiceName ?? "")
@@ -161,27 +156,35 @@ if (SpecReport.IsRecording)
 }
 ```
 
-So a specification written as nothing more than
+So a specification written as nothing more than this, from the vocabulary's own tests:
 
 ```csharp
-[BobcatSpec(typeof(ConfirmAppointment))]
-public async Task confirming_sends_the_email()
+// src/Bobcat/Wolverine.Bobcat.Tests/cascaded_messages.cs in the Wolverine repository
+private async Task<Guid> confirmedAppointment()
 {
-    await GivenEvents<Appointment>(appointmentId, new AppointmentRequested(appointmentId, clientId));
-    await WhenReceived(new ConfirmAppointment(appointmentId));
-    ThenEvents(new AppointmentConfirmed(appointmentId));
-    ThenMessageSent(new SendConfirmationEmail(clientId));
+    var id = Guid.NewGuid();
+    await GivenEvents<Appointment>(id, new AppointmentScheduled(id, new Patient("Ann", new Address("Austin")), []));
+    await WhenReceived(new ConfirmAppointment(id));
+    return id;
+}
+
+[Fact]
+public async Task by_value()
+{
+    var id = await confirmedAppointment();
+
+    ThenMessageSent(new SendConfirmationEmail(id, "Ann"));
 }
 ```
 
-fails like this when the email handler throws on its first attempt and the message is moved to the
-error queue:
+carries the whole session when it fails. That test passes today, so what follows is the **shape** of
+the failure, with the rows invented for a Notifications service whose email handler throws on its
+first attempt and dead-letters the message. The columns and the red-cell rule are the report's:
 
 ```text
-  confirming sends the email FAILED
-    ✓ Given events: AppointmentRequested
+  by value FAILED
+    ✓ Given events: AppointmentScheduled
     ✓ When ConfirmAppointment is received
-    ✓ Then events: AppointmentConfirmed
     ✗ Then message sent: SendConfirmationEmail
         ✗ message: expected 'SendConfirmationEmail', got no matching message
 
@@ -248,7 +251,9 @@ There is no history, the reader lines the two lists up by hand, and the event ob
 see the history writes it to test output for every test, passing or not, untimed, mixed in with the
 logs. An agent handed that failure is at step 3 of the loop above, guessing.
 
-The spike reworks the same suite so that one failed specification says four things:
+The spike reworks the same suite so that one failed specification says four things. This is the
+run recorded in the spike's
+[`findings.md`](https://github.com/JasperFx/bobcat/blob/main/spikes/leadership-telemetry/findings.md):
 
 ```text
   add second node see balanced nodes FAILED
@@ -302,50 +307,12 @@ Each piece of that output is a different Bobcat vehicle, chosen for the shape of
 The wait itself is the step. It narrates what it sees as it polls, and when it gives up it captures
 the placement grid and records one cell per node instead of throwing a string:
 
-```csharp
-[Then("the agents settle as {placement}")]
-public async Task AgentsSettleAs(string placement)
-{
-    Telemetry.AttachToScenario();
-    var expected = parse(placement);                       // "1=6, 2=6" → { 1: 6, 2: 6 }
+<<< ../../spikes/leadership-telemetry/Compliance/ClusterSteps.cs#agents-settle-as{cs}
 
-    if (await pollAsync(() => expected.All(x => counts()[x.Key] == x.Value),
-            () => string.Join(", ", counts().Select(x => $"node {x.Key} runs {x.Value}"))))
-    {
-        return;
-    }
+The poll writes a log line when the picture it sees changes, not on every pass, which is what keeps a
+three-second wait at a handful of lines:
 
-    AgentPlacementReport.Capture(Network);
-
-    var final = counts();
-    foreach (var (number, count) in expected)
-    {
-        SpecAssert.Check($"node {number}", final[number], count);
-    }
-}
-
-private async Task<bool> pollAsync(Func<bool> done, Func<string> describe)
-{
-    string? last = null;
-    using var timeout = new CancellationTokenSource(Timeout);
-    while (true)
-    {
-        var now = describe();
-        if (now != last)                                    // a line when the picture changes, not per poll
-        {
-            SpecLog.Write($"{elapsed():0.00}s: {now}");
-            last = now;
-        }
-
-        if (done()) return true;
-        if (timeout.IsCancellationRequested) break;
-        await Task.Delay(PollingInterval);
-    }
-
-    SpecLog.Write($"gave up after {Timeout.TotalSeconds:0.#}s");
-    return false;
-}
-```
+<<< ../../spikes/leadership-telemetry/Compliance/ClusterSteps.cs#poll{cs}
 
 **The one rule that catches every producer of this kind of telemetry:** `SpecLog`, `SpecReport` and
 `SpecAttachment` find the scenario through the async context they are called from. An observer the
