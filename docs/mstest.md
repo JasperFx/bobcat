@@ -15,27 +15,27 @@ Nothing is rewritten and the tests keep their own runner. For writing new specif
 
 Put `[BobcatScenario]` on the test class, and name the feature it belongs to:
 
-```csharp
-using Bobcat;
-using Bobcat.MSTest;
+<<< ../src/Bobcat.MSTest.Tests/Specs/BookingSpecs.cs#mstest-wiring{cs}
 
-[TestClass, BobcatFeature("Booking"), BobcatScenario]
-public class BookingSpecs
-{
-    [TestMethod]
-    public async Task a_proposed_appointment_is_confirmed()
-    {
-        // Given a proposed appointment
-        var id = await Propose();
+Run it and the console prints the specification, with the marker comments as its declared steps:
 
-        // When it is confirmed
-        await Confirm(id);
-
-        // Then the appointment is confirmed
-        (await Load(id)).Status.ShouldBe(Status.Confirmed);
-    }
-}
 ```
+Feature: Booking
+═════════════════
+
+  a proposed appointment is confirmed OK
+  ─────────────────────────────────────────────
+    · Given a proposed appointment — declared
+    · When  it is confirmed — declared
+    · Then  the appointment is confirmed — declared
+
+  Succeeded with Rights: 0, Wrongs: 0, Errors: 0
+  Duration: 7ms (steps 0ms)
+```
+
+The `Then` is declared rather than judged because this project has not opted its Shouldly calls into
+[projected assertions](marker-steps.md#projecting-the-assertions-you-already-wrote-opt-in); with
+that, or a `SpecAssert.Check` inside a step helper, a judged cell appears under it.
 
 It works on a single method too, when only part of a class should project. `[DataRow]` rows each
 open their own scenario. `[TestClass]` and `[TestMethod]` stay exactly as they are.
