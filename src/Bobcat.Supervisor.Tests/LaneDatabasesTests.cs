@@ -193,4 +193,28 @@ public class LaneDatabasesTests
             return provider.Scalar(CommandText);
         }
     }
+
+    /// <summary>The sequence a host program runs, as docs/parallel-ready-suites.md shows it.</summary>
+    [Fact]
+    public async Task the_sequence_a_host_program_runs()
+    {
+        var provider = new RecordingProvider(); // NpgsqlFactory.Instance in a real host
+        var workers = 2;
+
+        // #region lane-databases-host
+        var lanes = LaneDatabases.Postgres(provider,
+            "Host=localhost;Port=5433;Database=postgres;Username=postgres;Password=postgres", prefix: "specs_w");
+        // or LaneDatabases.SqlServer(provider, "Server=localhost;Database=master;User Id=sa", prefix: "specs_w")
+
+        await lanes.Recreate(workers);        // drop and create specs_w0 .. specs_w{workers-1}
+
+        var connectionStrings = new WorkerConnectionStrings().Add("postgres", lanes.ForWorker);
+        // #endregion lane-databases-host
+
+        provider.Statements.ShouldBe([
+            "DROP DATABASE IF EXISTS specs_w0 WITH (FORCE)", "CREATE DATABASE specs_w0",
+            "DROP DATABASE IF EXISTS specs_w1 WITH (FORCE)", "CREATE DATABASE specs_w1"]);
+        connectionStrings.EnvironmentFor(new WorkerLaunchContext(1, WorkerPurpose.Lane))["ConnectionStrings__postgres"]
+            .ShouldContain("specs_w1");
+    }
 }

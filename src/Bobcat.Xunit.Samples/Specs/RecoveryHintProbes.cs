@@ -3,8 +3,10 @@ using Bobcat.Resilience;
 // Issue #469. The run-wide default for the probe failure: it clears in a fresh process. The
 // classes below override it, one at class scope and one at method scope, so a supervisor driving
 // this host sees all three scopes arrive through the spec manifest.
+// #region hint-assembly
 [assembly: ClearsInFreshProcess(typeof(Bobcat.Xunit.Samples.Specs.HintProbeException),
     Because = "the assembly-wide default for the recovery hint probes")]
+// #endregion hint-assembly
 
 namespace Bobcat.Xunit.Samples.Specs;
 
@@ -61,6 +63,7 @@ public class AssemblyHintProbes
 }
 
 /// <summary>A class that overrides the assembly default, and a method that overrides the class.</summary>
+// #region hint-class-and-method
 [BobcatFeature("Recovery hints, by class and method"), BobcatScenario]
 [ClearsOnRetry(typeof(HintProbeException), Because = "the class-wide override for the recovery hint probes")]
 public class ClassHintProbes
@@ -74,3 +77,4 @@ public class ClassHintProbes
     public void never_recovers_by_the_method_override()
         => HintProbe.AlwaysFails(nameof(never_recovers_by_the_method_override));
 }
+// #endregion hint-class-and-method

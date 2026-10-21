@@ -47,16 +47,9 @@ command line doesn't reach: a connection string per lane (Step 2), preflight che
 resources, failure policies, observers, the heartbeat and memory sampling. It drives any MTP test
 host, Bobcat or not:
 
-```csharp
-var supervisor = new Supervisor(new MtpWorkerFactory("path/to/MySpecs"))
-{
-    MaxParallelWorkers = 4,
-    RetryBudget = new RetryBudget { MaxAttemptsPerTest = 3 }
-};
+<<< ../src/Bobcat.Supervisor.Tests/SupervisorEndToEndTests.cs#supervisor-host{cs}
 
-var results = await supervisor.Run();
-return results.ExitCode;
-```
+`hostPath` is the suite's test host executable, and `exitCode` is what the program's `Main` returns.
 
 ### A TRX file for CI that reads one
 
@@ -64,16 +57,7 @@ A worker in MTP server mode doesn't write its own TRX, so `--report-trx` on the 
 nothing under the supervisor. If your CI reads TRX (`dorny/test-reporter`, a scoreboard), write one
 from the results:
 
-```csharp
-var startedAt = DateTimeOffset.Now;
-var results = await supervisor.Run();
-
-RunReport.WriteTrx(results, "TestResults/supervised.trx", new TrxOptions
-{
-    StartedAt = startedAt,
-    Storage = "path/to/MySpecs.dll"
-});
-```
+<<< ../src/Bobcat.Supervisor.Tests/TrxReportTests.cs#write-trx{cs}
 
 `RunReport.ToTrx(results)` returns the same XML as a string. The file has one `UnitTestResult` per
 test, so the reporter's counts match the run's. A test that took more than one attempt lists each
@@ -152,29 +136,11 @@ only on CI, so check it before the first push. Either fix works:
   </Project>
   ```
 
-**The build project needs Bobcat's JasperFx, not the product's.** `Bobcat.Supervisor` depends on
-`Bobcat`, which requires `JasperFx` and `JasperFx.Events` at the minimum in
-[the compatibility table](compatibility.md#bobcat-1-0). A build project that pins `JasperFx` lower
-(often through the repository's central `Directory.Packages.props`) fails restore with **NU1605**,
-a detected package downgrade, even though the supervisor only uses the retry and isolation types.
-Marten hit this (JasperFx/marten#5690). With `CentralPackageTransitivePinningEnabled`,
-`JasperFx.Events` fails too, with **NU1109**, even though the build never references it directly
-(CritterWatch hit that, JasperFx/CritterWatch#1430). The build ships nothing, so raise both pins in
-the build project only, with `VersionOverride`, and leave the product's own JasperFx dependency
-alone:
-
-```xml
-<!-- build/build.csproj -->
-<PackageReference Include="Bobcat.Supervisor" />
-<PackageReference Include="JasperFx" VersionOverride="2.90.2" />
-<!-- Here only to carry the override. Without it, transitive pinning fails with NU1109. -->
-<PackageReference Include="JasperFx.Events" VersionOverride="2.90.2" />
-```
-
-Override both packages even if restore only names one: a too-low direct `JasperFx` pin can restore
-with no warning at all and fail at run time instead. Don't silence NU1605 or NU1109 with `NoWarn`.
-That runs Bobcat on a JasperFx older than it was built against.
-[Compatibility](compatibility.md#build-tool-jasperfx) has the details.
+**The build project no longer needs a JasperFx pin.** On 1.0.0-rc.1 and earlier, `Bobcat.Supervisor`
+pulled in `Bobcat`'s JasperFx minimum, and a build project pinning `JasperFx` lower failed restore
+with NU1605 or NU1109. Since rc.2 neither package references JasperFx (bobcat#744, #745), so a build
+project referencing the supervisor needs no `VersionOverride`. If you are still on an earlier
+release, [Compatibility](compatibility.md#build-tool-jasperfx) has the recipe.
 
 ### Durations from the last run: the ledger as a CI artifact
 
@@ -183,29 +149,9 @@ those durations from one run to the next, and the usual way to carry it is **as 
 each run downloads the previous run's ledger, balances on it, folds its own results in, and uploads
 it again. Nothing is committed, so no commit or merge conflict comes out of a test run.
 
-```csharp
-using Bobcat.Ledger;
-using Bobcat.Supervisor;
+<<< ../src/Bobcat.Supervisor.Tests/LedgerFeedTests.cs#ledger-artifact{cs}
 
-const string ledgerPath = "artifacts/ledger/ledger.json";
-
-// A missing file is an empty ledger: the first run balances by count.
-var ledger = TestLedger.Load(ledgerPath);
-
-var supervisor = new Supervisor(new MtpWorkerFactory("path/to/MySpecs"))
-{
-    MaxParallelWorkers = 4,
-    KnownTestDurations = ledger.KnownDurations()
-};
-
-var results = await supervisor.Run();
-
-// The run id and stamp are yours to supply, so the fold never reads a clock.
-var runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID") ?? Guid.NewGuid().ToString("N");
-ledger.Record(SupervisorLedger.From(results, runId, DateTimeOffset.UtcNow)).Save(ledgerPath);
-
-return results.ExitCode;
-```
+`factory` is your `MtpWorkerFactory`, and `results.ExitCode` is what the program returns.
 
 In GitHub Actions, fetch the ledger from the newest successful run on `main` with the `gh` CLI, and
 upload it whatever the outcome (a red run's durations are still durations):
@@ -280,19 +226,45 @@ native runner and the supervisor cannot drive it.
 A suite can say which failures recover and how, with `Bobcat.Resilience`'s `[ClearsOnRetry]`,
 `[ClearsOnRecycle]`, `[ClearsInFreshProcess]` and `[NeverRecovers]` -- on the assembly, a test class
 or a single test method. (Before 1.0.0-rc.2 they lived in JasperFx's `JasperFx.Testing`; see
-[Migrating to rc.2](/compatibility#migrating-to-rc-2).)
+[Migrating to rc.2](/compatibility#migrating-to-rc-2).) The sample corpus declares all three scopes,
+an assembly-wide default and a class and a method overriding it:
+
+<<< ../src/Bobcat.Xunit.Samples/Specs/RecoveryHintProbes.cs#hint-assembly{cs}
+
+<<< ../src/Bobcat.Xunit.Samples/Specs/RecoveryHintProbes.cs#hint-class-and-method{cs}
 
 The supervisor still never loads your assembly, so it can't read them itself. The suite reads them,
 in its own process, and writes them into its spec manifest -- the file a Bobcat-projected suite
 writes when `BOBCAT_LIST_SPECS` asks for one. The supervisor asks during discovery and adds what
-comes back to `Supervisor.RecoveryHints` before anything runs:
+comes back to `Supervisor.RecoveryHints` before anything runs. This is what the three declarations
+above write into the sample corpus's manifest:
 
 ```json
 "recoveryHints": [
-  { "failureType": "Orders.BrokerUnavailableException", "kind": "RetryInFreshProcess",
-    "scope": "Global", "source": "Orders.Tests" },
-  { "failureType": "Orders.BrokerUnavailableException", "kind": "RetryInProcess",
-    "scope": "Group", "source": "PlacingOrders", "testClass": "Orders.Tests.PlacingOrders" }
+  {
+    "failureType": "Bobcat.Xunit.Samples.Specs.HintProbeException",
+    "kind": "RetryInFreshProcess",
+    "scope": "Global",
+    "source": "Bobcat.Xunit.Samples",
+    "because": "the assembly-wide default for the recovery hint probes"
+  },
+  {
+    "failureType": "Bobcat.Xunit.Samples.Specs.HintProbeException",
+    "kind": "RetryInProcess",
+    "scope": "Group",
+    "source": "ClassHintProbes",
+    "because": "the class-wide override for the recovery hint probes",
+    "testClass": "Bobcat.Xunit.Samples.Specs.ClassHintProbes"
+  },
+  {
+    "failureType": "Bobcat.Xunit.Samples.Specs.HintProbeException",
+    "kind": "FailAndContinue",
+    "scope": "Test",
+    "source": "ClassHintProbes.never_recovers_by_the_method_override",
+    "because": "the method-level override for the recovery hint probes",
+    "testClass": "Bobcat.Xunit.Samples.Specs.ClassHintProbes",
+    "testMethod": "never_recovers_by_the_method_override"
+  }
 ]
 ```
 
@@ -392,14 +364,9 @@ You inherit this for free. The thing you must supply is what follows.
 Class-level partitioning keeps a class together. It cannot stop two *different* classes that share a
 database landing in different workers. So each worker needs its own database:
 
-```csharp
-new MtpWorkerFactory(path)
-{
-    ConnectionStrings = new WorkerConnectionStrings()
-        .Add("postgres", worker => $"Host=localhost;Port=5433;Database=specs_w{worker.Lane};Username=postgres;Password=postgres")
-        .Add("rabbitmq", "amqp://guest:guest@localhost:5672")
-}
-```
+<<< ../src/Bobcat.Supervisor.Tests/SupervisorEndToEndTests.cs#worker-connection-strings{cs}
+
+That is the `ConnectionStrings` property of the `MtpWorkerFactory`, set in its initializer.
 
 Each worker is launched with `ConnectionStrings__postgres` and `ConnectionStrings__rabbitmq`. That is
 **the .NET Aspire convention**, so the suite reads them the way an application does:
@@ -410,6 +377,8 @@ var connectionString = configuration.GetConnectionString("postgres")
 ```
 
 or, without `IConfiguration`, `Environment.GetEnvironmentVariable("ConnectionStrings__postgres")`.
+`Bobcat.Supervisor.Tests` proves it against a real worker process that reads its strings exactly that
+way.
 The same suite then runs unchanged in three places: under the supervisor; under an Aspire AppHost
 that passes the resource with `WithReference(...)`; and by hand, as
 `ConnectionStrings__postgres=... dotnet run`. The fallback keeps a plain `dotnet test` working.
@@ -433,18 +402,10 @@ references no driver: pass your own ADO.NET provider, and the administrative con
 template each lane's string is built from, with the provider's connection string builder setting only
 the database:
 
-```csharp
-var lanes = LaneDatabases.Postgres(NpgsqlFactory.Instance,
-    "Host=localhost;Port=5433;Database=postgres;Username=postgres;Password=postgres", prefix: "specs_w");
-// or LaneDatabases.SqlServer(SqlClientFactory.Instance, "...;Initial Catalog=master;...")
+<<< ../src/Bobcat.Supervisor.Tests/LaneDatabasesTests.cs#lane-databases-host{cs}
 
-await lanes.Recreate(workers);        // drop and create specs_w0 .. specs_w{workers-1}
-
-new MtpWorkerFactory(path)
-{
-    ConnectionStrings = new WorkerConnectionStrings().Add("postgres", lanes.ForWorker)
-}
-```
+`provider` is `NpgsqlFactory.Instance` or `SqlClientFactory.Instance`, and `connectionStrings` goes
+on the `MtpWorkerFactory` as above.
 
 - `Recreate` drops and recreates every lane database, so each run starts empty: a database carrying
   the previous run's tables lets a schema change pass locally and fail on CI's fresh one. On
@@ -596,9 +557,7 @@ A collapse whose every row passes leaves the exit code at 0, so it is easy to ca
 `FailOnCollapsed` (off by default) and such a run fails with exit code 1 and a `RUN FAILED` line
 naming each collapsed theory and the fix, with every row listed below it:
 
-```csharp
-var supervisor = new Supervisor(factory) { FailOnCollapsed = true };
-```
+<<< ../src/Bobcat.Supervisor.Tests/CollapsedTheoryTests.cs#fail-on-collapsed{cs}
 
 The JSON report carries it as `failOnCollapsed` and `collapsedFailure`, and `GitHubAnnotations`
 writes it as an `::error`.
@@ -695,16 +654,7 @@ The supervisor checks the environment **once, before it launches any worker** --
 discovery worker starts until every check has run. The contract is the same as JasperFx's
 `IStatefulResource.Check`: a check that throws has failed.
 
-```csharp
-var supervisor = new Supervisor(new MtpWorkerFactory(path));
-
-// An ad hoc check
-supervisor.Preflight.Add("Postgres is reachable", async token =>
-{
-    await using var connection = new NpgsqlConnection(connectionString);
-    await connection.OpenAsync(token);
-});
-```
+<<< ../src/Bobcat.Supervisor.Tests/SupervisorTests.cs#preflight-check{cs}
 
 For a Critter Stack application, WolverineFx.Bobcat adds `Preflight.AddContainerChecks(...)`, which
 runs every check a host's container knows about through JasperFx's `EnvironmentChecker`; see

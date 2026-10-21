@@ -166,11 +166,17 @@ public class CollapsedTheoryTests
     [Fact]
     public async Task fail_on_collapsed_does_nothing_without_a_collapse()
     {
-        var results = await new Supervisor(new FakeWorkerFactory
+        var factory = new FakeWorkerFactory
         {
             Tests = [FakeWorkerFactory.Test("plain")],
             Outcome = (_, _, _) => WorkerTestState.Passed
-        }) { FailOnCollapsed = true }.Run();
+        };
+
+        // #region fail-on-collapsed
+        var supervisor = new Supervisor(factory) { FailOnCollapsed = true };
+        // #endregion fail-on-collapsed
+
+        var results = await supervisor.Run();
 
         results.ExitCode.ShouldBe(0);
         results.CollapsedFailure.ShouldBeNull();

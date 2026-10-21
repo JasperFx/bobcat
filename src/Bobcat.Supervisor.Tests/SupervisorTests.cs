@@ -793,4 +793,34 @@ public class SupervisorTests
             ["a", "b"],
             [new WorkerOutcome("a", "a", WorkerTestState.Passed)]));
     }
+
+    /// <summary>The ad hoc check docs/parallel-ready-suites.md shows: a delegate that throws to fail.</summary>
+    [Fact]
+    public async Task a_preflight_check_is_a_delegate_that_throws_to_fail()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("a")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        // #region preflight-check
+        var supervisor = new Supervisor(factory);
+
+        // A check that throws has failed. This one asks whether anything answers on the database's port.
+        supervisor.Preflight.Add("Postgres is reachable", async token =>
+        {
+            using var probe = new System.Net.Sockets.TcpClient();
+            await probe.ConnectAsync("127.0.0.1", port, token);
+        });
+        // #endregion preflight-check
+
+        var results = await supervisor.Run();
+
+        results.AbortReason.ShouldBeNull();
+        results.CleanPasses.ShouldHaveSingleItem();
+    }
 }
