@@ -33,7 +33,7 @@ hands Bobcat the JSON to publish. Without JasperFx.Events, no Event Model is gen
 | `JasperFx`, `JasperFx.Events` | none from 1.0.0-rc.2 (rc.1 and earlier: 2.90.2 or later) | the `bobcat` tool and the Event Model generator's tests: 2.90.2 |
 | Marten, Fisher, Polecat | none from Bobcat; through `WolverineFx.Bobcat`, below | in the Wolverine repository since #744 |
 | WolverineFx | through `WolverineFx.Bobcat`, below | in the Wolverine repository since #744 |
-| Alba | any for Bobcat itself, which does not reference it. `WolverineFx.Bobcat.Http` 6.51.0-alpha.1 requires **9.0.0-rc.2** (below) | |
+| Alba | any for Bobcat itself, which does not reference it. `WolverineFx.Bobcat.Http` 6.51.0-alpha.1 and later require **9.0.0-rc.2** (below) | |
 
 The "built and tested against" column is what this repository's own suites run on. The store-backed suites
 and the samples (real Postgres for Marten, SQLite for Fisher) moved to the Wolverine repository with the
@@ -163,14 +163,14 @@ against as its minimum:
 
 | WolverineFx.Bobcat | Requires Bobcat | Requires WolverineFx |
 |---|---|---|
-| the release after 6.51.1-alpha.1 (wolverine#5082) | 1.0.0-rc.2 or later | the same version |
+| 6.51.2-alpha.1 and later (wolverine#5082) | 1.0.0-rc.2 or later | the same version |
 | 6.51.1-alpha.1 | 1.0.0-rc.1 exactly: **not** rc.2, which no longer carries the `CritterStackScenario` it derives from | the same version |
 | 6.50.0-alpha.1 – 6.51.0-alpha.1 | 0.60.4 or later (on 1.0.0-rc.1, all but `WhenActing`/`WhenActingOn`, below) | the same version |
 | 6.49.0-alpha.3 | 0.38.0 or later | 6.49.0 |
 | 6.48.x | 0.32.0 or later | the same version |
 
 **For Bobcat 1.0.0-rc.1, use WolverineFx.Bobcat 6.51.1-alpha.1**, the first release built against
-Bobcat 1.0. For 1.0.0-rc.2, use the WolverineFx.Bobcat release that carries the Critter Stack
+Bobcat 1.0. **For 1.0.0-rc.2, use 6.51.2-alpha.1 or later**, which carries the Critter Stack
 vocabulary (below); 6.51.1-alpha.1 fails on rc.2 with a `TypeLoadException` for
 `Bobcat.CritterStack.CritterStackScenario`.
 
@@ -234,7 +234,7 @@ Bobcat 1.0.0-rc.2 takes no JasperFx or Wolverine dependency (bobcat#744; design:
 3. **`Preflight.Run` returns `PreflightResults`** instead of JasperFx's `EnvironmentCheckResults`. The members
    are the same (`Successes`, `Failures`, `Succeeded()`, `Assert()`); `Assert()` throws a `PreflightException`
    listing every failed check.
-4. **`[EventModelTrigger(ActTrigger.Http, …)]` becomes `[EventModelTrigger(ActTrigger.Http, …)]`.** `ActTrigger`
+4. **`[EventModelTrigger(TriggerKind.Http, …)]` becomes `[EventModelTrigger(ActTrigger.Http, …)]`.** `ActTrigger`
    is in the `Bobcat` namespace and has `TriggerKind`'s member names; the generated Event Model is unchanged.
    This matters only to a project that writes its own scenario vocabulary.
 5. **`SpecificationBindings` and Bobcat's `SpecificationManifestAttribute` are deleted** (obsolete since
