@@ -118,6 +118,93 @@ budget, the spec manifest and `WorkPlan` already share. `RunStarted` carries the
 repository path + branch, the board's grouping key for parallel suites on one box.
 `RunHeartbeat` exists so a crashed/orphaned run renders as such instead of "running" forever.
 
+### What one run puts on the wire
+
+One specification from the sample corpus, run with `BOBCAT_MONITOR_URL` pointed at a listener that
+recorded every request. In order:
+
+```
+GET  /api/ping
+GET  /api/event-model
+POST /api/ingest                      {"events":[ run_started ]}
+PUT  /api/event-model/Bobcat-Xunit-Samples?root=…&repository=JasperFx%2Fbobcat&branch=…
+POST /api/ingest                      {"events":[ scenario_started ]}
+POST /api/ingest                      {"events":[ step_started ]}
+POST /api/ingest                      {"events":[ step_finished ]}
+POST /api/ingest                      {"events":[ scenario_finished ]}
+POST /api/ingest                      {"events":[ run_finished ]}
+```
+
+Every POST body is a batch, `{"events":[…]}`, and each event names its type. The three that carry
+the run's identity and the scenario's verdict, as captured:
+
+```json
+{
+  "type": "run_started",
+  "suite": "Bobcat.Xunit.Samples",
+  "repository": "/Users/jeremymiller/code/bobcat",
+  "branch": "docs-review-reference-pages",
+  "mode": "xunit",
+  "startedAt": "2026-10-21T17:12:50.629754+00:00",
+  "totalScenarios": null,
+  "tag": null,
+  "session": "e74337bb-c5fb-48af-a688-7b9986b67730",
+  "command": null,
+  "runId": "efaf63f0-eb71-4d78-a47b-d33d062d6c8e"
+}
+```
+
+```json
+{
+  "type": "scenario_started",
+  "uid": "Gold customers/a gold customer gets a fifth off",
+  "feature": "Gold customers",
+  "scenario": "a gold customer gets a fifth off",
+  "attempt": 1,
+  "at": "2026-10-21T17:12:50.761323+00:00",
+  "totalSteps": 2,
+  "declaredSteps": [
+    { "keyword": "Given", "text": "an order of 100 for a gold customer" },
+    { "keyword": "Then", "text": "20 comes off" }
+  ],
+  "plannedSteps": [
+    {
+      "keyword": "Then",
+      "template": "Discounts.Apply(100, Tier.Gold) should be 80",
+      "grammar": "ShouldBeTestExtensions.ShouldBe",
+      "declaredStepNumber": 2
+    }
+  ],
+  "parentSpecId": null,
+  "runId": "efaf63f0-eb71-4d78-a47b-d33d062d6c8e"
+}
+```
+
+```json
+{
+  "type": "scenario_finished",
+  "uid": "Gold customers/a gold customer gets a fifth off",
+  "outcome": "CleanPass",
+  "attempts": 1,
+  "durationMs": 7,
+  "errorMessage": null,
+  "touchedTypes": null,
+  "at": "2026-10-21T17:12:50.768928+00:00",
+  "reports": null,
+  "stepsMs": 4,
+  "parentSpecId": null,
+  "logs": null,
+  "attachments": null,
+  "suppressedAttachments": null,
+  "lifecycle": null,
+  "runId": "efaf63f0-eb71-4d78-a47b-d33d062d6c8e"
+}
+```
+
+The `session` is the agent session that ran it, read from `CLAUDE_CODE_SESSION_ID` as described
+below; `tag` and `command` are null because nothing set them. Every null on `scenario_finished` is a
+trailing optional member described in the sections that follow.
+
 **`RunStarted` carries three opaque attribution strings, and Bobcat interprets none of them** —
 `Tag` from `BOBCAT_RUN_TAG`, `Session` from `CLAUDE_CODE_SESSION_ID` (issue #389), and `Command`
 from `BOBCAT_RUN_COMMAND` (issue #392). They answer different questions and a run routinely has one
@@ -541,6 +628,35 @@ wait that isn't a step.
 - **No lifecycle points, on purpose.** In the projected lane fixture setup belongs to the test
   runner and runs outside the bracket, so there is nothing for Bobcat to report. See
   [marker steps](marker-steps.md#timing).
+
+## What a scenario says before it runs, and what it leaves behind
+
+Four more trailing, optional members, each null from an older publisher and each ignorable by a
+consumer that predates it. They are in the captured `scenario_started` and `scenario_finished` above.
+
+- **`ScenarioStarted.DeclaredSteps`** (issue #304): what the scenario *says* it does, in order,
+  before a line of it has run -- a marker-comment test's narrative, a compile-time fact. Sent here
+  rather than as `step_started` events because publishing it as steps would be claiming it ran.
+  Null from a scenario that declares nothing.
+- **`ScenarioStarted.PlannedSteps`**: every step the scenario is going to take, in source order,
+  with its template unresolved (no argument has been evaluated yet) and the grammar method it binds
+  to. It is what `bobcat preview` shows, and what lets a watcher render the steps an aborted scenario
+  never reached instead of having them vanish. `DeclaredStepNumber` is the 1-based index of the
+  declared step it sits under.
+- **`ScenarioFinished.Logs`** (bobcat#547): what `SpecLog.Write` recorded, one `StepLogInfo` per
+  step that logged (by `StepId`) and one with a null `StepId` for lines written between steps, each
+  with a `Suppressed` count past the per-step cap. On `scenario_finished` rather than `step_finished`
+  because logs are latched like reports -- kept for a failed scenario, or a verbose run -- and the
+  verdict is only known at the close. Null when nothing is visible.
+- **`ScenarioFinished.Attachments`** and **`SuppressedAttachments`** (issue #571): a reference to
+  each attachment the scenario kept -- name, media type, size, the file's path beside the results
+  file when there is one, the step it hangs on, and why the bytes were omitted when they were.
+  Never the bytes. Latched like reports. `SuppressedAttachments` counts those past the per-scenario
+  cap, so "…and N more" can be said rather than truncating silently.
+
+And one on the bracket: **`RunFinished.Skipped`** (bobcat#655), tests the framework skipped, counted
+in neither `Passed` nor `Failed`. Null from the in-process bracket, which never sees a skipped test
+open a scenario; the supervisor, which does see the skip, sends the count.
 
 ## A data row names the specification it belongs to (issue #569, built 2026-10-16)
 
