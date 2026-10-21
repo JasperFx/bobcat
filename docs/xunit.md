@@ -14,28 +14,27 @@ specifications, see [Writing Specifications](marker-steps.md).
 
 Name the feature the test class belongs to:
 
-```csharp
-using Bobcat;
+<<< ../src/Bobcat.Xunit.Samples/Specs/DaemonSpecs.cs#feature-only{cs}
 
-[BobcatFeature("Async daemon")]
-public class DaemonSpecs
-{
-    [Fact]
-    public async Task the_daemon_catches_up()
-    {
-        // Given events are published
-        await PublishEvents(10);
+That is all it takes. Run it and the console prints the specification, with the marker comments as
+its declared steps and the assertion as the step that was judged:
 
-        // When the daemon runs
-        await RunDaemon();
+```
+Feature: Async daemon
+══════════════════════
 
-        // Then the projection is caught up
-        (await Projection()).Count.ShouldBe(10);
-    }
-}
+  the daemon catches up OK
+  ───────────────────────────────
+    · Given events are published — declared
+    · When  the daemon runs — declared
+    ✓ Then  the projection is caught up (2ms)
+      ✓ Then  _projected should be 10 (2ms)
+
+  Succeeded with Rights: 1, Wrongs: 0, Errors: 0
+  Duration: 5ms (steps 2ms)
 ```
 
-That is all it takes. The package applies an assembly-level xUnit hook,
+The package applies an assembly-level xUnit hook,
 `[assembly: RecordBobcatFeatures]`, that opens a scenario around every test in a `[BobcatFeature]`
 class and closes it with **the verdict xUnit reported** -- a failing test is published as a failure,
 and a skipped one is withdrawn rather than reported as anything at all. Opt out with
