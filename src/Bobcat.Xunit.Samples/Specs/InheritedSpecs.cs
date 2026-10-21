@@ -18,6 +18,7 @@ namespace Bobcat.Xunit.Samples.Specs;
 /// the generator's listing with xUnit's own discovery, and xUnit discovers these once per subclass.
 /// </para>
 /// </remarks>
+// #region inherited-specs
 [BobcatFeature("Shared compliance")]
 public abstract class SharedCompliance<TTransport>
 {
@@ -40,3 +41,4 @@ public class AlphaTransportCompliance : SharedCompliance<int>;
 
 /// <summary>A subclass whose feature is its class name, read as a sentence.</summary>
 public class BetaTransportCompliance : SharedCompliance<string>;
+// #endregion inherited-specs
