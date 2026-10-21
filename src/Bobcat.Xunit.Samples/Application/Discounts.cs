@@ -19,3 +19,6 @@ public static class Discounts
     public static int Apply(int amount, Tier tier) => amount - amount * PercentOff(tier) / 100;
 }
 // #endregion discounts
+
+/// <summary>The command a <c>[BobcatSpec(typeof(ApplyDiscount))]</c> binds its slice to.</summary>
+public record ApplyDiscount(int Amount, Tier Tier);

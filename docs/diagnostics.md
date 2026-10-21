@@ -49,10 +49,7 @@ without a word. Setting both to the *same* slice is redundant but allowed.
 
 **Fix:** keep one. Prefer `SliceType`:
 
-```csharp
-[BobcatSpec(typeof(ConfirmAppointment))]   // not SliceName = "ConfirmAppointment" as well
-public async Task confirming_an_open_slot() { /* … */ }
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/DiscountSpecs.cs#typeof-binding{cs}
 
 See [Two spellings, and why `SliceType` is preferred](marker-steps.md#two-spellings-and-why-slicetype-is-preferred).
 
@@ -81,12 +78,10 @@ not once per call.
 **Why:** a placeholder binds **by parameter name only**. Cucumber-style type captures (`{int}`,
 `{word}`) left with Gherkin and land here too.
 
-**Fix:** rename the placeholder (or the parameter) so they match:
+**Fix:** rename the placeholder (or the parameter) so they match. Every placeholder in this grammar
+names one of its method's parameters:
 
-```csharp
-[When("the customer orders {quantity} widgets")]
-public void Order(int quantity) { /* … */ }
-```
+<<< ../src/Bobcat.Xunit.Samples/Grammars/CalculatorSteps.cs#calculator-steps{cs}
 
 See [A placeholder binds from the value, not from the syntax](marker-steps.md#a-placeholder-binds-from-the-value-not-from-the-syntax-issue-339).
 
@@ -121,11 +116,10 @@ comment has opened the narrative.
 that can only *continue* a narrative isn't allowed to start one. Info, because usually the comment
 really is prose.
 
-**Fix:** if you meant a step, open with `Given`, `When` or `Then`, or mark it as a keywordless step:
+**Fix:** if you meant a step, open with `Given`, `When` or `Then`, or mark it as a keywordless step
+with `*`, as the sample corpus's sentence specification does:
 
-```csharp
-// * the ledger is reconciled
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/SentenceSpecs.cs#keywordless-marker{cs}
 
 Inside a test that is already narrating, `And …` is taken as a step. See
 [Marker comments](marker-steps.md#marker-comments).
@@ -193,12 +187,13 @@ where the vocabulary is compiled.
 **Why:** at a call site in another assembly the same mistake would just be a role that is never
 stamped on the slice, with nothing to say so.
 
-**Fix:** name a real parameter, with `nameof`:
+**Fix:** name a real parameter, with `nameof`. This is how WolverineFx.Bobcat's own `WhenPosted`
+declares its role and trigger (`WolverineHttpScenario`, in the Wolverine repository):
 
 ```csharp
 [EventModelRole(SliceRole.Command, nameof(command))]
 [EventModelTrigger(ActTrigger.Http, Route = nameof(route))]
-public Task WhenPosted<T>(string route, T command) { /* … */ }
+public Task WhenPosted(object command, string route, Action<Scenario>? configure = null)
 ```
 
 See [Binding, not roles](marker-steps.md#event-model-roles).
@@ -287,12 +282,10 @@ test attribute, usually `[Fact(Skip = "…")]` to skip one subclass's copy.
 **Why:** xUnit inherits the base method's attribute, so the override has two and fails ("has multiple
 [Fact]-derived attributes") instead of being skipped.
 
-**Fix:** stay in the family:
+**Fix:** stay in the family. The sample corpus skips one subclass's copy of an inherited specification
+this way:
 
-```csharp
-[BobcatSpec(Skip = "not supported by this transport")]
-public override Task delivers_in_order() => base.delivers_in_order();
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/InheritedSpecs.cs#inherited-skip{cs}
 
 See [A test inherited from a shared base](spec-identities.md#inherited-specs).
 
@@ -364,16 +357,10 @@ A column that names no parameter is [BOBCAT032](#bobcat032).
 
 **Why:** every one of these would fail the theory before any row runs.
 
-**Fix:** correct the table:
+**Fix:** correct the table, so every column names a parameter and every cell reads as its parameter's
+type. The withdrawals tutorial's theory is the shape:
 
-```csharp
-[BobcatTheory(typeof(ApplyDiscount))]
-[BobcatExamples("""
-    | amount | tier | expected |
-    | 100    | Gold | 90       |
-    """)]
-public async Task discount_is_applied(decimal amount, Tier tier, decimal expected) { /* … */ }
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/WithdrawalSpecs.cs#withdrawal-examples{cs}
 
 A cell for a domain type registered with `CellValues.Register<T>` is left to run time. See
 [A theory's examples as a table](marker-steps.md#bobcatexamples).
@@ -411,11 +398,11 @@ path:
 **Why:** Bobcat reads a check as a member path and a value. Without the generator, the run refuses each
 of these with an `ArgumentException` that ends the test.
 
-**Fix:** assert on one member, and specify a collection member's items instead of chaining into them:
+**Fix:** assert on one member, and specify a collection member's items instead of chaining into them.
+The expected-objects page's collection specifications are the shape (these two disagree on purpose,
+to show the EXTRA and MISSING rows):
 
-```csharp
-Specify<Meeting>().With(x => x.Attendees, Expect.Exactly(Specify<Attendee>().With(a => a.MemberId, theMemberId)));
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#collection-extra-and-missing{cs}
 
 See [member checks](expected-objects.md#member-checks-and-the-c-version-they-need).
 

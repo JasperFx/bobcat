@@ -30,10 +30,12 @@ public class SentenceSpecs
     [Fact]
     public void sentences()
     {
+        // #region keywordless-marker
         // * Work correctly
         _sentence.StartWithTheNumber(5);
         _sentence.MultiplyThenAdd(3, 4);
         _sentence.Subtract(2);
+        // #endregion keywordless-marker
 
         // * Correct assertion
         _sentence.TheValueShouldBe(17);

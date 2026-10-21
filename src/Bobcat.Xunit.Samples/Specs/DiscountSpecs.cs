@@ -44,3 +44,21 @@ public class GoldCustomerSpecs
     }
 }
 // #endregion slice-bound
+
+/// <summary>
+/// The <c>docs/diagnostics.md</c> example of binding a slice by type rather than by name: the slice
+/// is the type's name, and a rename follows it.
+/// </summary>
+// #region typeof-binding
+[BobcatFeature("Applying discounts")]
+public class ApplyDiscountSpecs
+{
+    [BobcatSpec(typeof(ApplyDiscount))]   // the slice is named ApplyDiscount, and nothing else says so
+    public void a_silver_customer_gets_a_tenth_off()
+    {
+        // Given an order of 100 for a silver customer
+        // Then 10 comes off
+        Discounts.Apply(100, Tier.Silver).ShouldBe(90);
+    }
+}
+// #endregion typeof-binding

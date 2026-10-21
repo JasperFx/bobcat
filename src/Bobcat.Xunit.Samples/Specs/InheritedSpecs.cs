@@ -23,7 +23,7 @@ namespace Bobcat.Xunit.Samples.Specs;
 public abstract class SharedCompliance<TTransport>
 {
     [BobcatSpec]
-    public void each_subclass_is_its_own_feature()
+    public virtual void each_subclass_is_its_own_feature()
     {
         // Given a test written once on a shared base
         var recording = ScenarioRecorder.Current.ShouldNotBeNull();
@@ -42,3 +42,16 @@ public class AlphaTransportCompliance : SharedCompliance<int>;
 /// <summary>A subclass whose feature is its class name, read as a sentence.</summary>
 public class BetaTransportCompliance : SharedCompliance<string>;
 // #endregion inherited-specs
+
+/// <summary>
+/// Skipping one subclass's copy stays in the attribute family (<c>docs/diagnostics.md</c>, BOBCAT040):
+/// a <c>[Fact(Skip = …)]</c> here would give the override two Fact-derived attributes.
+/// </summary>
+// #region inherited-skip
+[BobcatFeature("Gamma transport")]
+public class GammaTransportCompliance : SharedCompliance<long>
+{
+    [BobcatSpec(Skip = "the gamma transport has no shared base behaviour yet")]
+    public override void each_subclass_is_its_own_feature() => base.each_subclass_is_its_own_feature();
+}
+// #endregion inherited-skip
