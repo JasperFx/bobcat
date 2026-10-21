@@ -141,7 +141,7 @@ edit the area's file rather than this index.
 ## Design References
 
 - `docs/` — the user-facing docs. The Critter Stack vocabulary (WolverineFx.Bobcat) is documented in the
-  Wolverine docs, https://wolverinefx.net/guide/testing-with-bobcat, not here; `docs/integrations/index.md`
+  Wolverine docs, https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat, not here; `docs/integrations/index.md`
   only points there. The rest: `getting-started.md` (package setup), `marker-steps.md` (writing
   specifications), `xunit.md` / `tunit.md` / `nunit.md` / `mstest.md`, `spec-identities.md` (#391;
   #338's `SpecIdentityAudit` moved to WolverineFx.Bobcat), `resident-runner.md`, `warm-projected-runs.md` (#394's findings),

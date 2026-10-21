@@ -9,7 +9,7 @@ This page gets one specification running end to end. It takes about five minutes
 ::: tip Wolverine, Marten, Polecat or Fisher?
 Bobcat's core is framework-neutral. The Critter Stack vocabulary -- `CritterStackSpec`, `WolverineSpec`,
 `WolverineHttpSpec`, `GivenEvents`, `WhenReceived`, `ThenEvents` and the rest -- ships in
-**WolverineFx.Bobcat** and is documented in the Wolverine docs: [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat). The
+**WolverineFx.Bobcat** and is documented in the Wolverine docs: [Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat). The
 project setup below applies to it unchanged.
 :::
 
@@ -166,7 +166,7 @@ debug it there.
 
 - **[The Tutorials](tutorials/)** -- the documentation organized by what you are trying to accomplish
 - [Writing Specifications](marker-steps.md) -- step helpers, marker comments, `SpecAssert`, tables, and binding a spec to an Event Model slice
-- [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) (Wolverine docs) -- the Critter Stack vocabulary in WolverineFx.Bobcat, for Wolverine, Marten, Polecat and Fisher
+- [Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat) (Wolverine docs) -- the Critter Stack vocabulary in WolverineFx.Bobcat, for Wolverine, Marten, Polecat and Fisher
 - [Make Existing Integration Tests More Reliable](tutorials/reliable-integration-testing.md) -- the supervisor: worker-process splitting, per-lane resource isolation, retry budgets
 - [What a Run Publishes](monitor-design.md) -- the monitor wire contract, `BOBCAT_MONITOR*`, and the seams that emit it
 - [The Resident Runner](resident-runner.md) -- keeping a suite available to a run console, so specs run when somebody asks

@@ -258,7 +258,7 @@ than a surprise at run time ([A theory's examples as a table](../marker-steps.md
 - **On the Critter Stack the vocabulary is already written.** `CritterStackSpec`, `WolverineSpec` and
   `WolverineHttpSpec` in WolverineFx.Bobcat carry `GivenEvents`, `WhenReceived`, `WhenPosted`,
   `ThenEvents` and the rest, so a Wolverine, Marten, Polecat or Fisher application starts at Step 2
-  with nothing to write ([Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat), in
+  with nothing to write ([Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat), in
   the Wolverine docs).
 - **A specification can name the slice it specifies.** `[BobcatSpec(typeof(WithdrawFunds))]` is the
   `[Fact]`, the scenario bracket and the Event Model binding in one attribute, which is what lets

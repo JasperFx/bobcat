@@ -188,7 +188,7 @@ The fix is to move to 6.51.1-alpha.1, which reads `EventStore`.
 that references Alba 8.x gets NU1605 (a package downgrade) and has to move to the prerelease Alba
 to take it, which also drops Alba 8's `ConfigurationOverride`. If you have to stay on Alba 8.x,
 leave `WolverineFx.Bobcat.Http` out and act over HTTP through `WhenTracked`, knowing its two limits
-in [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) (Wolverine docs).
+in [Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat) (Wolverine docs).
 
 Otherwise, use a `WolverineFx.Bobcat` whose minimum Bobcat is the release you are on, or the closest one
 below it. A `WolverineFx.Bobcat` built against an older Bobcat may compile against a newer one but

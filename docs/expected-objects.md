@@ -432,5 +432,5 @@ reports one cell with both sides written out
 - [Shouldly Assertions as Steps](shouldly.md) -- Shouldly inside a specification, including member checks
 - [Writing Specifications](marker-steps.md) -- the three ways a step arrives, and BOBCAT032, which
   catches a stale member path at build time
-- [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) (Wolverine docs) -- the Critter Stack steps
+- [Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat) (Wolverine docs) -- the Critter Stack steps
   that take an expected object
