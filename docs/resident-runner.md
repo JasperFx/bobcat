@@ -5,6 +5,32 @@ asks**. It is the Bobcat half of interactive execution: somebody presses a butto
 your suite runs the specifications they picked, and the results arrive on the ordinary run board as
 an ordinary run.
 
+## What this is for
+
+A run console shows a suite's specifications, and sooner or later somebody looking at a red one wants
+to run it again *from there* -- after a fix, against the code in a particular worktree, without
+switching to a terminal and working out the filter. The resident runner is what makes that button
+work. It sits beside your suite, tells the console what the suite specifies, and when the console
+sends it identities, runs exactly those and nothing else.
+
+Two consoles drive it today. [`bobcat ui`](bobcat-ui.md#run-buttons) has **Run again**, **Re-run
+failed**, **Run *feature***, **Run this slice** on the canvas, and **Run all**, plus a page per runner
+listing every specification it can run with the steps each one plans; every one of those needs a
+resident runner attached for the suite. [Stoat](https://github.com/JasperFx/stoat), the Critter Stack's
+agent coordination tool, was the original consumer: `stoat runner` keeps a `bobcat resident` under a
+file watch and relaunches it on every rebuild, so that an agent's or a person's "run this slice's
+specs" always runs against the current code of that checkout. The stable runner id, the restart exit
+code and the one-runner-per-checkout rule below all come from that loop.
+
+It is a separate process rather than a mode of the suite because a spec project's entry point belongs
+to its test framework, which will never learn what "go resident" means. So the runner lives in the
+[`bobcat` tool](bobcat-tool.md#resident), reads the suite's manifest, and runs a command by launching
+the suite's own test host narrowed by that framework's filter. The
+[specification identity](spec-identities.md) is the one language the button, the runner and the
+filter share.
+
+## Starting one
+
 ```bash
 bobcat resident ./artifacts/MySpecs
 bobcat resident ./artifacts/MySpecs --list        # what it specifies, registering with nothing
@@ -32,12 +58,10 @@ Bobcat.Xunit.Samples (projected/xunit), 95 specification(s):
   Withdrawals/the overdraft boundary with a wrong row
 ```
 
-A spec suite's entry point belongs to its test framework, which will never learn what "go resident"
-means -- so the runner lives outside the suite, in the [`bobcat` tool](bobcat-tool.md#resident). It
-reads the suite's [spec manifest](spec-identities.md#listing-and-running-by-identity), registers those
-identities with the console, and runs a command by driving **the suite's own test host**, narrowed by
-that framework's filter. It ships from the tool because the console at the other end references
-nothing else in this repository and so cannot be handed a class to host.
+The runner reads the suite's [spec manifest](spec-identities.md#listing-and-running-by-identity),
+registers those identities with the console, and runs a command by driving **the suite's own test
+host**, narrowed by that framework's filter. It ships from the tool because the console at the other
+end references nothing else in this repository and so cannot be handed a class to host.
 
 The registration also carries each specification's **planned steps** (its marker comments and step
 calls, as `bobcat preview` shows them), read from the same listing run at its exit
