@@ -1,8 +1,5 @@
 # Querying Runs from the Command Line
 
-<!-- JEREMY: draft for your review (bobcat#524). Flags, defaults, exit codes and JSON members were
-checked against main at 710e643 and against a running `bobcat ui`. -->
-
 **Everything the [Bobcat UI](bobcat-ui.md) shows is also readable as JSON from the `bobcat` tool.**
 The commands are for scripts and, above all, for AI agents: an agent asks with a shell command and
 reads JSON back, with no MCP client to configure and no tool schema taking up its context.
@@ -38,8 +35,8 @@ Every command takes `-u, --url <url>`, the UI's base URL; `http://localhost:5525
 |---|---|---|
 | `-r, --run <id>` | `run-status`, `failing-tests`, `failing-spec`, `export-run`, `await-run`, `flaky-ledger` | the run id, from `list-runs`. Defaults to the most recent run -- except for `flaky-ledger`, which reads every run unless narrowed, and `await-run`, described below |
 | `--uid <identity>` | `failing-spec` | the `{Feature}/{Scenario}` identity; the run's first failing scenario by default |
-| `-s, --slice <name>` | `event-model` | only the slice with this name, case-insensitive |
-| `-d, --domain <name>` | `event-model` | only the slices in this domain, case-insensitive |
+| `--slice <name>` | `event-model` | only the slice with this name, case-insensitive |
+| `--domain <name>` | `event-model` | only the slices in this domain, case-insensitive |
 | `-f, --format <ctrf\|junit>` | `export-run` | `ctrf` by default |
 | `-o, --output <file>` | `export-run` | write to a file instead of standard out |
 | `-t, --timeout <seconds>` | `await-run` | how long to wait; 600 by default, at most 3600 |
@@ -60,13 +57,14 @@ progress so far.
 
 ## What comes back
 
-JSON on standard out, camelCase, indented. Some examples, trimmed:
+JSON on standard out, camelCase, indented. These are real answers from a `bobcat ui` that three of
+the sample corpus's classes had just published to, with one failure among them:
 
 ::: code-group
 
 ```json [failing-tests]
 {
-  "runId": "3b1f5f87-0152-41d2-a610-81fdeb3f919c",
+  "runId": "23284c18-28b1-423e-b89b-56d886e9fcee",
   "suite": "Bobcat.Xunit.Samples",
   "finished": true,
   "failing": [
@@ -74,18 +72,81 @@ JSON on standard out, camelCase, indented. Some examples, trimmed:
       "uid": "Actions/off stage setup never ran",
       "outcome": "Failed",
       "attempts": 1,
-      "errorMessage": "2 specification steps failed: …",
+      "errorMessage": "2 specification steps failed:\n  Given The batch process has already run => The batch process has not been started\n  Then 12 records should have been processed => count: expected '12', got '0'",
       "failedSteps": [
+        {
+          "name": "Given The batch process has already run",
+          "status": "Failed",
+          "errorMessage": "The batch process has not been started",
+          "failedCells": null,
+          "exception": null
+        },
         {
           "name": "Then 12 records should have been processed",
           "status": "Failed",
           "errorMessage": "count: expected '12', got '0'",
-          "failedCells": [ … ],
+          "failedCells": [
+            {
+              "name": "count",
+              "status": "failed",
+              "expected": "12",
+              "actual": "0"
+            }
+          ],
           "exception": null
         }
       ]
     }
   ]
+}
+```
+
+```json [failing-spec]
+{
+  "runId": "23284c18-28b1-423e-b89b-56d886e9fcee",
+  "suite": "Bobcat.Xunit.Samples",
+  "uid": "Actions/off stage setup never ran",
+  "feature": "Actions",
+  "scenario": "off stage setup never ran",
+  "status": "Failed",
+  "attempts": 1,
+  "durationMs": 1,
+  "errorMessage": "2 specification steps failed:\n  Given The batch process has already run => The batch process has not been started\n  Then 12 records should have been processed => count: expected '12', got '0'",
+  "finishedAt": "2026-10-21T17:17:42.971656+00:00",
+  "steps": [
+    {
+      "name": "Given The batch process has already run",
+      "status": "Failed",
+      "durationMs": 0,
+      "errorMessage": "The batch process has not been started",
+      "cells": null,
+      "logs": null,
+      "diagnostics": null,
+      "exception": null
+    },
+    {
+      "name": "Then 12 records should have been processed",
+      "status": "Failed",
+      "durationMs": 0,
+      "errorMessage": "count: expected '12', got '0'",
+      "cells": [
+        {
+          "name": "count",
+          "status": "failed",
+          "expected": "12",
+          "actual": "0",
+          "note": null,
+          "row": null
+        }
+      ],
+      "logs": null,
+      "diagnostics": null,
+      "exception": null
+    }
+  ],
+  "priorAttempts": [],
+  "touchedTypes": [],
+  "slices": []
 }
 ```
 
@@ -117,11 +178,25 @@ JSON on standard out, camelCase, indented. Some examples, trimmed:
 {
   "outcome": "finished",
   "run": {
-    "runId": "3b1f5f87-0152-41d2-a610-81fdeb3f919c",
+    "runId": "23284c18-28b1-423e-b89b-56d886e9fcee",
     "suite": "Bobcat.Xunit.Samples",
+    "repository": "/Users/jeremymiller/code/bobcat",
+    "repositorySlug": "JasperFx/bobcat",
+    "branch": "docs-review-reference-pages",
+    "mode": "xunit",
     "finished": true,
+    "orphaned": false,
     "exitCode": 1,
-    "counts": { "completed": 56, "passed": 28, "failed": 28, "passedOnRetry": 0, "running": 0 }
+    "startedAt": "2026-10-21T17:17:42.721092+00:00",
+    "finishedAt": "2026-10-21T17:17:43.060574+00:00",
+    "totalScenarios": null,
+    "counts": {
+      "completed": 9,
+      "passed": 8,
+      "failed": 1,
+      "passedOnRetry": 0,
+      "running": 0
+    }
   }
 }
 ```
@@ -141,7 +216,7 @@ format a Wolverine application's `event-model` command sends and the canvas draw
 Nothing answering reads like this, on standard error:
 
 ```
-Nothing answered at http://localhost:5525. These commands read a running Bobcat UI — start one with `bobcat ui`. (Connection refused (localhost:5525))
+Nothing answered at http://localhost:5525. These commands read a running Bobcat UI — start one with `bobcat ui`, or check --url. (Connection refused (localhost:5525))
 ```
 
 A UI that predates these commands -- a Stoat host, or a `bobcat ui` older than bobcat#524 -- answers
@@ -167,7 +242,5 @@ bobcat failing-spec                 # the first failure, in full
   `no-evidence` means a specification exists and has not been run.
 
 The [`critterstack-sdd-*` AI skills](https://ai-skills.jasperfx.net) describe the whole spec
-driven loop these commands fit into.
-
-<!-- JEREMY: the ai-skills entry for these commands (the repo CLAUDE.md asks for one when the tool
-surface changes) has not been written yet. -->
+driven loop these commands fit into; the authoring skill carries a reference on the UI and these
+queries, and the troubleshooting skill tells an agent which one to reach for on a red run.
