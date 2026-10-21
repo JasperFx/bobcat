@@ -14,6 +14,24 @@ bobcat resident ./artifacts/MySpecs --url http://localhost:5525 --id my-checkout
 bobcat resident ./artifacts/MySpecs --url http://localhost:5525,http://localhost:5050
 ```
 
+`--list` prints what the runner would register, one identity per line. Against this repository's
+sample corpus, trimmed:
+
+```
+Bobcat.Xunit.Samples (projected/xunit), 95 specification(s):
+  Acceptance specifications/a wrong is gathered before the behaviour is finished
+  Acceptance specifications/an acceptance spec that passes is ready to promote
+  Acceptance specifications/the behaviour throws because it does not exist yet
+  Actions/custom logging from a step
+  Actions/explicit action
+  Actions/implicit action
+  Actions/off stage setup never ran
+  Alpha transport/each subclass is its own feature
+  …
+  Withdrawals/the overdraft boundary
+  Withdrawals/the overdraft boundary with a wrong row
+```
+
 A spec suite's entry point belongs to its test framework, which will never learn what "go resident"
 means -- so the runner lives outside the suite, in the [`bobcat` tool](bobcat-tool.md#resident). It
 reads the suite's [spec manifest](spec-identities.md#listing-and-running-by-identity), registers those
@@ -43,7 +61,7 @@ It connects **out** to one origin -- `--url`'s first entry, else `BOBCAT_MONITOR
 port 5525 -- and *asks* for work. A monitor can only answer a runner that asked, and can never make a runner do
 anything. Nothing listens on a port, so there is nothing to secure.
 
-A command names **specification identities and nothing else** -- no arguments, no paths, no flags  -- 
+A command names **specification identities and nothing else** -- no arguments, no paths, no flags --
 and everything it can name is something the runner already told the monitor it has. So the worst a
 hostile monitor can do is ask for a test run.
 
