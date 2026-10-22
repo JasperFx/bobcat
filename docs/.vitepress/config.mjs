@@ -67,6 +67,7 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Parallel-Ready Suites', link: '/parallel-ready-suites' },
+          { text: 'Local Commit-and-Push Gates', link: '/local-gates' },
           { text: 'What a Run Publishes', link: '/monitor-design' },
           { text: 'Warm Runs for Projected Suites', link: '/warm-projected-runs' }
         ]
