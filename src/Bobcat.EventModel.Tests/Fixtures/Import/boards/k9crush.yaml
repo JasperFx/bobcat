@@ -1,0 +1,19 @@
+slices:
+  TheSwiper:
+    steps:
+      - t: Member/Discovery Feed
+      - c: Member/Swipe On Dog
+      - e: Member/Dog Liked
+      - e: Member/Dog Passed
+      - c: System/Detect Mutual Match
+        props: { triggeredBy: Dog Liked, module: Discovery }
+      - e: System/Mutual Match Detected
+      - v: Member/Match List
+        props: { dogId: dog_204, name: Luna }
+    tests:
+      ALikeIsRecorded:
+        given: [{ e: Member/Dog Liked }]
+        when: [{ c: Member/Swipe On Dog }]
+        then: [{ e: Member/Dog Liked }]
+      MatchesShow:
+        then: [{ v: Member/Match List }]

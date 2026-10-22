@@ -1,0 +1,102 @@
+slices:
+  ShelterReviewsApplication:
+    steps:
+      - c: Staff / Review application
+      - e: Staff / Application reviewed
+    tests:
+      Application reviewed:
+        when:
+          - c: Review application
+        then:
+          - e: Application reviewed
+  Volunteering:
+    steps:
+      - c: Volunteer / Apply to volunteer
+      - e: Volunteer / Volunteer application submitted
+      - c: Admin / Review volunteer application
+      - e: Admin / Volunteer application reviewed
+      - c: Admin / Approve volunteer
+      - e: Admin / Volunteer approved
+      - c: Admin / Reject volunteer application
+      - e: Admin / Volunteer application rejected
+      - c: Staff / Request home check
+      - e: Staff / Home check requested
+      - c: Volunteer / Accept home check assignment
+      - e: Volunteer / Home check assignment accepted
+    tests:
+      Submitted:
+        when:
+          - c: Apply to volunteer
+        then:
+          - e: Volunteer application submitted
+      Reviewed:
+        given:
+          - e: Volunteer application submitted
+        when:
+          - c: Review volunteer application
+        then:
+          - e: Volunteer application reviewed
+      Approved:
+        given:
+          - e: Volunteer application reviewed
+        when:
+          - c: Approve volunteer
+        then:
+          - e: Volunteer approved
+      Rejected:
+        given:
+          - e: Volunteer application reviewed
+        when:
+          - c: Reject volunteer application
+        then:
+          - e: Volunteer application rejected
+      Requested:
+        given:
+          - e: Application reviewed
+        when:
+          - c: Request home check
+        then:
+          - e: Home check requested
+      Accepted:
+        given:
+          - e: Home check requested
+          - e: Volunteer approved
+        when:
+          - c: Accept home check assignment
+        then:
+          - e: Home check assignment accepted
+  Booking:
+    steps:
+      - c: System / Propose home check appointment
+      - e: System / Home check appointment proposed
+      - c: System / Propose foster handover appointment
+      - e: System / Foster handover appointment proposed
+      - c: Member / Confirm appointment
+      - e: Member / Appointment confirmed
+      - c: Staff / Cancel appointment
+      - e: Staff / Appointment cancelled
+    tests:
+      Home check proposed:
+        when:
+          - c: Propose home check appointment
+        then:
+          - e: Home check appointment proposed
+      Foster proposed:
+        when:
+          - c: Propose foster handover appointment
+        then:
+          - e: Foster handover appointment proposed
+      Confirmed:
+        given:
+          - e: Home check appointment proposed
+        when:
+          - c: Confirm appointment
+        then:
+          - e: Appointment confirmed
+      Cancelled:
+        given:
+          - e: Appointment confirmed
+        when:
+          - c: Cancel appointment
+        then:
+          - e: Appointment cancelled

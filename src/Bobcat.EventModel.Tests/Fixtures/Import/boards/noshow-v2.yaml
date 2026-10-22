@@ -1,0 +1,21 @@
+slices:
+  Booking:
+    steps:
+      - c: Member / Book appointment
+      - e: Member / Appointment booked
+      - c: Staff / Record appointment no-show
+      - e: Staff / Appointment missed
+      - e: Staff / Appointment no-show recorded
+    tests:
+      Booked:
+        when:
+          - c: Book appointment
+        then:
+          - e: Appointment booked
+      Missed:
+        given:
+          - e: Appointment booked
+        when:
+          - c: Record appointment no-show
+        then:
+          - e: Appointment missed

@@ -206,10 +206,15 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             return null;
         }
 
-        EmlangImportResult result;
+        // --out names a DIRECTORY, the application project's. It may not exist yet: letting
+        // File.WriteAllText throw dumped a raw Interop.ThrowExceptionForIoErrno stack AFTER the
+        // segmentation report had printed and looked like success (issue #369), so the import creates it
+        EventModelImportResult import;
         try
         {
-            result = EmlangImport.ToCurated(board, model, input.NamespaceFlag, overrides, input.ChapterFlag);
+            import = EventModelImport.Run(board, outDirectoryOf(input), new EventModelImportOptions(
+                model, input.NamespaceFlag, overrides, input.ChapterFlag,
+                SingleDefinition: input.SingleDefinitionFlag, StrongTypedIds: input.StrongTypedIdsFlag, Force: input.ForceFlag));
         }
         catch (ArgumentException e) when (e.ParamName == "chapters")
         {
@@ -217,28 +222,14 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             return null;
         }
 
-        // A slice the board moved to a chapter left out is still on the board, so an import of some chapters
-        // compares the definitions against the whole board's slice names (slice-removed-on-board)
-        var boardSlices = input.ChapterFlag.Count == 0
-            ? null
-            : EmlangImport.ToCurated(board, model, input.NamespaceFlag).Model.Slices.Select(ImportMerge.SliceName).ToList();
-
+        var result = import.Import;
         run.Callouts = result.Callouts;
         run.Report.AddRange(result.Report);
 
         foreach (var line in result.Report) run.Out.WriteLine(line);
 
-        var ns = input.NamespaceFlag
-                 ?? CSharpModelWriter.Identifiers.Sanitize(model);
-
-        var identities = input.StrongTypedIdsFlag
-            ? StrongTypedIds.For(result.Model, CSharpModelWriter.StubNames(result.Model))
-            : StrongTypedIds.None;
-
-        var generated = CSharpModelWriter.Write(result.Model, ns, null,
-            perChapter: !input.SingleDefinitionFlag, identities);
-
         // An aggregate that could not be typed is a ⚠ line like any other guess the import reports
+        var identities = import.Identities;
         if (identities.Callouts.Count > 0)
         {
             run.Callouts = run.Callouts.Concat(identities.Callouts).ToList();
@@ -249,42 +240,28 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             }
         }
 
-        // --out names a DIRECTORY, the application project's. It may not exist yet: letting
-        // File.WriteAllText throw dumped a raw Interop.ThrowExceptionForIoErrno stack AFTER the
-        // segmentation report had printed and looked like success (issue #369), so creating it is
-        // the friendlier reading of "write the generated code here".
         var outDirectory = outDirectoryOf(input);
-        Directory.CreateDirectory(outDirectory);
-
-        // Nothing is overwritten without --force (bobcat#423): these files are where the design is
-        // corrected. An existing file is merged into instead -- the board's new slices and types are
-        // added, nothing already there is changed -- so a re-import is additive
-        var files = new ImportFileWriter(input.ForceFlag);
+        var files = import.Files;
         run.Files = files.Files;
 
-        var stubs = files.WriteStubs(outDirectory, generated.StubFiles);
+        var stubs = import.Stubs;
         run.Out.WriteLine(
             $"Wrote {stubs.Written} stub file(s) under {Path.Combine(outDirectory, ModelLayout.FeaturesFolder)}"
             + (stubs.Merged > 0 ? $"; merged new types into {stubs.Merged}" : "")
             + (stubs.Kept > 0 ? $"; kept {stubs.Kept} that already have every type the board names (--force overwrites them)." : "."));
 
-        var definitionFiles = generated.DefinitionFiles.Count > 0
-            ? generated.DefinitionFiles
-            : [new GeneratedFile($"{model}.cs", generated.Definition)];
-
-        // bobcat#448: one definition per chapter, beside its stubs, each joining the application's model
-        var definitions = files.WriteDefinitions(outDirectory, definitionFiles, result.Model, boardSlices);
+        var definitions = import.Definitions;
         run.Out.WriteLine(
             $"Wrote {definitions.Written} event model definition(s)"
             + (definitions.Merged > 0 ? $", merged new slices or roles into {definitions.Merged}" : "")
             + (definitions.Kept > 0 ? $", kept {definitions.Kept}" : "")
-            + ": " + string.Join(", ", definitionFiles.Select(x => x.Path))
+            + ": " + string.Join(", ", import.DefinitionFiles.Select(x => x.Path))
             + ". Register them with AddEventModel<T>() (or let Wolverine discover them). The segmentation above is a set of "
             + "guesses, so correct one with an edit rather than a re-import.");
 
         reportMerge(files, run);
 
-        return new Imported(result.Model, generated.Layout);
+        return new Imported(result.Model, import.Generated.Layout);
     }
 
     /// <summary>What an import produced: the model, and where its stubs put every type.</summary>

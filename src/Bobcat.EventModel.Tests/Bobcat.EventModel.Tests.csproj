@@ -27,6 +27,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- bobcat#760: the import's committed output, which ImportFixtureTests compares against and
+         docs/bobcat-tool.md includes. It is generated C# for another application, not this project's. -->
+    <Compile Remove="Fixtures/**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!--
       Issue #110. ProjectedSpecNaming.RoundTrips answers "will this curated scenario name publish
       as itself?", which it can only do by modelling the marker lane's real derivation — and this

@@ -1,0 +1,16 @@
+slices:
+  Ordering:
+    steps:
+      - c: Member/Place Order
+        props: { orderId: order-123, total: 12.5 }
+      - e: Member/Order Placed
+        props: { orderId: order-123 }
+      - c: Member/Cancel Order
+        props: { orderId: order-123 }
+      - e: Member/Order Cancelled
+      - v: Member/Order Summary
+    tests:
+      AnOrderIsCancelled:
+        given: [{ e: Member/Order Placed }]
+        when: [{ c: Member/Cancel Order }]
+        then: [{ e: Member/Order Cancelled }]

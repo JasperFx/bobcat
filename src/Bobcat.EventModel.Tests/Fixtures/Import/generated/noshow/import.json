@@ -1,0 +1,76 @@
+{
+  "model": "Shelter",
+  "callouts": [
+    {
+      "slice": "BookAppointment",
+      "code": "inferred-stream-start",
+      "aggregates": [
+        "Appointment"
+      ],
+      "message": "\u26A0 inferred: starts the Appointment stream \u2014 no example gives it an earlier Appointment event; \u0027Appointment\u0027 is the subject 3 of its 3 events share.",
+      "evidence": {
+        "events": [
+          "AppointmentBooked"
+        ],
+        "examples": [
+          "booked"
+        ]
+      },
+      "override": "--starts-stream BookAppointment=Appointment"
+    },
+    {
+      "slice": "RecordAppointmentNoShow",
+      "code": "inferred-against",
+      "aggregates": [
+        "Appointment"
+      ],
+      "message": "\u26A0 inferred: decides against Appointment \u2014 its examples give Appointment events before it appends; \u0027Appointment\u0027 is the subject 3 of its 3 events share.",
+      "evidence": {
+        "events": [
+          "AppointmentBooked"
+        ],
+        "examples": [
+          "missed"
+        ]
+      },
+      "override": "--aggregate RecordAppointmentNoShow=Appointment"
+    },
+    {
+      "slice": "",
+      "code": "merged-type",
+      "aggregates": [],
+      "message": "Added AppointmentNoShowRecorded to RecordAppointmentNoShow.cs: the board names it and the project declared no type of that name.",
+      "evidence": {
+        "events": [],
+        "examples": []
+      },
+      "file": "Features/Booking/RecordAppointmentNoShow.cs",
+      "type": "AppointmentNoShowRecorded"
+    },
+    {
+      "slice": "RecordAppointmentNoShow",
+      "code": "merged-slice-roles",
+      "aggregates": [],
+      "message": "Added Emits(AppointmentNoShowRecorded) to slice RecordAppointmentNoShow in BookingModel.cs: the board gives it that role and no declaration said it. A statement at the end of Configure reopens the slice by name; its declaration is unchanged.",
+      "evidence": {
+        "events": [],
+        "examples": []
+      },
+      "file": "Features/Booking/BookingModel.cs",
+      "roles": [
+        "Emits(AppointmentNoShowRecorded)"
+      ]
+    }
+  ],
+  "report": [
+    "chapter \u0027Booking\u0027: Command slice \u0027BookAppointment\u0027.",
+    "chapter \u0027Booking\u0027: Command slice \u0027RecordAppointmentNoShow\u0027.",
+    "2 slice(s) from 1 chapter(s).",
+    "\u26A0 inferred aggregate Appointment for AppointmentBooked, AppointmentMissed, AppointmentNoShowRecorded: \u0027Appointment\u0027 is the subject 3 of its 3 events share.",
+    "\u26A0 slice \u0027BookAppointment\u0027: inferred that it starts the Appointment stream \u2014 no example gives it an earlier Appointment event; \u0027Appointment\u0027 is the subject 3 of its 3 events share.",
+    "\u26A0 slice \u0027RecordAppointmentNoShow\u0027: inferred that it decides against Appointment \u2014 its examples give Appointment events before it appends; \u0027Appointment\u0027 is the subject 3 of its 3 events share.",
+    "Added 1 type to Features/Booking/RecordAppointmentNoShow.cs: AppointmentNoShowRecorded.",
+    "Added 1 role (RecordAppointmentNoShow: Emits(AppointmentNoShowRecorded)) to Features/Booking/BookingModel.cs."
+  ],
+  "files": []
+}
