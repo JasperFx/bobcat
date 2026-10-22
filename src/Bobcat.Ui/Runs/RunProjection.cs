@@ -397,7 +397,8 @@ public class RunProjection
                 Progress = new RunProgressProjection(
                     e.ElapsedMs, e.Completed, e.Total, e.InFlight,
                     e.LongestRunningUid, e.LongestRunningDisplayName, e.LongestRunningMs,
-                    e.PeakWorkerRssBytes, e.At);
+                    e.PeakWorkerRssBytes, e.At,
+                    e.Passed, e.Failed, e.Retried, e.WorkersBusy);
                 break;
 
             // RunHeartbeat only refreshes LastEventAt, already done above.
@@ -754,4 +755,9 @@ public record RunProgressProjection(
     string? LongestRunningDisplayName,
     long? LongestRunningMs,
     long? PeakWorkerRssBytes,
-    DateTimeOffset At);
+    DateTimeOffset At,
+    // The verdict split (bobcat#767); null from a publisher that predates it.
+    int? Passed = null,
+    int? Failed = null,
+    int? Retried = null,
+    int? WorkersBusy = null);

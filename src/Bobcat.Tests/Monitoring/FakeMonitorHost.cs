@@ -149,6 +149,13 @@ internal sealed class FakeMonitorHost : IDisposable
     /// (bobcat#589). The ping is counted on arrival, as a real slow console would have seen it.</summary>
     public TimeSpan PingDelay { get; set; } = TimeSpan.Zero;
 
+    /// <summary>
+    /// Hold every <c>POST /api/ingest</c> until this completes — a console that has stopped
+    /// draining, which is how a publisher's queue fills (bobcat#767). The body is read first, so a
+    /// held batch still counts once released. Null never holds.
+    /// </summary>
+    public TaskCompletionSource? HoldIngestUntil { get; set; }
+
     private async Task loop()
     {
         try
@@ -162,6 +169,7 @@ internal sealed class FakeMonitorHost : IDisposable
                 {
                     using var reader = new StreamReader(context.Request.InputStream);
                     var body = await reader.ReadToEndAsync();
+                    if (HoldIngestUntil is { } hold) await hold.Task;
                     lock (_batches) _batches.Add(body);
                     context.Response.StatusCode = 202;
                 }

@@ -485,6 +485,16 @@ public sealed class Supervisor
             // empty filters — so a dashboard never shows a bracket that opened and never closed
             // unless the supervisor itself died.
             monitor?.RunFinished(results);
+
+            // Once, at the end (bobcat#767): events a slow console cost this run, so a short
+            // per-test fold on that console is explained rather than puzzling. The console
+            // itself learns the same figure from its run_finished. Under RunTag the publisher
+            // sees only the wrapper, and the targets it would have asked are the ones held here.
+            if ((monitor?.DropReport() ?? (ownedTargets as MonitorTargets)?.DropReport()) is { } drops)
+            {
+                Log?.Invoke(drops);
+            }
+
             return results;
         }
         finally
@@ -508,7 +518,7 @@ public sealed class Supervisor
     /// </summary>
     private async Task<SupervisorRunPublisher?> startMonitor(Action<IAsyncDisposable> owning)
     {
-        if (RunTag is null) return await SupervisorRunPublisher.TryStart(MonitorSink, _factory.Description);
+        if (RunTag is null) return await SupervisorRunPublisher.TryStart(MonitorSink, _factory.Description, Time);
 
         var sink = MonitorSink;
         if (sink is null)
@@ -520,7 +530,7 @@ public sealed class Supervisor
             sink = targets;
         }
 
-        return await SupervisorRunPublisher.TryStart(new TagRewritingSink(sink, RunTag), _factory.Description);
+        return await SupervisorRunPublisher.TryStart(new TagRewritingSink(sink, RunTag), _factory.Description, Time);
     }
 
     /// <summary>

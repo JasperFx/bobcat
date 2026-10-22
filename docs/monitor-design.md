@@ -65,7 +65,11 @@ POST batches of events to
 (`HttpClient` + STJ only — no Wolverine in Bobcat), and events arrive at tens/second, not
 thousands. The invariant that outranks all others: **a test run is never slowed or failed by
 the monitor.** Probe `GET /api/ping` once at startup with a tight timeout → publisher goes
-no-op for the run if nothing answers; bounded channel, drop on backpressure; discovery via
+no-op for the run if nothing answers; bounded queue, drop on backpressure — except the run
+bracket's two ends, `run_started` and `run_finished`, which go through `IMonitorEventSink.PostTerminal`
+and are queued past the cap, in order (bobcat#767: a dropped `run_finished` left a run "running"
+forever on every board); drops are counted per target and reported once, as
+`run_finished.droppedEvents` and a supervisor log line; discovery via
 `BOBCAT_MONITOR_URL` (default `http://localhost:5525`).
 
 ## Several monitors: `BOBCAT_MONITOR_URL` is a list
@@ -346,9 +350,17 @@ real HTTP without one.
      name, in-flight ms, lane, pid) — once per attempt, the name a capped CI job's log cannot
      produce. `run_progress` (elapsed, done/total, in-flight count, the longest-running test,
      and peak worker RSS when memory sampling is on — null otherwise, unmeasured is never
-     zero) — posted only when the supervisor's opt-in `HeartbeatInterval` is set, distinct
-     from `run_heartbeat` which stays a bare liveness ping; for a foreign-framework worker
-     this is the run's only live progress. Folded on both sides under the same rules (`stalls`
+     zero; since bobcat#767 also the verdict split `passed` / `failed` / `retried` and
+     `workersBusy`, all optional) — distinct from `run_heartbeat` which stays a bare liveness
+     ping; for a foreign-framework worker this is the run's only live progress. Until bobcat#767
+     it was posted only on the supervisor's opt-in `HeartbeatInterval`; now the publisher posts
+     it at a bounded cadence on its own — the first change at once, then at most once a second
+     as the counts change with one trailing post at the end of the interval so the newest state
+     lands, immediately on any change of the failed count, and on every heartbeat beat (the one
+     path that learns peak RSS, carried on every later post). `completed` is tests with a
+     verdict and no retry pending, so a retried test is one test and the figure never exceeds
+     `total`; every post measures `elapsedMs` from `run_started` on one clock, which is what
+     makes the latest-wins fold below safe. Folded on both sides under the same rules (`stalls`
      replay-guarded by uid+timestamp; `progress` latest-wins, ordered by the supervisor's
      elapsed clock so a replayed older heartbeat never rolls it back; a replacement worker's
      own start moves the lane's pid) — mirrored case-for-case between

@@ -122,7 +122,12 @@ public record RunProgressResult(
     string? LongestRunningDisplayName,
     long? LongestRunningMs,
     long? PeakWorkerRssBytes,
-    DateTimeOffset At);
+    DateTimeOffset At,
+    // The verdict split (bobcat#767); null from a publisher that predates it.
+    int? Passed = null,
+    int? Failed = null,
+    int? Retried = null,
+    int? WorkersBusy = null);
 
 /// <summary>
 /// A dead worker. <c>Lane</c> is null for a one-test isolated or recycled process; <c>Fault</c> is
@@ -303,7 +308,8 @@ public static class RunEndpoints
                 ? new RunProgressResult(
                     progress.ElapsedMs, progress.Completed, progress.Total, progress.InFlight,
                     progress.LongestRunningUid, progress.LongestRunningDisplayName,
-                    progress.LongestRunningMs, progress.PeakWorkerRssBytes, progress.At)
+                    progress.LongestRunningMs, progress.PeakWorkerRssBytes, progress.At,
+                    progress.Passed, progress.Failed, progress.Retried, progress.WorkersBusy)
                 : null
         });
 

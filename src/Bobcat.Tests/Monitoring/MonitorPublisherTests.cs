@@ -102,6 +102,73 @@ public class MonitorPublisherTests : IDisposable
         everything.ShouldContain("\"totalScenarios\":3");
     }
 
+    /// <summary>
+    /// bobcat#767: under a burst the queue fills and ordinary events are dropped — that is the
+    /// policy, a run is never slowed by its monitor — but the terminal record is not one of them,
+    /// whatever the queue looks like when it arrives, and it tells the console how many were.
+    /// </summary>
+    [Fact]
+    public async Task a_flooded_queue_drops_ordinary_events_but_never_run_finished_and_reports_the_drops_once()
+    {
+        using var host = new FakeMonitorHost();
+        // The console stops draining: the pump's first batch is held, so nothing leaves the queue
+        // while the burst arrives. Deterministic, where a slow console would be a race.
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.HoldIngestUntil = release;
+
+        var publisher = await MonitorPublisher.TryConnect(host.Url);
+        publisher.ShouldNotBeNull();
+
+        var runId = Guid.NewGuid();
+        publisher.PostTerminal(new RunStarted(runId, "Suite", "/repo", "main", "supervised", DateTimeOffset.UtcNow, 10_000));
+
+        const int burst = 10_000;
+        for (var i = 0; i < burst; i++)
+        {
+            publisher.Post(new RunHeartbeat(runId, DateTimeOffset.UtcNow));
+        }
+
+        // Far more than the queue holds: most of the burst was dropped, and counted.
+        var droppedBeforeFinish = publisher.Dropped;
+        droppedBeforeFinish.ShouldBeGreaterThan(burst / 2);
+
+        // The queue is still full. The terminal record goes in regardless.
+        publisher.PostTerminal(new RunFinished(runId, 0, Passed: 10_000, Failed: 0, PassedOnRetry: 0,
+            Indeterminate: 0, DateTimeOffset.UtcNow));
+        publisher.Dropped.ShouldBe(droppedBeforeFinish, "a terminal record is never a drop");
+
+        release.SetResult();
+        await publisher.DisposeAsync();
+
+        var everything = string.Join("\n", host.Batches);
+        everything.ShouldContain("\"type\":\"run_started\"");
+        everything.ShouldContain("\"type\":\"run_finished\"");
+        // Reported once, on the record that closes the run — the count this console was short by.
+        everything.ShouldContain($"\"droppedEvents\":{droppedBeforeFinish}");
+
+        // In order: the terminal record closes the stream rather than jumping the queue, so a
+        // board folding latest-wins never sees a finished run re-open.
+        var last = host.Batches[^1];
+        last.LastIndexOf("\"type\":\"run_finished\"", StringComparison.Ordinal)
+            .ShouldBeGreaterThan(last.LastIndexOf("\"type\":\"run_heartbeat\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task a_run_finished_with_nothing_dropped_carries_no_drop_count()
+    {
+        using var host = new FakeMonitorHost();
+        var publisher = await MonitorPublisher.TryConnect(host.Url);
+        publisher.ShouldNotBeNull();
+
+        var runId = Guid.NewGuid();
+        publisher.PostTerminal(new RunFinished(runId, 0, 1, 0, 0, 0, DateTimeOffset.UtcNow));
+        await publisher.DisposeAsync();
+
+        publisher.Dropped.ShouldBe(0);
+        // Null, never zero — the field says "this console was short", and it was not.
+        string.Join("\n", host.Batches).ShouldContain("\"droppedEvents\":null");
+    }
+
     [Fact]
     public async Task disposing_with_a_dead_monitor_does_not_hang()
     {

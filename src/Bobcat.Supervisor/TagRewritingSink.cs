@@ -34,6 +34,16 @@ public sealed class TagRewritingSink : IMonitorEventSink
     /// <summary>The tag every <see cref="RunStarted"/> posted through this sink carries.</summary>
     public string Tag { get; }
 
-    public void Post(MonitorEvent @event)
-        => _inner.Post(@event is RunStarted started ? started with { Tag = Tag } : @event);
+    public void Post(MonitorEvent @event) => _inner.Post(rewrite(@event));
+
+    /// <summary>
+    /// The never-dropped path (bobcat#767) stays the never-dropped path through the wrapper:
+    /// <see cref="RunStarted"/> is the record this sink exists to rewrite, and it travels on this
+    /// path, so forwarding it as an ordinary <see cref="Post"/> would quietly put the bracket back
+    /// under the inner sink's drop policy.
+    /// </summary>
+    public void PostTerminal(MonitorEvent @event) => _inner.PostTerminal(rewrite(@event));
+
+    private MonitorEvent rewrite(MonitorEvent @event)
+        => @event is RunStarted started ? started with { Tag = Tag } : @event;
 }

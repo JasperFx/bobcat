@@ -109,6 +109,11 @@ public class ContractRoundTripTests
         wire.PassedOnRetry.ShouldBe(3);
         wire.Indeterminate.ShouldBe(1);
         wire.FinishedAt.ShouldBe(at);
+        // Nothing dropped travels as null, never zero (bobcat#767).
+        wire.DroppedEvents.ShouldBeNull();
+
+        roundTrip(new Client.RunFinished(runId, 1, 10, 2, 3, 1, at, DroppedEvents: 37))
+            .ShouldBeOfType<Wire.RunFinished>().DroppedEvents.ShouldBe(37);
     }
 
     [Fact]
@@ -513,6 +518,21 @@ public class ContractRoundTripTests
         // Sampling off: unmeasured travels as null, never zero.
         roundTrip(new Client.RunProgress(runId, 1000, 0, 1, 1, null, null, null, null, at))
             .ShouldBeOfType<Wire.RunProgress>().PeakWorkerRssBytes.ShouldBeNull();
+
+        // An older publisher sends no verdict split (bobcat#767); the mirror says so with nulls.
+        wire.Passed.ShouldBeNull();
+        wire.Failed.ShouldBeNull();
+        wire.Retried.ShouldBeNull();
+        wire.WorkersBusy.ShouldBeNull();
+
+        var split = roundTrip(new Client.RunProgress(
+                runId, 252_000, 143, 275, 4, "Orders/a", "Orders / a", 94_000, null, at,
+                Passed: 140, Failed: 3, Retried: 2, WorkersBusy: 4))
+            .ShouldBeOfType<Wire.RunProgress>();
+        split.Passed.ShouldBe(140);
+        split.Failed.ShouldBe(3);
+        split.Retried.ShouldBe(2);
+        split.WorkersBusy.ShouldBe(4);
     }
 
     [Fact]

@@ -322,14 +322,22 @@ public class SupervisorTopologyPublishingTests
 
         var progress = sink.Events.OfType<Monitoring.RunProgress>().ToList();
         progress.ShouldNotBeEmpty();
-        var first = progress[0];
-        first.Completed.ShouldBe(0);
-        first.Total.ShouldBe(1);
-        first.InFlight.ShouldBe(1);
-        first.LongestRunningUid.ShouldBe("Slow/hangs");
-        first.LongestRunningMs.ShouldNotBeNull();
+        // The test's start posted progress at once (bobcat#767), before any beat had sampled —
+        // so the first record honestly carries no memory figure, and the newest one, the
+        // heartbeat's, does.
+        progress[0].PeakWorkerRssBytes.ShouldBeNull();
+        var beat = progress[^1];
+        beat.Completed.ShouldBe(0);
+        beat.Total.ShouldBe(1);
+        beat.InFlight.ShouldBe(1);
+        beat.LongestRunningUid.ShouldBe("Slow/hangs");
+        beat.LongestRunningMs.ShouldNotBeNull();
         // The 375 MB → 9 GB story, live: memory sampling was on, so the peak rides along.
-        first.PeakWorkerRssBytes.ShouldBe(500 * mb);
+        beat.PeakWorkerRssBytes.ShouldBe(500 * mb);
+        // One elapsed origin for every post — run_started on the supervisor's clock — so a
+        // reader's latest-wins fold, ordered by it, never sees the cadence posts and the
+        // heartbeat posts leapfrog each other.
+        progress.Select(p => p.ElapsedMs).ShouldBeInOrder();
 
         release.TrySetResult();
         (await run.WaitAsync(TimeSpan.FromSeconds(10))).ExitCode.ShouldBe(0);
@@ -368,7 +376,10 @@ public class SupervisorTopologyPublishingTests
 
         time.Advance(TimeSpan.FromSeconds(10));
 
-        sink.Events.OfType<Monitoring.RunProgress>().ShouldHaveSingleItem().PeakWorkerRssBytes.ShouldBeNull();
+        // The start-of-run post and the heartbeat's (bobcat#767); neither invents a figure.
+        var progress = sink.Events.OfType<Monitoring.RunProgress>().ToList();
+        progress.Count.ShouldBeGreaterThanOrEqualTo(2);
+        progress.ShouldAllBe(p => p.PeakWorkerRssBytes == null);
 
         release.TrySetResult();
         await run.WaitAsync(TimeSpan.FromSeconds(10));

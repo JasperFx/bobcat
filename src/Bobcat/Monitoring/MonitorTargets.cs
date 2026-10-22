@@ -75,6 +75,29 @@ public sealed class MonitorTargets : IMonitorEventSink, IAsyncDisposable
     }
 
     /// <summary>
+    /// Enqueue a terminal record on every target (bobcat#767) — each stamps its own drop count,
+    /// because each has its own queue and its own drops.
+    /// </summary>
+    public void PostTerminal(MonitorEvent @event)
+    {
+        foreach (var publisher in _publishers) publisher.PostTerminal(@event);
+    }
+
+    /// <summary>
+    /// One sentence naming every target that dropped events under backpressure, and how many —
+    /// or null when none did. For a log line at the end of a run; the same figure reaches each
+    /// console on its own <c>run_finished</c>.
+    /// </summary>
+    public string? DropReport()
+    {
+        var drops = _publishers.Where(p => p.Dropped > 0).Select(p => $"{p.Dropped} to {p.Url}").ToList();
+        if (drops.Count == 0) return null;
+
+        return "monitor events dropped under backpressure: " + string.Join(", ", drops) +
+               " — per-test progress on those consoles may be incomplete; run_finished carries the final counts";
+    }
+
+    /// <summary>
     /// Flush every target concurrently. Each publisher already caps its own wait, and running them
     /// together keeps a run's close-out at one ceiling rather than one per target.
     /// </summary>
