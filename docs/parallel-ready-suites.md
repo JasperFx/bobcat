@@ -51,6 +51,10 @@ host, Bobcat or not:
 
 `hostPath` is the suite's test host executable, and `exitCode` is what the program's `Main` returns.
 
+**Across every project of a repository**, a `GateDeclaration` runs one supervisor per
+`(project, framework)` unit under resource tracks and one worker budget, builds once, and exits with
+the worst unit's code -- the local commit-and-push gate. See [Local Commit-and-Push Gates](local-gates.md).
+
 ### A TRX file for CI that reads one
 
 A worker in MTP server mode doesn't write its own TRX, so `--report-trx` on the host gives you
