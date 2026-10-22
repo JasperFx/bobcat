@@ -76,6 +76,29 @@ public class SupervisorRunProgressPublishingTests
     }
 
     [Fact]
+    public async Task the_terminal_path_survives_the_run_tag_wrapper()
+    {
+        // bobcat#768 wraps the sink in a TagRewritingSink; the wrapper must forward the terminal
+        // path as the terminal path, or a tagged run's bracket is back under the drop policy.
+        var sink = new RecordingSink();
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("a")],
+            Outcome = (_, _, _) => WorkerTestState.Passed
+        };
+
+        await new Supervisor(factory)
+        {
+            PublishToMonitor = true,
+            MonitorSink = sink,
+            RunTag = "local-gates/bobcat-run-progress/unit"
+        }.Run();
+
+        sink.Terminal.Select(e => e.GetType()).ShouldBe([typeof(RunStarted), typeof(RunFinished)]);
+        sink.Terminal.OfType<RunStarted>().Single().Tag.ShouldBe("local-gates/bobcat-run-progress/unit");
+    }
+
+    [Fact]
     public async Task the_counts_follow_the_run_and_a_retry_is_pending_rather_than_failed()
     {
         var time = new FakeTimeProvider();

@@ -335,6 +335,30 @@ public sealed class Supervisor
     /// </summary>
     public IMonitorEventSink? MonitorSink { get; set; }
 
+    /// <summary>
+    /// The correlation tag this run publishes under, overriding whatever <c>BOBCAT_RUN_TAG</c>
+    /// says in the process environment (bobcat#768). Null, the default, keeps the environment's
+    /// tag exactly as before.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The environment variable is read once per process, so several supervisors running inside
+    /// one process — a gate running every test project of a repository — would all publish
+    /// under the same tag, and a board would show N runs claiming one plan node. Set this per
+    /// supervisor (<c>&lt;plan&gt;/&lt;node&gt;/&lt;project&gt;.&lt;tfm&gt;</c> is the gate's
+    /// spelling) and each run speaks for its own unit.
+    /// </para>
+    /// <para>
+    /// Applied two ways, so the whole unit agrees: the run bracket's <c>run_started</c> is stamped
+    /// through a <see cref="TagRewritingSink"/> over <see cref="MonitorSink"/> (or over the targets
+    /// the supervisor connected to itself), and every worker is launched with
+    /// <c>BOBCAT_RUN_TAG</c> set to it, beside the <c>BOBCAT_RUN_ID</c> grouping pair, so a
+    /// worker's own records (its results file, for one) name the same tag. Opaque and never
+    /// interpreted, like the variable it overrides.
+    /// </para>
+    /// </remarks>
+    public string? RunTag { get; set; }
+
     public Supervisor AddFailurePolicy(IFailurePolicy policy)
     {
         _policies.Add(policy);
@@ -437,10 +461,11 @@ public sealed class Supervisor
 
         // Connected before anything launches, because every worker — the discovery one
         // included — must inherit the grouping environment from its very first launch.
+        IAsyncDisposable? ownedTargets = null;
         var monitor = PublishToMonitor
-            ? await SupervisorRunPublisher.TryStart(MonitorSink, _factory.Description, Time)
+            ? await startMonitor(targets => ownedTargets = targets)
             : null;
-        _monitorEnvironment = monitor?.WorkerEnvironment;
+        _monitorEnvironment = monitor is null ? null : workerEnvironmentFor(monitor);
 
         // The monitor publisher watches like any other observer — the run bracket and the
         // retry topology are the same kind of fact, and there is no reason for the supervisor
@@ -463,8 +488,12 @@ public sealed class Supervisor
 
             // Once, at the end (bobcat#767): events a slow console cost this run, so a short
             // per-test fold on that console is explained rather than puzzling. The console
-            // itself learns the same figure from its run_finished.
-            if (monitor?.DropReport() is { } drops) Log?.Invoke(drops);
+            // itself learns the same figure from its run_finished. Under RunTag the publisher
+            // sees only the wrapper, and the targets it would have asked are the ones held here.
+            if ((monitor?.DropReport() ?? (ownedTargets as MonitorTargets)?.DropReport()) is { } drops)
+            {
+                Log?.Invoke(drops);
+            }
 
             return results;
         }
@@ -473,7 +502,50 @@ public sealed class Supervisor
             // A cancelled or thrown-through run posts no RunFinished — its heartbeats just
             // stop, and the monitor's orphan detection tells the truth about what happened.
             if (monitor is not null) await monitor.DisposeAsync();
+
+            // The targets this supervisor connected to itself in order to wrap them for RunTag.
+            // Flushed after the publisher, which is the last thing to post to them.
+            if (ownedTargets is not null) await ownedTargets.DisposeAsync();
         }
+    }
+
+    /// <summary>
+    /// Open the run's monitor publisher. Without a <see cref="RunTag"/> this is exactly
+    /// <see cref="SupervisorRunPublisher.TryStart"/>; with one, the sink the run publishes to is
+    /// wrapped in a <see cref="TagRewritingSink"/> first — so the supervisor connects to the
+    /// targets itself when no <see cref="MonitorSink"/> was given, and hands them to the caller
+    /// to flush at the end, since a publisher only disposes what it connected on its own.
+    /// </summary>
+    private async Task<SupervisorRunPublisher?> startMonitor(Action<IAsyncDisposable> owning)
+    {
+        if (RunTag is null) return await SupervisorRunPublisher.TryStart(MonitorSink, _factory.Description, Time);
+
+        var sink = MonitorSink;
+        if (sink is null)
+        {
+            var targets = await MonitorTargets.TryConnect();
+            if (targets is null) return null;
+
+            owning(targets);
+            sink = targets;
+        }
+
+        return await SupervisorRunPublisher.TryStart(new TagRewritingSink(sink, RunTag), _factory.Description, Time);
+    }
+
+    /// <summary>
+    /// What every worker launch carries for the monitor: the publisher's grouping pair, plus
+    /// <c>BOBCAT_RUN_TAG</c> when <see cref="RunTag"/> overrides the process's own, so a worker
+    /// names the same unit its supervisor does.
+    /// </summary>
+    private IReadOnlyDictionary<string, string> workerEnvironmentFor(SupervisorRunPublisher monitor)
+    {
+        if (RunTag is null) return monitor.WorkerEnvironment;
+
+        return new Dictionary<string, string>(monitor.WorkerEnvironment, StringComparer.Ordinal)
+        {
+            [MonitorRunInfo.RunTagVariable] = RunTag
+        };
     }
 
     /// <summary>
