@@ -274,6 +274,13 @@ real HTTP without one.
    would mark the shared run finished with partial counts), while `BOBCAT_RUN_ID` alone still
    just pins identity for a standalone run that keeps its bracket. A cancelled/crashed
    supervisor posts no RunFinished — heartbeats stop and orphan detection tells the truth.
+   - **`Supervisor.RunTag` overrides `BOBCAT_RUN_TAG` for one supervisor** (bobcat#768). The
+     variable is read once per process, so several supervisors in one process — a gate running
+     every test project of a repository — would all publish under the same tag. With `RunTag`
+     set, the run's sink is wrapped in a `TagRewritingSink` (a public decorator over any
+     `IMonitorEventSink`, rewriting `RunStarted.Tag` and nothing else) and every worker is
+     launched with `BOBCAT_RUN_TAG` set to it beside the grouping pair, so the bracket and the
+     workers' own records name the same unit. Null keeps the environment's tag exactly as before.
 4. **`ISupervisorObserver`** (built 2026-08-02, issue #84) — the supervisor's live narration:
    `AttemptRecorded` (every attempt, passes included, with the policy verdict that followed
    it), `RetryScheduled`, `LaneStarted`/`LaneFinished`, `ResourceRecycled`, `WorkerFaulted`.
