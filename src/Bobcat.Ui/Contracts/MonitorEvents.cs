@@ -89,7 +89,11 @@ public record RunFinished(
     int? AcceptanceFailing = null,
     // Tests the framework skipped (bobcat#655), counted in neither Passed nor Failed. Null from an
     // older publisher or the in-process bracket.
-    int? Skipped = null) : MonitorEvent(RunId);
+    int? Skipped = null,
+    // Events the publisher dropped under backpressure on the way to this console (bobcat#767), so
+    // the per-test fold may be short while these counts are complete. Null from an older publisher
+    // and when nothing was dropped.
+    int? DroppedEvents = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// Attempt is 1-based; a value above 1 marks a retry attempt. TotalSteps is how many steps
@@ -436,10 +440,11 @@ public record TestStalled(
     DateTimeOffset At) : MonitorEvent(RunId);
 
 /// <summary>
-/// The supervisor's opt-in progress heartbeat (issue #148) — distinct from run_heartbeat,
-/// which is a bare liveness ping. Only posted when the supervisor's HeartbeatInterval is
-/// configured. For a foreign-framework worker (xUnit, tUnit) that streams no scenario events,
-/// this is the only live progress a run has. The longest-running trio is null when nothing is
+/// The supervisor's live progress (issue #148, bobcat#767) — distinct from run_heartbeat,
+/// which is a bare liveness ping. Posted at a bounded cadence while the run is going (at most
+/// once a second as the counts change, immediately when the failed count changes) and on every
+/// opt-in HeartbeatInterval beat. For a foreign-framework worker (xUnit, tUnit) that streams no
+/// scenario events, this is the only live progress a run has. The longest-running trio is null when nothing is
 /// in flight; PeakWorkerRssBytes is the highest worker RSS seen so far when memory sampling
 /// (issue #149) is on, and null otherwise — unmeasured is never zero.
 /// </summary>
@@ -453,7 +458,14 @@ public record RunProgress(
     string? LongestRunningDisplayName,
     long? LongestRunningMs,
     long? PeakWorkerRssBytes,
-    DateTimeOffset At) : MonitorEvent(RunId);
+    DateTimeOffset At,
+    // The verdict split of Completed (bobcat#767): latest verdict passed, latest verdict failed with
+    // no retry pending, and tests retried at least once. Null from an older publisher.
+    int? Passed = null,
+    int? Failed = null,
+    int? Retried = null,
+    // Workers with a test in flight right now. Null from an older publisher.
+    int? WorkersBusy = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// One foreign test started (issue #195) — the supervisor's forwarding of a worker's live

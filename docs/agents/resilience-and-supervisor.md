@@ -294,7 +294,12 @@ ones on upgrade. Same reasoning as retries being opt-in.
 - **The cluster's live surfaces are on the monitor wire** (2026-08-24): `worker_started`
   (never for discovery — it launches before the run bracket opens, and `run_started` stays the
   stream's first event), `test_stalled`, and `run_progress` (the #148 heartbeat, carrying peak
-  worker RSS when sampling is on — distinct from `run_heartbeat`, the bare liveness ping).
+  worker RSS when sampling is on — distinct from `run_heartbeat`, the bare liveness ping; since
+  bobcat#767 posted at a bounded cadence whether or not `HeartbeatInterval` is set, with the
+  verdict split and workers busy, from counts `SupervisorRunPublisher` keeps itself off the live
+  `TestUpdated` stream — `AttemptRecorded` arrives only when a whole lane returns, so a bar fed
+  from it alone would move once per lane). `run_started`/`run_finished` go through
+  `IMonitorEventSink.PostTerminal` and are never dropped under backpressure.
   Posted by `SupervisorRunPublisher`; how the receiving side folds and renders them is
   `Bobcat.Ui`'s (and Stoat's, for its own copy), and kept in `docs/monitor-design.md` (Bobcat-side seams item 4) because the fold is half of
   the contract — a publisher that does not know how its events are read cannot tell an

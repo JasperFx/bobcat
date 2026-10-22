@@ -438,7 +438,7 @@ public sealed class Supervisor
         // Connected before anything launches, because every worker — the discovery one
         // included — must inherit the grouping environment from its very first launch.
         var monitor = PublishToMonitor
-            ? await SupervisorRunPublisher.TryStart(MonitorSink, _factory.Description)
+            ? await SupervisorRunPublisher.TryStart(MonitorSink, _factory.Description, Time)
             : null;
         _monitorEnvironment = monitor?.WorkerEnvironment;
 
@@ -460,6 +460,12 @@ public sealed class Supervisor
             // empty filters — so a dashboard never shows a bracket that opened and never closed
             // unless the supervisor itself died.
             monitor?.RunFinished(results);
+
+            // Once, at the end (bobcat#767): events a slow console cost this run, so a short
+            // per-test fold on that console is explained rather than puzzling. The console
+            // itself learns the same figure from its run_finished.
+            if (monitor?.DropReport() is { } drops) Log?.Invoke(drops);
+
             return results;
         }
         finally

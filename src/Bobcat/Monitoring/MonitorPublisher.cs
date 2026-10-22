@@ -13,6 +13,14 @@ public interface IMonitorEventSink
 {
     /// <summary>Enqueue an event. Must never block and never throw.</summary>
     void Post(MonitorEvent @event);
+
+    /// <summary>
+    /// Enqueue an event that must not be dropped under backpressure (bobcat#767): the run bracket's
+    /// two ends, <see cref="RunStarted"/> and <see cref="RunFinished"/>. Still never blocks and
+    /// never throws. The default forwards to <see cref="Post"/>, which is right for a sink with no
+    /// backpressure policy of its own; <see cref="MonitorPublisher"/> overrides it.
+    /// </summary>
+    void PostTerminal(MonitorEvent @event) => Post(@event);
 }
 
 /// <summary>
@@ -21,8 +29,9 @@ public interface IMonitorEventSink
 /// <list type="bullet">
 /// <item><see cref="TryConnect"/> probes <c>/api/ping</c> once with a tight timeout and returns
 /// null when nothing answers — the run then proceeds with no publisher at all.</item>
-/// <item>Events go into a bounded channel and are dropped on backpressure rather than blocking
-/// the caller.</item>
+/// <item>Events go into a bounded queue and are dropped on backpressure rather than blocking
+/// the caller — except the run bracket's terminal records, which <see cref="PostTerminal"/> always
+/// queues (bobcat#767). Drops are counted and reported once, on <c>run_finished</c>.</item>
 /// <item>Repeated send failures mid-run mark the monitor gone and the pump stops; nothing is
 /// retried, nothing surfaces to the run.</item>
 /// </list>
@@ -49,14 +58,23 @@ public sealed class MonitorPublisher : IMonitorEventSink, IAsyncDisposable
     private readonly Channel<MonitorEvent> _channel;
     private readonly Task _pump;
     private int _consecutiveFailures;
+    private int _pending;
+    private long _dropped;
 
     private MonitorPublisher(HttpClient client)
     {
         _client = client;
-        _channel = Channel.CreateBounded<MonitorEvent>(new BoundedChannelOptions(channelCapacity)
+        // Unbounded underneath, with the capacity enforced by Post rather than by the channel
+        // (bobcat#767). A DropWrite channel dropped whatever arrived while it was full, and under a
+        // burst at the end of a run that could be run_finished itself — the one record whose loss
+        // leaves a run "running" forever on every board. PostTerminal now queues past the cap, in
+        // order behind what is already waiting, so the terminal record is never the one dropped
+        // and never jumps ahead of the verdicts it summarises. A blocking write was the other
+        // option and was rejected: Post must never hold a worker's I/O thread, and a dedicated
+        // terminal channel would reorder run_finished ahead of buffered test results.
+        _channel = Channel.CreateUnbounded<MonitorEvent>(new UnboundedChannelOptions
         {
-            SingleReader = true,
-            FullMode = BoundedChannelFullMode.DropWrite
+            SingleReader = true
         });
         _pump = Task.Run(pump);
     }
@@ -175,7 +193,51 @@ public sealed class MonitorPublisher : IMonitorEventSink, IAsyncDisposable
         return new MonitorPublisher(client);
     }
 
-    public void Post(MonitorEvent @event) => _channel.Writer.TryWrite(@event);
+    /// <summary>
+    /// Enqueue, or drop when the queue is at capacity. Never blocks, never throws. A drop is
+    /// counted; see <see cref="Dropped"/>.
+    /// </summary>
+    public void Post(MonitorEvent @event)
+    {
+        if (Volatile.Read(ref _pending) >= channelCapacity)
+        {
+            Interlocked.Increment(ref _dropped);
+            return;
+        }
+
+        enqueue(@event);
+    }
+
+    /// <summary>
+    /// Enqueue regardless of capacity (bobcat#767): the run bracket's terminal records. A
+    /// <see cref="RunFinished"/> is stamped with this target's <see cref="Dropped"/> count on the
+    /// way in, so the console reading it knows its per-test counts may be short — the one report
+    /// of the drops, made once, at the end. The only way this record is still lost is the pump
+    /// having given up on a monitor that stopped answering, which no write policy can fix.
+    /// </summary>
+    public void PostTerminal(MonitorEvent @event)
+    {
+        var dropped = Dropped;
+        if (dropped > 0 && @event is RunFinished finished)
+        {
+            @event = finished with { DroppedEvents = (int)Math.Min(dropped, int.MaxValue) };
+        }
+
+        enqueue(@event);
+    }
+
+    private void enqueue(MonitorEvent @event)
+    {
+        // TryWrite fails only once the writer is complete — the pump gave up or the publisher
+        // was disposed — and then there is nobody to count for.
+        if (_channel.Writer.TryWrite(@event)) Interlocked.Increment(ref _pending);
+    }
+
+    /// <summary>
+    /// Events this target dropped under backpressure so far — ordinary events only, never a
+    /// terminal one. Reported once, on <c>run_finished</c>, and by the supervisor's log.
+    /// </summary>
+    public long Dropped => Interlocked.Read(ref _dropped);
 
     /// <summary>Where this publisher is pointed — for a message that has to name the console.</summary>
     internal string Url => _client.BaseAddress?.ToString().TrimEnd('/') ?? ResolveUrl();
@@ -275,6 +337,7 @@ public sealed class MonitorPublisher : IMonitorEventSink, IAsyncDisposable
             batch.Clear();
             while (batch.Count < maxBatchSize && _channel.Reader.TryRead(out var e))
             {
+                Interlocked.Decrement(ref _pending);
                 batch.Add(e);
             }
 

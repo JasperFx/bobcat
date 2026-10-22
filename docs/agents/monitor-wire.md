@@ -54,7 +54,8 @@ it would make Stoat's live view depend on `bobcat ui` running.
 
 - **`MonitorTargets` is the fan-out, and the isolation is structural rather than promised.** It
   holds one `MonitorPublisher` per URL, and a publisher already owns its client, its bounded
-  channel, its drop-on-backpressure policy and its give-up counter — so *"a run is never slowed or
+  queue, its drop-on-backpressure policy (never applied to `PostTerminal`, the run bracket's two
+  ends — bobcat#767) and its give-up counter — so *"a run is never slowed or
   failed by the monitor"* holds **per target** with nothing added: an unreachable Stoat cannot cost
   `bobcat ui` one event, and the reverse. That is why the list is a composite over the existing
   publisher rather than N targets inside it; the thing the invariant is a property of is one target.

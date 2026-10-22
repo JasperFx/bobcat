@@ -74,7 +74,12 @@ public record RunFinished(
     // Tests the framework skipped (bobcat#655), counted in neither Passed nor Failed. Null from an
     // older publisher, and from the in-process bracket, which never sees a skipped test open a
     // scenario. Optional and additive.
-    int? Skipped = null) : MonitorEvent(RunId);
+    int? Skipped = null,
+    // Events the publisher dropped under backpressure on the way to THIS console (bobcat#767),
+    // stamped per target by MonitorPublisher.PostTerminal — so a reader knows its per-test fold
+    // may be short while these counts are the complete ones. Null from an older publisher and
+    // when nothing was dropped. Optional and additive.
+    int? DroppedEvents = null) : MonitorEvent(RunId);
 
 public record ScenarioStarted(
     Guid RunId,
@@ -491,12 +496,19 @@ public record TestStalled(
     int? ProcessId,
     DateTimeOffset At) : MonitorEvent(RunId);
 
-// The supervisor's opt-in progress heartbeat (issue #148) — distinct from run_heartbeat, which
-// is a bare liveness ping. Only posted when the supervisor's HeartbeatInterval is configured.
+// The supervisor's live progress (issue #148, bobcat#767) — distinct from run_heartbeat, which is
+// a bare liveness ping. Posted at a bounded cadence while a supervised run is going: at most once
+// a second as the counts change, immediately when the failed count changes, and on every opt-in
+// HeartbeatInterval beat (the path that also carries peak worker RSS). Latest wins at a reader,
+// ordered by ElapsedMs, which is measured from run_started on the supervisor's clock.
 public record RunProgress(
     Guid RunId,
     long ElapsedMs,
+    // Tests with a verdict and no retry pending — one test is one however many attempts it took,
+    // so this never exceeds Total. Skipped and indeterminate tests count here and in neither
+    // Passed nor Failed.
     int Completed,
+    // Tests planned: the post-filter total run_started announced.
     int Total,
     int InFlight,
     // The longest-running in-flight test — the clause a reader watches: a stuck run shows as
@@ -507,7 +519,17 @@ public record RunProgress(
     // Highest worker RSS seen so far, when memory sampling (issue #149) is on; null otherwise —
     // unmeasured is never zero.
     long? PeakWorkerRssBytes,
-    DateTimeOffset At) : MonitorEvent(RunId);
+    DateTimeOffset At,
+    // The verdict split of Completed (bobcat#767), for a bar that colours what it has: tests whose
+    // latest verdict passed (on the first attempt or a retry), tests whose latest verdict failed
+    // with no retry pending, and tests that have been retried at least once (membership, not
+    // attempts — a test retried twice is one). Null from an older publisher. Optional and additive.
+    int? Passed = null,
+    int? Failed = null,
+    int? Retried = null,
+    // Workers with a test in flight right now — distinct processes, so a one-test-at-a-time lane
+    // counts once however it is named. Null from an older publisher. Optional and additive.
+    int? WorkersBusy = null) : MonitorEvent(RunId);
 
 // The supervisor's forwarding of a worker's live per-test stream (issue #195) — the only
 // per-test progress a run whose worker is not itself a Bobcat runner ever produces. Uid is

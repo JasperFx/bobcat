@@ -406,7 +406,7 @@ public static class MarkerStepRun
             {
                 // TotalScenarios is null on purpose. The runner owns discovery here and has not
                 // told us how many tests it intends to run — and a wrong total is worse than none.
-                _sink.Post(new RunStarted(
+                _sink.PostTerminal(new RunStarted(
                     info.RunId, info.Suite, info.Repository, info.Branch, info.Mode,
                     DateTimeOffset.UtcNow, TotalScenarios: null, Tag: info.Tag, Session: info.Session,
                     Command: info.Command));
@@ -534,7 +534,7 @@ public static class MarkerStepRun
 
             if (_started)
             {
-                _sink?.Post(new RunFinished(
+                _sink?.PostTerminal(new RunFinished(
                     _info.RunId,
                     ExitCode: _failed > 0 ? 1 : 0,
                     Passed: _passed,
@@ -669,7 +669,7 @@ public static class MarkerStepRun
 
             if (_sink is not null && !info.HasExternalOwner)
             {
-                _sink.Post(new RunStarted(
+                _sink.PostTerminal(new RunStarted(
                     info.RunId, info.Suite, info.Repository, info.Branch, info.Mode,
                     DateTimeOffset.UtcNow, TotalScenarios: null, Tag: info.Tag, Session: info.Session,
                     Command: info.Command));
