@@ -30,20 +30,10 @@ csproj line to remember -- and no sibling project that silently needed the same 
 
 Then mark the class:
 
-```csharp
-using Bobcat.Xunit;      // or Bobcat.TUnit, Bobcat.NUnit, Bobcat.MSTest
+<<< ../src/Bobcat.Xunit.Samples/Specs/DaemonSpecs.cs#feature-only{cs}
 
-[BobcatFeature("Async daemon")]
-public class DaemonSpecs
-{
-    [Fact]
-    public async Task the_daemon_catches_up()
-    {
-        // Given events are published
-        ...
-    }
-}
-```
+`[BobcatFeature]` is in the adapter's namespace: `using Bobcat.Xunit;` (or `Bobcat.TUnit`, `Bobcat.NUnit`,
+`Bobcat.MSTest`).
 
 `[BobcatFeature]` names the feature; leave the title out and the class name, prettified, is used.
 **On xUnit that is all it takes**: the `Bobcat.Xunit` package applies an assembly-level hook,
@@ -81,10 +71,7 @@ attribute, so [its adapter](mstest.md) compiles that hook into the test project.
 A step attribute on a method -- often a shared helper -- goes the other way from a comment. Decorate
 it once and *every* test that already calls it renders that step:
 
-```csharp
-[Given("the events are published on {threads} threads")]
-internal Task PublishMultiThreaded(int threads) => …
-```
+<<< ../src/Bobcat.Xunit.Samples/Grammars/DaemonContext.cs#step-helper-template{cs}
 
 `{threads}` is filled in from the call site, so one attribute renders `PublishMultiThreaded(3)` as
 "Given the events are published on 3 threads".
@@ -129,19 +116,16 @@ A literal argument is substituted at build time. Everything else binds **at exec
 the value the helper was actually called with -- which matters because a typed vocabulary has almost
 no literals in it:
 
-```csharp
-[Given("{aggregate} \"{id}\" has already recorded these events")]
-internal Task GivenEvents(Type aggregate, Guid id) => …
+<<< ../src/Bobcat.Xunit.Samples/Grammars/SchedulingSteps.cs#value-placeholders{cs}
 
-[When("{command} is posted to \"{route}\"")]
-internal Task WhenPosted(object command, string route) => …
-```
+Called with a `Type`, a `Guid` and a command object:
+
+<<< ../src/Bobcat.Xunit.Samples/Specs/BookingSpecs.cs#value-placeholder-calls{cs}
 
 ```
-Given Appointment "8f1c…" has already recorded these events
-When ConfirmAppointment is posted to "/api/scheduling/confirmappointment"
-Then AppointmentConfirmed is emitted
-Then the response is 404
+✓ Given Appointment "8f1c2b7e…" has already recorded these events
+✓ When  ConfirmAppointment is posted to "/api/scheduling/confirmappointment"
+✓ Then  AppointmentConfirmed is emitted
 ```
 
 How a value reads:
@@ -149,7 +133,8 @@ How a value reads:
 | value | renders as |
 |---|---|
 | `Type` | its short name -- `Appointment` |
-| `string`, number, `bool`, `Guid`, `Uri`, enum, date/time | the value, culture-invariant |
+| `string`, number, `bool`, `Uri`, enum, date/time | the value, culture-invariant |
+| `Guid` | the name the scenario gave it -- `#id` for `var id = Guid.NewGuid()` in the test, listed beside its value when the scenario fails -- else its first eight characters, `8f1c2b7e…` |
 | a sequence | its items, comma-joined, capped at five |
 | a type that overrides `ToString()` | that text -- a `ClusterNode` whose `ToString()` is `"node 2"` reads `node 2` |
 | anything else | its **type** name -- `new ConfirmAppointment(id)` is `ConfirmAppointment` |
@@ -171,27 +156,7 @@ template typo can't render as `{thread}` forever with nothing reported.
 
 Marker comments declare the steps of one test:
 
-```csharp
-[BobcatFeature("Async daemon")]
-public class when_the_daemon_catches_up : DaemonContext
-{
-    [Fact]
-    public async Task the_projection_catches_up()
-    {
-        // Given the events are published
-        await PublishEvents();
-
-        // the daemon polls on its own schedule, which is why the wait below exists
-        await WaitForNonStaleAsync();
-
-        // When the projection daemon is running
-        using var daemon = await StartDaemon();
-
-        // Then every expected aggregate matches
-        await CheckAllExpectedAggregatesAgainstActuals();
-    }
-}
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/DaemonCatchUpSpecs.cs#marker-comments{cs}
 
 Three of those comments are steps and one is a comment. A marker is a `//` comment opening with
 `Given`, `When`, `Then`, `And` or `But` as a whole word -- everything else stays invisible, which is
@@ -203,11 +168,7 @@ initializer and no startup cost.
 are part of its sentence, joined with spaces, up to a blank line, a line of code, or a line that is
 a marker of its own (`// And …`, `// * …`, `// Note: …`):
 
-```csharp
-// Then every event at or below the committed mark is in a document already; nothing past the
-// failing event is in one
-await CheckDocuments();
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/DaemonCatchUpSpecs.cs#wrapped-marker{cs}
 
 renders as one step with the whole sentence. To keep an ordinary comment out of the step, put a
 blank line between them or move it below the code.
@@ -221,20 +182,7 @@ Bobcat's rendering does not depend on Given / When / Then, and should not. The i
 ThoughtWorks' **Gauge**, whose specifications are bulleted sentences with no keyword vocabulary at
 all:
 
-```csharp
-[Fact]
-public async Task the_overnight_sweep_reconciles_every_wallet()
-{
-    // * two wallets, one of them credited twice
-    await Seed();
-
-    // * the overnight reconciliation runs
-    await Sweep();
-
-    // Then every balance agrees with its events
-    await AssertBalances();
-}
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/ReconciliationSpecs.cs#bullet-steps{cs}
 
 That renders as three steps, the first two carrying no keyword at all. **The bullet is required**
 because most comments in a test body are not steps. `*` is one character of opt-in, unmistakably
@@ -248,11 +196,14 @@ claim. The comment is the author's sentence about *this* test. The attribute rep
 wherever it is called from. So the comment is the row, and the helper renders underneath it with its
 own keyword and its own verdict:
 
+<<< ../src/Bobcat.Xunit.Samples/Specs/DaemonCatchUpSpecs.cs#nested-steps{cs}
+
 ```
-Given the events are published                    52ms
-    Given the events are published on 3 threads   40ms
-    Given the events are flushed                  12ms
-When the projection daemon is running             declared
+✓ Given the events are published (12ms)
+  ✓ Given the events are published on 3 threads (1ms)
+  ✓ And   the events are flushed (10ms)
+· When  the projection daemon is running — declared
+· Then  every expected aggregate matches — declared
 ```
 
 A helper called where no comment has been written yet -- before the first marker, or from a method
@@ -263,11 +214,13 @@ a `[When]` helper is not part of the Given, so the region ends there: that helpe
 up to the next marker comment, renders on its own rather than indented under a sentence of a different
 keyword.
 
-```csharp
-// Given the AppHost is running
-await StartHost();                  // [Given] -- nested under the comment
-await WhenTheAboutPageIsRead();     // [When]  -- ends the region, renders on its own
-ThenTheConsoleAnswers(200);         // [Then]  -- on its own too
+<<< ../src/Bobcat.Xunit.Samples/Specs/ConsoleHostSpecs.cs#another-keyword-ends-the-region{cs}
+
+```
+✓ Given the AppHost is running
+  ✓ Given the AppHost is started
+✓ When  the about page is read
+✓ Then  the console answers 200 (2ms)
 ```
 
 An `And`/`But` comment carries the keyword before it, so a `[When]` helper under `// And …` after a
@@ -489,12 +442,7 @@ duration.
 A C# test calls a helper itself, so there's no generated code around the call to retry it. The poll
 goes inside the helper:
 
-```csharp
-[Then("the outstanding count becomes {count}")]
-internal Task OutstandingBecomes(int count)
-    => SpecAssert.EventuallyAsync("count", () => _queue.Outstanding, count,
-        timeout: TimeSpan.FromSeconds(5), interval: TimeSpan.FromMilliseconds(50));
-```
+<<< ../src/Bobcat.Xunit.Samples/Grammars/QueueSteps.cs#eventually{cs}
 
 | | |
 |---|---|
@@ -521,16 +469,12 @@ calls. The poll goes in the helper, as above, and a tolerance goes in `options:`
 ### Saying what the system did -- `SpecLog.Write` (bobcat#547) {#step-logs}
 
 When a spec goes red the next question is "what did the system do?". A step helper answers it
-with `SpecLog.Write`:
+with `SpecLog.Write` -- here, a dispatcher saying what it decided about each parcel:
 
-```csharp
-[When("the order is placed")]
-internal async Task PlaceOrder()
-{
-    var response = await _client.PostAsJsonAsync("/orders", _order);
-    SpecLog.Write($"POST /orders -> {(int)response.StatusCode}");
-}
-```
+<<< ../src/Bobcat.Xunit.Samples/Grammars/DispatchSteps.cs#dispatch-when{cs}
+
+The same step also adds rows to a scenario report (`SpecReport.For<T>()`); [Failure telemetry](failure-telemetry.md)
+covers both, and the logs this step writes.
 
 - **The line goes on the step in progress**, the innermost open one, and renders under that step in
   the console, the JSON report (`logs` on the step), the runner's own test output, and the monitor
@@ -563,11 +507,7 @@ A wait step that gives up can do both: gather a wrong for each thing it waited f
 disagreement is reported, then throw `SpecCriticalException` because the rest of the scenario
 depends on it. That's the intended pattern:
 
-```csharp
-SpecAssert.Check("agents running on more than one node", duplicated, "none");   // fails
-SpecAssert.Check("agents not running anywhere", missing, "none");              // passes
-throw new SpecCriticalException("the agents did not settle; the rest of the scenario depends on it");
-```
+<<< ../src/Bobcat.Xunit.Samples/Grammars/ClusterSteps.cs#gather-then-stop{cs}
 
 The step's status is `error`, and the counts carry both: each check is a right or a wrong, and the
 exception is one error. Here that's `Rights: 1, Wrongs: 1, Errors: 1` for the step. So `errors`
@@ -582,24 +522,7 @@ application won't start. Every test needs the app, so every test would wait out 
 find that out, and the run ends with hundreds of timeouts and the real cause buried somewhere in
 the first one. Throw `SpecCatastrophicException` where you start the app instead:
 
-```csharp
-public sealed class RunningApp : IAsyncLifetime
-{
-    public async ValueTask InitializeAsync()
-    {
-        try
-        {
-            await _app.StartAsync();
-            await _page.GotoAsync(_app.BaseUrl);
-        }
-        catch (Exception e)
-        {
-            throw new SpecCatastrophicException($"the app did not start: {e.Message}", e);
-        }
-    }
-    // ...
-}
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/RunningAppSpecs.cs#catastrophic-fixture{cs}
 
 The test that meets it reports the real error, stack trace included. Every scenario after it fails
 at once, without running its body:
@@ -635,29 +558,19 @@ A plain `dotnet test` then fails fast with one cause. This works in xUnit, TUnit
 A red step often needs more than its message: the page it was looking at, the response body, a log.
 `SpecAttachment` puts bytes on the **step in progress**, or on the scenario when called between steps:
 
-```csharp
-SpecAttachment.Add("response.json", bytes, "application/json");
-SpecAttachment.AddText("console.log", consoleOutput);
-SpecAttachment.AddFile(screenshotPath);          // read now; media type from the extension
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/EvidenceSpecs.cs#attachments{cs}
 
 For evidence nobody should have to ask for in every spec, register an `IFailureCapture` **once** --
 a Playwright base class's static constructor, an assembly fixture, a module initializer. It is called
 for every step that goes `failed` or `error` (the innermost one, not each parent the failure bubbles
-through) and returns attachments that hang on that step:
+through) and returns attachments that hang on that step. This one attaches a dispatcher's manifest; a
+Playwright suite returns `await page.ScreenshotAsync()` the same way:
 
-```csharp
-public sealed class ScreenshotOnFailure : IFailureCapture
-{
-    public async Task<IReadOnlyList<CapturedAttachment>> CaptureAsync(FailedStep step, CancellationToken cancellation)
-    {
-        if (BrowserSpec.CurrentPage is not { } page) return [];   // the test's own AsyncLocal flows in
-        return [new CapturedAttachment("screenshot.png", await page.ScreenshotAsync(), "image/png")];
-    }
-}
+<<< ../src/Bobcat.Xunit.Samples/Grammars/DispatchSteps.cs#dispatch-capture{cs}
 
-SpecAttachment.RegisterFailureCapture(new ScreenshotOnFailure());
-```
+Registered once, from the step class's static constructor:
+
+<<< ../src/Bobcat.Xunit.Samples/Grammars/DispatchSteps.cs#dispatch-capture-registration{cs}
 
 - **It can never fail a test.** A capture that throws, or runs past `SpecAttachment.CaptureTimeout`
   (10 s), is logged to the test's output -- `Bobcat: failure capture X threw on '…' and was skipped` --
@@ -763,16 +676,7 @@ happened. Two shapes catch people out:
 If that is not the specification you want to read, say it once over the whole collection, outside
 the loop:
 
-```csharp
-// 60 steps, one per event
-foreach (var e in events)
-{
-    e.Version.ShouldBe(1);
-}
-
-// one step
-events.ShouldAllBe(e => e.Version == 1);
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/StepHelperSpecs.cs#assertion-in-a-loop{cs}
 
 `ShouldAllBe` has no comparison Bobcat can put in a cell, so the step renders with its verdict and no
 cell. Shouldly's own failure message, which lists the items that did not match, is still reported. A
@@ -833,34 +737,17 @@ With no viewer listening the publisher is null and the whole thing costs a few s
 evidence for**, so the slice stayed unbound on the Event Model however green the test was, and no
 spec-identity gate could join it. `[BobcatSlice]` closes that:
 
-```csharp
-[BobcatFeature("Booking appointments")]
-[BobcatSlice(SliceType = typeof(ConfirmAppointment), Domain = "Scheduling", Chapter = "BookingAppointments")]
-public class BookingSpecs
-{
-    [Fact]
-    public async Task a_proposed_appointment_is_confirmed() { /* … */ }
-
-    // One class, several slices: a method-level binding REPLACES the class's.
-    [Fact]
-    [BobcatSlice(SliceName = "ProposeHomeCheckAppointment", Pattern = "Automation")]
-    public async Task an_accepted_assignment_proposes_a_visit() { /* … */ }
-}
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/BookingSpecs.cs#bobcat-slice{cs}
 
 ### Binding, not roles -- the roles come from the vocabulary (bobcat#462) {#event-model-roles}
 
 `[BobcatSlice]` says *which* slice. It never states what the slice's command, events, aggregates, read
 models or messages are -- and since bobcat#462 it does not need to, because the test body already says
 so. A scenario base whose vocabulary methods carry `[EventModelRole]` hands the generator every role
-the slice needs:
+the slice needs. WolverineFx.Bobcat's `WolverineSpec` is one; the examples below run over `SampleScenario`,
+a small vocabulary of the same shape in the sample corpus:
 
-```csharp
-await GivenEvents<Account>(id, new AccountOpened(id, "Ann"));   // aggregate Account, arranged AccountOpened
-await WhenReceived(new Deposit(id, 10m));                        // the act: command Deposit
-ThenEvents(typeof(FundsDeposited));                              // emitted FundsDeposited
-ThenMessageSent<DepositReceipt>();                               // published DepositReceipt
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/ScenarioVocabularySpecs.cs#roles-from-the-body{cs}
 
 That is `CommandType = Deposit`, `AggregateTypes = [Account]`, `EmittedEvents = [FundsDeposited]`,
 `PublishedMessages = [DepositReceipt]`, `Pattern = Command`, and a specification whose `ResolvedTypes`
@@ -868,15 +755,7 @@ are those five types in call order. Nothing in the test is authored for the mode
 
 The vocabulary declares its roles, one attribute per role, naming where the type comes from:
 
-```csharp
-[EventModelRole(SliceRole.Aggregate, nameof(TAggregate))]       // a type parameter: the type argument
-[EventModelRole(SliceRole.ArrangedEvent, nameof(events))]        // a value parameter: each argument's type
-public Task GivenEvents<TAggregate>(Guid id, params object[] events) where TAggregate : class
-
-[EventModelRole(SliceRole.Command, nameof(command))]
-[EventModelTrigger(ActTrigger.Http, Route = nameof(route))]     // the act's trigger kind and route
-public Task WhenPosted(object command, string route)
-```
+<<< ../src/Bobcat.Xunit.Samples/Grammars/SampleScenario.cs#vocabulary-roles{cs}
 
 | `SliceRole` | Reaches the slice as |
 |---|---|
@@ -897,11 +776,7 @@ whose endpoint checks the client exists -- write `GivenContext<Client>(…)` ins
 `ReadsFrom` (jasperfx#824), and upstream draws it as a read model linked into the slice's processor. Its
 events are arranged events, as for `GivenEvents`.
 
-```csharp
-await GivenContext<Client>(clientId, new ClientEnrolled(clientId, "Alice"));   // ReadsFrom Client
-await WhenPosted(new OpenAccount(clientId), "/api/accounts");                  // the act
-await ThenAggregate<Account>(TheStartedStream<Account>());                      // aggregate Account
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/ScenarioVocabularySpecs.cs#given-context{cs}
 
 <!-- JEREMY: when to reach for GivenContext, in your words -->
 
@@ -911,16 +786,13 @@ That method carries `SliceRole.ArrangedReadModel`, which is decided per slice on
 like `ArrangedEvent`: on a View slice the type is the slice's read model, and on a Command (or Query, or
 Automation) slice it goes to `ReadsFrom`, so the canvas does not draw the command as producing those views.
 
-```csharp
-await GivenReadModel<Passenger>(passenger);                       // ReadsFrom Passenger
-await GivenReadModel<Flight>(flight);                             // ReadsFrom Flight
-await WhenPosted(new CreateBooking(passenger.Id, flight.Id), "/api/bookings");   // a Command slice
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/ScenarioVocabularySpecs.cs#given-read-model{cs}
 
 **A read-only act is a Query (bobcat#501).** A vocabulary method with a `GET` or `HEAD` trigger, a `ReadModel`
-role and no `Command` role is a *read act*:
+role and no `Command` role is a *read act*. From the BankAccountES sample's spec base:
 
-```cs
+```csharp
+// src/Samples/Bobcat/BankAccountES/Tests/BankAccountSpec.cs in the Wolverine repository
 [EventModelRole(SliceRole.ReadModel, nameof(T))]
 [EventModelTrigger(ActTrigger.Http, Route = nameof(route), HttpMethod = "GET")]
 public Task WhenReading<T>(string route, params object[] routeValues) where T : class
@@ -983,11 +855,7 @@ Now:
 - [**BOBCAT045**](diagnostics.md#bobcat045) (info) at the call says so, because the trigger (HTTP verb and
   route) still stops at the helper's parameters. Declare the attributes on the helper and it goes away:
 
-```csharp
-[EventModelRole(SliceRole.Command, nameof(command))]
-[EventModelTrigger(ActTrigger.Http, Route = nameof(url), HttpMethod = "POST")]
-protected Task WhenPosted(object command, string url) => WhenActing(…);
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/ScenarioVocabularySpecs.cs#helper-redeclares{cs}
 
 **Why an attribute, read from metadata, and not a list of method names.** The vocabulary lives in
 another package -- `WolverineScenario` is in WolverineFx.Bobcat, in another repository. A name list in the
@@ -1048,9 +916,7 @@ carries a document), gets **BOBCAT041** (info) at the test. A slice holding only
 The trigger's *label* is the one Event Modeling fact a test body cannot state, so `[BobcatSlice]` and
 `[BobcatSpec]` carry it:
 
-```csharp
-[BobcatSlice(SliceType = typeof(Deposit), TriggeredBy = "the account holder")]
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/ScenarioVocabularySpecs.cs#triggered-by{cs}
 
 A method's `TriggeredBy` wins over its class's whichever order the tests fold in -- the #258 rule. So put
 it on the class only when every slice the class binds shares the trigger. A method attribute that sets
@@ -1110,9 +976,10 @@ constant or resolved route on the same slice, whatever order the specifications 
 all.
 
 A vocabulary method addresses an endpoint by name with `RouteName`. It's checked by **BOBCAT034** the same way
-`Route` is:
+`Route` is. From the same spec base:
 
-```cs
+```csharp
+// src/Samples/Bobcat/BankAccountES/Tests/BankAccountSpec.cs in the Wolverine repository
 [EventModelRole(SliceRole.Command, nameof(command))]
 [EventModelTrigger(ActTrigger.Http, RouteName = nameof(routeName), HttpMethod = "PUT")]
 public Task WhenPutTo(object command, string routeName, params object[] routeValues)
@@ -1166,14 +1033,7 @@ well restates it.
 An xUnit spec bound to a slice used to carry three attributes: the `[Fact]`, the `[BobcatSlice]`
 that binds it, and the `[BobcatScenario]` that opens the recording. `[BobcatSpec]` is all three:
 
-```csharp
-// Before
-[Fact, BobcatScenario, BobcatSlice(SliceType = typeof(ConfirmAppointment))]
-
-// After
-[BobcatSpec(typeof(ConfirmAppointment))]
-public async Task a_proposed_appointment_is_confirmed() { /* … */ }
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/BookingSpecs.cs#bobcat-spec-before-after{cs}
 
 `typeof(X)` positionally means exactly `SliceName = "X"`, the same rule `SliceType` follows.
 `SliceName`, `SliceType`, `Domain`, `Chapter` and `Pattern` are all settable by name as well, with
@@ -1200,12 +1060,16 @@ IDE test navigation lands on the attribute instead of the test.
 binding, with the same `Name`, slice settings and `Pending`. **Each row is its own specification**,
 named by its arguments or its label:
 
-```csharp
-[BobcatTheory(typeof(ApplyDiscount), Name = "Discount is applied")]
-[InlineData(100, Tier.Gold)]                          // Discounts/Discount is applied (amount: 100, tier: Gold)
-[BobcatExample("silver customer", 50, Tier.Silver)]   // Discounts/Discount is applied [silver customer]
-public void discount(int amount, Tier tier) { /* … */ }
+<<< ../src/Bobcat.Xunit.Samples/Specs/DiscountSpecs.cs#row-identities{cs}
+
 ```
+Discounts/Discount is applied (amount: 100, tier: Gold, total: 80)
+Discounts/Discount is applied [silver customer]
+Discounts/Discount is applied [nothing off for a standard customer]
+```
+
+Add a slice type, `[BobcatTheory(typeof(ApplyDiscount), Name = "Discount is applied")]`, to bind it as
+`[BobcatSpec]` would.
 
 The Event Model keeps one specification per method, and each row's result names it as its parent.
 What the row identity is made of, which rows reach the manifest, and why one row can't be run on its
@@ -1216,16 +1080,11 @@ own by a filter: [spec identities](spec-identities.md#each-data-row-is-its-own-s
 For a data-centric spec, write the rows as the same pipe-table literal Bobcat reads everywhere else.
 **One row, one specification**, each with its own run, verdict and identity:
 
-```csharp
-[BobcatTheory(typeof(ApplyDiscount))]
-[BobcatExamples("""
-    | amount | tier | expected |
-    | 100    | Gold | 90       |
-    | 100    | None | 100      |
-    """)]
-public async Task discount_is_applied(decimal amount, Tier tier, decimal expected) { /* … */ }
-// Discounts/discount is applied (amount: 100, tier: Gold, expected: 90)
-// Discounts/discount is applied (amount: 100, tier: None, expected: 100)
+<<< ../src/Bobcat.Xunit.Samples/Specs/DiscountSpecs.cs#examples-table{cs}
+
+```
+Discounts/the tier discount comes off (amount: 100, tier: Gold, expected: 80)
+Discounts/the tier discount comes off (amount: 100, tier: Standard, expected: 100)
 ```
 
 - **Columns bind to parameters by name**, case-insensitive: a `[Header("…")]` title on the parameter,
@@ -1257,10 +1116,7 @@ A projected spec's scenario title is its method name read as a sentence. Two thi
 can't do: tell apart two specs whose names read the same under one feature, and spell an apostrophe,
 a dash or a comma. `Name` states the title outright:
 
-```csharp
-[BobcatSpec(typeof(ConfirmAppointment), Name = "A volunteer can't re-confirm, twice")]
-public async Task volunteer_cannot_reconfirm() { /* … */ }
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/BookingSpecs.cs#explicit-name{cs}
 
 The identity is now `Booking/A volunteer can't re-confirm, twice`, verbatim, the same way a
 `[BobcatFeature("…")]` title is. It reaches everything the identity does -- the declared steps, the
@@ -1284,11 +1140,7 @@ it, a scaffolded skeleton **threw**, so a pending spec was indistinguishable fro
 the test report and on the canvas both. Upstream already has the right shape for one: a
 `PendingSpecification` hotspot (jasperfx#689), which `SpecIdentityAudit` treats as *joined*, not drift.
 
-```csharp
-[BobcatSpec(typeof(ConfirmAppointment), Pending = true)]
-public async Task a_confirmed_appointment_cannot_be_confirmed_twice()
-    => throw new NotImplementedException();   // never runs
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/BookingSpecs.cs#pending{cs}
 
 Three things follow, and they are the issue's acceptance:
 
@@ -1321,10 +1173,7 @@ fails without running, as `pending specification in strict mode: <identity>`. Se
 that *does* run, against behaviour that is not finished yet. Skipping it hides the progress; leaving it
 an ordinary spec turns CI red. An Acceptance spec is the answer:
 
-```csharp
-[BobcatSpec(typeof(ConfirmAppointment), Lifecycle = Lifecycle.Acceptance)]
-public async Task a_confirmed_appointment_cannot_be_confirmed_twice() { /* a real spec */ }
-```
+<<< ../src/Bobcat.Xunit.Samples/Specs/BookingSpecs.cs#acceptance{cs}
 
 On TUnit, NUnit and MSTest it is a property of `[BobcatScenario]`, on the class (every test in it) or
 on a method (that test, beating its class's): `[BobcatScenario(Lifecycle = Lifecycle.Acceptance)]`.

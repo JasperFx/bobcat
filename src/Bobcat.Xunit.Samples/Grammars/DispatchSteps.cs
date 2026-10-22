@@ -45,7 +45,9 @@ public class DispatchSteps
 {
     private static readonly AsyncLocal<DispatchSteps?> current = new();
 
+    // #region dispatch-capture-registration
     static DispatchSteps() => SpecAttachment.RegisterFailureCapture(new DispatchManifestCapture());
+    // #endregion dispatch-capture-registration
 
     private readonly List<string> _queued = [];
     private readonly List<(string Parcel, string Carrier, bool Accepted)> _decisions = [];
