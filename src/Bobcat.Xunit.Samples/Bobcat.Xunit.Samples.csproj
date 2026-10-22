@@ -61,6 +61,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The assembly-level hook the Bobcat.Xunit PACKAGE applies from its props, so that
+         [BobcatFeature] on its own records a class (Specs/DaemonSpecs.cs, the docs' xUnit example).
+         Every other class here opens its own recording with [BobcatScenario] or [BobcatSpec], and
+         the hook stands aside for those. -->
+    <AssemblyAttribute Include="Bobcat.Xunit.RecordBobcatFeaturesAttribute" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Specs/SliceSpecs.cs binds slices, and the generator emits the Event Model source (and the
          bridge that publishes it) only where the compilation has JasperFx.Events. A consumer gets it
          through WolverineFx.Bobcat; core stopped carrying it in bobcat#744. -->

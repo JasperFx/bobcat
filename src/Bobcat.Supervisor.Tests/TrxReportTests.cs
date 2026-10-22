@@ -9,7 +9,9 @@ public class TrxReportTests
 {
     private static readonly XNamespace ns = "http://microsoft.com/schemas/VisualStudio/TeamTest/2010";
 
-    private static async Task<SupervisorResults> mixedRun()
+    private static Task<SupervisorResults> mixedRun() => mixedSupervisor().Run();
+
+    private static Supervisor mixedSupervisor()
     {
         var factory = new FakeWorkerFactory
         {
@@ -31,7 +33,7 @@ public class TrxReportTests
             Duration = (_, attempt) => TimeSpan.FromMilliseconds(100 * attempt)
         };
 
-        return await new Supervisor(factory) { RetryBudget = new RetryBudget { MaxAttemptsPerTest = 2 } }.Run();
+        return new Supervisor(factory) { RetryBudget = new RetryBudget { MaxAttemptsPerTest = 2 } };
     }
 
     private static XElement resultFor(XDocument trx, string name)
@@ -196,4 +198,34 @@ public class TrxReportTests
 
     private static SupervisorResults resultsOf(TestReport test, string? abortReason = null, string[]? faults = null)
         => new() { Tests = [test], AbortReason = abortReason, WorkerFaults = faults ?? [] };
+
+    /// <summary>The write docs/parallel-ready-suites.md shows for a CI that reads TRX.</summary>
+    [Fact]
+    public async Task write_trx_with_the_options_a_ci_reporter_wants()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "bobcat-trx-" + Guid.NewGuid());
+        var path = Path.Combine(directory, "TestResults", "supervised.trx");
+        var supervisor = mixedSupervisor();
+        try
+        {
+            // #region write-trx
+            var startedAt = DateTimeOffset.Now;
+            var results = await supervisor.Run();
+
+            RunReport.WriteTrx(results, path, new TrxOptions
+            {
+                StartedAt = startedAt,
+                Storage = "path/to/MySpecs.dll"
+            });
+            // #endregion write-trx
+
+            var trx = XDocument.Load(path);
+            trx.Root!.Element(ns + "Times")!.Attribute("start")!.Value.ShouldStartWith(startedAt.ToString("yyyy-MM-dd"));
+            trx.Root.Descendants(ns + "UnitTest").ShouldAllBe(t => t.Attribute("storage")!.Value == "path/to/MySpecs.dll");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }

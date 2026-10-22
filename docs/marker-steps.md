@@ -9,7 +9,7 @@ The steps arrive three ways, and they compose freely in one test:
 
 | | |
 |---|---|
-| **A scenario vocabulary** | A base class whose members *are* the steps. For Critter Stack applications that is WolverineFx.Bobcat, documented in [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) |
+| **A scenario vocabulary** | A base class whose members *are* the steps. For Critter Stack applications that is WolverineFx.Bobcat, documented in [Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat) |
 | **Decorated step helpers** | `[Given]`, `[When]`, `[Then]`, `[Check]` or `[Step]` on a method you write. Every call to it renders as that step, with its own timing and verdict |
 | **Marker comments** | `// Given …`, `// When …`, `// Then …` in a test body, declaring the narrative of a test that calls no decorated helper at all |
 
@@ -1410,6 +1410,6 @@ dotnet build src/Bobcat.Xunit.Samples/Bobcat.Xunit.Samples.csproj
 ```
 
 For the Critter Stack vocabulary on a real application, see
-[Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) in the Wolverine docs; its BankAccountES sample lives
+[Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat) in the Wolverine docs; its BankAccountES sample lives
 in the Wolverine repository. `src/Bobcat.Projected.Acceptance.Tests` pins the behaviour this page
 describes.

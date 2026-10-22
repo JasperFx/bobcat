@@ -14,27 +14,27 @@ Nothing is rewritten and the tests keep their own runner. For writing new specif
 
 Put `[BobcatScenario]` on the test class, and name the feature it belongs to:
 
-```csharp
-using Bobcat;
-using Bobcat.TUnit;
+<<< ../src/Bobcat.TUnit.Tests/Specs/BookingSpecs.cs#tunit-wiring{cs}
 
-[BobcatFeature("Booking"), BobcatScenario]
-public class BookingSpecs
-{
-    [Test]
-    public async Task a_proposed_appointment_is_confirmed()
-    {
-        // Given a proposed appointment
-        var id = await Propose();
+Run it and the console prints the specification, with the marker comments as its declared steps:
 
-        // When it is confirmed
-        await Confirm(id);
-
-        // Then the appointment is confirmed
-        (await Load(id)).Status.ShouldBe(Status.Confirmed);
-    }
-}
 ```
+Feature: Booking
+═════════════════
+
+  a proposed appointment is confirmed OK
+  ─────────────────────────────────────────────
+    · Given a proposed appointment — declared
+    · When  it is confirmed — declared
+    · Then  the appointment is confirmed — declared
+
+  Succeeded with Rights: 0, Wrongs: 0, Errors: 0
+  Duration: 19ms (steps 0ms)
+```
+
+The `Then` is declared rather than judged because TUnit's own `Assert.That` is not projected; a
+`SpecAssert.Check` inside a step helper, or an opted-in Shouldly assertion, is what puts a judged
+cell under it.
 
 It works on a single method too, when only part of a class should project. `[BobcatSpec]` and
 `[BobcatTheory]` are xUnit attributes; on TUnit, bind a test to an Event Model slice with

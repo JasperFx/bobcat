@@ -457,5 +457,5 @@ transcript would lose all of it on exactly the long run that needed it.
 - The results file and its schema, `--failed` and `--repeat`: [The `bobcat` Tool](../bobcat-tool.md)
 - The query commands over a running console: [Querying Runs from the Command Line](../agent-queries.md)
 - The Critter Stack vocabulary that records the message activity and appended events for you:
-  [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat) in the Wolverine docs
+  [Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat) in the Wolverine docs
 - Getting the same failures out of a CI job: [Integrating Bobcat with CI](continuous-integration.md)

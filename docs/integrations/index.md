@@ -9,8 +9,11 @@ wrote -- a class whose members are the steps.
 For a Critter Stack application, that vocabulary is **WolverineFx.Bobcat** (and
 **WolverineFx.Bobcat.Http** for Wolverine.HTTP), published from the Wolverine repository:
 `CritterStackSpec` for the store alone, `WolverineSpec` and `WolverineHttpSpec` for acts through
-Wolverine, plus the store and broker helpers a fixture uses. It is documented in the Wolverine docs:
-**[Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat)**.
+Wolverine, plus the store and broker helpers a fixture uses. **WolverineFx.Bobcat.EventModel** is
+the third package, carrying the command that writes specifications from an eventmodelers.ai board
+export, one per example and bound to its slice, next to Wolverine's `scaffold`. All of it is
+documented in the Wolverine docs:
+**[Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat)**.
 
 Which Bobcat works with which `WolverineFx.Bobcat` is on [Version Compatibility](/compatibility).
 `WolverineFx.Bobcat` is built against a specific Bobcat, so move the two together.

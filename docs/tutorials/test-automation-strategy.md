@@ -74,7 +74,7 @@ FIT, FitNesse and Gherkin did this with an external language. Bobcat does it wit
 - **Step helpers are the DSL.** A `[Given]`/`[When]`/`[Then]` attribute on a helper makes every call
   to it a rendered step ([Step helpers](../marker-steps.md#step-helpers)).
 - **The Critter Stack vocabulary is already written**, in WolverineFx.Bobcat
-  ([Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat), in the Wolverine docs).
+  ([Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat), in the Wolverine docs).
 - **A board writes your first specs.** A Wolverine-side command turns each example on an eventmodelers.ai
   board into a spec bound to its slice (it was `bobcat import-event-model --specs` before Bobcat 1.0.0-rc.2;
   `import-event-model` still writes the stubs and the definition, see [`import-event-model`](../bobcat-tool.md#import-event-model)).
@@ -174,7 +174,7 @@ Most flaky tests against an asynchronous system come from **asserting before the
 then papering over it with a `Thread.Sleep`. Wait for the work instead of for the clock:
 
 - On the Critter Stack, WolverineFx.Bobcat's steps wait for the async projections and for every
-  message a tracked-session act caused ([Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat), in the Wolverine docs).
+  message a tracked-session act caused ([Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat), in the Wolverine docs).
 - `SpecAssert.EventuallyAsync` polls anything else, and records one cell saying how long it took
   ([Waiting for an answer that arrives later](../marker-steps.md#waiting-for-an-answer-that-arrives-later)).
 
@@ -230,7 +230,7 @@ What Bobcat writes out for a failed specification:
   which attempt, and a red row for an execution that failed or an envelope that went to the error
   queue. **The events appended** by the act are a table of their own, so a `ThenEvents` that asked
   about one event sits beside everything the stream actually gained
-  ([Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat), in the Wolverine docs).
+  ([Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat), in the Wolverine docs).
 - **Logs correlated to the step.** `SpecLog.Write` puts a line under the step that was running when it
   was written, so a wait reports what it saw each time the answer changed and an act reports what it
   did, in the order the specification reads
@@ -271,7 +271,7 @@ that has nothing to do with the behaviour. So:
 - **When a coarse test is hard to debug, add a finer one under it** rather than another coarse one.
 
 In Bobcat terms, pick the lowest of these that proves the behaviour (the Critter Stack rows are
-documented in [Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat)):
+documented in [Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat)):
 
 | Layer | Vocabulary | Proves |
 |---|---|---|
@@ -340,7 +340,7 @@ If the same rule lived in a message handler, the middle layer would carry it: `W
 WithdrawFunds(…))` followed by `ThenRefusedWith(…)` and `ThenNoEvents()`, with no HTTP at all.
 [`FreezeAccountSpecs`](https://github.com/JasperFx/wolverine/blob/main/src/Samples/Bobcat/BankAccountES/Tests/FreezeAccountSpecs.cs)
 is that layer in the same sample, for a command that succeeds. A store-only `CritterStackSpec` is the layer below it, for
-applications with no Wolverine ([The store-only act](https://wolverinefx.net/guide/testing-with-bobcat#the-store-only-act)).
+applications with no Wolverine ([The store-only act](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat)).
 
 **The browser is for what only a browser can show:** a page renders the refusal, a button is
 disabled, a flow spans screens. When you do need Playwright, use the **driver pattern**. Page
@@ -384,7 +384,7 @@ only runs on a CI server almost never succeeds.**
 - `docker compose up -d` for the infrastructure. BankAccountES runs on the samples' Postgres.
 - **Fisher, on a SQLite file, is the zero-infrastructure inner loop.** `EventStore=Fisher dotnet test`
   runs the same BankAccountES specs with nothing installed, because only `Program.cs` names the
-  store ([Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat)).
+  store ([Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat)).
 - A spec is an ordinary test, so the IDE runs and debugs it like any other
   ([Integrating Bobcat with Your IDE](ide-integration.md)).
 
@@ -427,7 +427,7 @@ write gobs of SQL coupled to today's schema.
 - **A spec's events are its own.** A store-only act keeps the events on the streams the spec arranged
   or started, and sets other tests' appends aside as foreign. A whole-store assertion that fails while
   foreign events were seen says "cross-talk suspected" instead of blaming your code
-  ([The store-only act](https://wolverinefx.net/guide/testing-with-bobcat#the-store-only-act)).
+  ([The store-only act](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat)).
 
 ### 11. No shared databases, schemas or brokers
 
@@ -512,7 +512,7 @@ functional tests. Register the stubs in the container.
 Wolverine's in-process tracked sessions are the modern answer. A `WolverineSpec` act runs the
 message, every handler it cascades to and every local queue it touches in the test's own process, and
 waits for all of it to settle before the first `Then`
-([Act](https://wolverinefx.net/guide/testing-with-bobcat#act)). BankAccountES's host is one `AlbaHost.For<Program>()` for
+([Act](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat)). BankAccountES's host is one `AlbaHost.For<Program>()` for
 the whole run.
 
 ### 14. Continuous integration: fast tests and slow tests

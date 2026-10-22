@@ -379,4 +379,25 @@ public class SupervisorEndToEndTests : IDisposable
         results.InterferenceVictims.ShouldHaveSingleItem().DisplayName.ShouldEndWith(".Fussy.only_works_alone");
         results.FailedInBoth.ShouldHaveSingleItem().DisplayName.ShouldEndWith(".Basics.always_fails");
     }
+
+    /// <summary>The smallest host program docs/parallel-ready-suites.md shows, over the real worker.</summary>
+    [Fact]
+    public async Task the_smallest_host_program_runs_the_suite_on_lanes_with_a_retry_budget()
+    {
+        var hostPath = workerPath;
+
+        // #region supervisor-host
+        var supervisor = new Supervisor(new MtpWorkerFactory(hostPath))
+        {
+            MaxParallelWorkers = 4,
+            RetryBudget = new RetryBudget { MaxAttemptsPerTest = 3 }
+        };
+
+        var results = await supervisor.Run();
+        var exitCode = results.ExitCode;
+        // #endregion supervisor-host
+
+        results.Tests.ShouldNotBeEmpty();
+        exitCode.ShouldBe(1); // the worker carries a test that always fails
+    }
 }

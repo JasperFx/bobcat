@@ -84,6 +84,8 @@ public class TUnitResidentSuiteTests : IDisposable
         suite.SpecIdentities.ShouldBe(
             [
                 auditTrail, auditClosing, auditOpening, ledgerClosing, ledgerOpening, coordinates,
+                // docs/tunit.md's wiring example
+                "Booking/a proposed appointment is confirmed",
                 "Halt after a fixture/needs the app", "Halt after a fixture/a later scenario",
                 "Halt after a scenario/loses the database", "Halt after a scenario/a later scenario",
                 // bobcat#545's Acceptance specs, which list like any other.

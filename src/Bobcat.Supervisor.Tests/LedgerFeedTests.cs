@@ -168,4 +168,45 @@ public class LedgerFeedTests
 
         next.DurationCoverage.ShouldBe(new DurationCoverage(2, 2));
     }
+
+    /// <summary>The host program docs/parallel-ready-suites.md shows for the ledger as a CI artifact.</summary>
+    [Fact]
+    public async Task the_ledger_as_a_ci_artifact_round_trips_through_a_file()
+    {
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("Suite/steady"), FakeWorkerFactory.Test("Suite/quick")],
+            Outcome = (_, _, _) => WorkerTestState.Passed,
+            Duration = (uid, _) => uid == "Suite/steady" ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(1)
+        };
+        var directory = Directory.CreateTempSubdirectory("bobcat-ledger-").FullName;
+        try
+        {
+            var ledgerPath = Path.Combine(directory, "ledger.json");
+
+            // #region ledger-artifact
+            // A missing file is an empty ledger: the first run balances by count.
+            var ledger = TestLedger.Load(ledgerPath);
+
+            var supervisor = new Supervisor(factory)
+            {
+                MaxParallelWorkers = 4,
+                KnownTestDurations = ledger.KnownDurations()
+            };
+
+            var results = await supervisor.Run();
+
+            // The run id and stamp are yours to supply, so the fold never reads a clock.
+            var runId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID") ?? Guid.NewGuid().ToString("N");
+            ledger.Record(SupervisorLedger.From(results, runId, DateTimeOffset.UtcNow)).Save(ledgerPath);
+            // #endregion ledger-artifact
+
+            supervisor.KnownTestDurations!.ShouldBeEmpty();
+            TestLedger.Load(ledgerPath).KnownDurations()["Suite/steady"].ShouldBe(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }

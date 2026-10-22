@@ -5,6 +5,37 @@ everywhere -- the generated `SpecificationDescriptor` on the Event Model, the `s
 event on the wire, the declared-steps key, the spec manifest. That is what lets run evidence colour a
 slice on the canvas with no mapping table.
 
+Two specifications from the sample corpus, both ordinary xUnit tests. The first is bound to nothing:
+
+<<< ../src/Bobcat.Xunit.Samples/Specs/GettingStartedSpecs.cs#getting-started-spec{cs}
+
+Its identity is **`Calculator, getting started/using sentences`**: the `[BobcatFeature]` title, a
+slash, and the method name with its underscores read as spaces. The second is bound to an Event Model
+slice:
+
+<<< ../src/Bobcat.Xunit.Samples/Specs/DiscountSpecs.cs#slice-bound{cs}
+
+Its identity is **`Gold customers/a gold customer gets a fifth off`**, built the same way. The binding
+puts the slice's coordinates *beside* the identity and changes nothing in it, which is what the
+suite's manifest shows for the two:
+
+```json
+{
+  "identity": "Calculator, getting started/using sentences",
+  "testClass": "Bobcat.Xunit.Samples.Specs.GettingStartedSpecs",
+  "testMethod": "using_sentences"
+},
+{
+  "identity": "Gold customers/a gold customer gets a fifth off",
+  "testClass": "Bobcat.Xunit.Samples.Specs.GoldCustomerSpecs",
+  "testMethod": "a_gold_customer_gets_a_fifth_off",
+  "slice": "Apply discount",
+  "chapter": "Pricing",
+  "domain": "Sales",
+  "traits": { "Category": ["Pricing"] }
+}
+```
+
 Two things follow from having one such string, and this page covers both:
 
 | | |
@@ -33,24 +64,25 @@ BOBCAT_LIST_SPECS=/tmp/specs.json ./MySpecs --list-tests
   "suite": "Bobcat.Xunit.Samples",
   "specs": [
     {
-      "identity": "Calculator/asserting values",
-      "testClass": "Bobcat.Xunit.Samples.Specs.CalculatorSpecs",
-      "testMethod": "asserting_values"
+      "identity": "Calculator, getting started/using sentences",
+      "testClass": "Bobcat.Xunit.Samples.Specs.GettingStartedSpecs",
+      "testMethod": "using_sentences"
     },
     {
-      "identity": "Facts, in one attribute/its coordinates are its traits",
-      "testClass": "Bobcat.Xunit.Samples.Specs.OneAttributeSpecs",
-      "testMethod": "its_coordinates_are_its_traits",
-      "slice": "Selecting by coordinates",
-      "chapter": "Selection",
-      "domain": "Bobcat",
-      "traits": { "Category": ["Coordinates"] }
+      "identity": "Gold customers/a gold customer gets a fifth off",
+      "testClass": "Bobcat.Xunit.Samples.Specs.GoldCustomerSpecs",
+      "testMethod": "a_gold_customer_gets_a_fifth_off",
+      "slice": "Apply discount",
+      "chapter": "Pricing",
+      "domain": "Sales",
+      "traits": { "Category": ["Pricing"] }
     }
   ]
 }
 ```
 
-An entry bound to an Event Model slice also carries `slice`, `chapter`, `domain` and `pattern`
+That is the listing the sample corpus (`Bobcat.Xunit.Samples`) writes, cut down to the two
+specifications at the top of this page. An entry bound to an Event Model slice also carries `slice`, `chapter`, `domain` and `pattern`
 (bobcat#573). These are the values the generator folded for the Event Model, with the pattern
 derived when nothing declared one. It also carries `traits`, the traits its test declares through
 its framework's attributes. Each is left out when null, and they are what
@@ -109,23 +141,32 @@ A data-driven test -- an xUnit `[Theory]` row, a TUnit `[Arguments]`, an NUnit `
 MSTest `[DataRow]` -- runs once per row, and **each row records under its own identity**
 ([#569](https://github.com/JasperFx/bobcat/issues/569)): the method's identity plus the row.
 
-| Row | Identity |
-|---|---|
-| `[InlineData(100, Tier.Gold)]` | `Discounts/Discount is applied (amount: 100, tier: Gold)` |
-| `[BobcatExample("gold customer", 100, Tier.Gold)]` | `Discounts/Discount is applied [gold customer]` |
-| `[InlineData(100, Tier.Gold, Label = "gold customer")]` | `Discounts/Discount is applied [gold customer]` |
-| a `[BobcatExamples]` row `\| 100 \| Gold \|` | `Discounts/Discount is applied (amount: 100, tier: Gold)` |
+This theory from the sample corpus names its three rows three different ways:
 
-```csharp
-[BobcatFeature("Discounts")]
-public class DiscountSpecs
+<<< ../src/Bobcat.Xunit.Samples/Specs/DiscountSpecs.cs#row-identities{cs}
+
+The suite's manifest lists the method once and each row beneath it with a `parent`:
+
+```json
 {
-    [BobcatTheory(typeof(ApplyDiscount), Name = "Discount is applied")]
-    [InlineData(100, Tier.Gold)]
-    [BobcatExample("silver customer", 50, Tier.Silver)]
-    public void discount(int amount, Tier tier) { ... }
+  "identity": "Discounts/Discount is applied",
+  "testClass": "Bobcat.Xunit.Samples.Specs.DiscountSpecs",
+  "testMethod": "discount"
+},
+{
+  "identity": "Discounts/Discount is applied (amount: 100, tier: Gold, total: 80)",
+  "testClass": "Bobcat.Xunit.Samples.Specs.DiscountSpecs",
+  "testMethod": "discount",
+  "parent": "Discounts/Discount is applied"
 }
 ```
+
+| Row | Identity |
+|---|---|
+| `[InlineData(100, Tier.Gold, 80)]` | `Discounts/Discount is applied (amount: 100, tier: Gold, total: 80)` |
+| `[InlineData(100, Tier.Silver, 90, Label = "silver customer")]` | `Discounts/Discount is applied [silver customer]` |
+| `[BobcatExample("nothing off for a standard customer", 100, Tier.Standard, 100)]` | `Discounts/Discount is applied [nothing off for a standard customer]` |
+| the [`[BobcatExamples]`](marker-steps.md#bobcatexamples) row `\| 100 \| 100 \| accepted \|` in the [withdrawals tutorial](tutorials/specifications-with-code.md) | `Withdrawals/a withdrawal is decided (balance: 100, amount: 100, outcome: accepted)` |
 
 - **The row part** is the arguments, named by their parameters, or the row's label when it has one.
   Values use the invariant culture, so the string is the same on every machine: strings verbatim,
@@ -134,7 +175,8 @@ public class DiscountSpecs
   Only xUnit carries a label to the test; TUnit, NUnit and MSTest rows are always named by their
   arguments.
 - **`[BobcatTheory]`** is `[BobcatSpec]` for a theory: the `[Theory]`, the scenario bracket and the
-  slice binding in one attribute, with the same `Name`, slice settings and `Pending`. A plain
+  slice binding in one attribute, with the same `Name`, slice settings and `Pending`. The theory above
+  binds no slice; `[BobcatTheory(typeof(ApplyDiscount), Name = "Discount is applied")]` would. A plain
   `[Theory]` under `[BobcatScenario]` gets row identities too.
 - **The Event Model keeps one specification per method.** The rows are examples of one behaviour,
   so the slice lists `Discounts/Discount is applied`, the declared and planned steps are registered
@@ -194,26 +236,13 @@ the backstop, and it keeps the same invariant it always had: writing it can neve
 
 A suite that writes its tests once on a shared base and runs them per subclass -- Wolverine's
 `TransportCompliance<T>`, subclassed bodyless by every transport -- gets one specification per
-**subclass** (bobcat#600):
+**subclass** (bobcat#600). The sample corpus has the shape in miniature:
 
-```csharp
-[BobcatFeature("Transport compliance")]
-public abstract class TransportCompliance<T>
-{
-    [BobcatSpec]
-    public void can_request_reply()
-    {
-        // Given a transport
-        // Then a request gets its reply
-    }
-}
+<<< ../src/Bobcat.Xunit.Samples/Specs/InheritedSpecs.cs#inherited-specs{cs}
 
-[BobcatFeature("TCP transport")]
-public class TcpCompliance : TransportCompliance<TcpFixture>;   // TCP transport/can request reply
-
-public class RabbitMqTransportCompliance : TransportCompliance<RabbitFixture>;
-                                     // Rabbit Mq Transport Compliance/can request reply
-```
+The sample corpus's manifest lists `Alpha transport/each subclass is its own feature` and
+`Beta Transport Compliance/each subclass is its own feature`, and the body asserts the same thing when
+it runs: the feature is the subclass's, the two declared steps are the base's.
 
 - **The feature is the test class the runner runs**, never the class that declares the method. A
   subclass's own `[BobcatFeature]` names it; a base's `[BobcatFeature]` is **not inherited**, because
@@ -243,7 +272,8 @@ public class RabbitMqTransportCompliance : TransportCompliance<RabbitFixture>;
 When the base lives in a **class library** that other projects reference -- Wolverine's
 `Wolverine.ComplianceTests`, published as `WolverineFx.ComplianceTests`, holds the leadership-election
 base that about ten test projects subclass, and some forty more reference it without running a single
-Bobcat spec -- each package's build assets reach further than you want. Reference them like this.
+Bobcat spec -- each package's build assets reach further than you want. Reference them the way
+that library's `Wolverine.ComplianceTests.csproj` does.
 
 **The library** (the abstract `[BobcatSpec]` base and its step vocabulary):
 
@@ -365,4 +395,4 @@ The check is `SpecIdentityAudit`, an assertion in the spec assembly's own test r
 identities the generator compiled against your design-time Event Model and reports orphans, holes and
 misbound specs. It reads the generated JasperFx descriptor, and Bobcat itself references no JasperFx,
 so it ships in **WolverineFx.Bobcat** since 1.0.0-rc.2 and is documented with Wolverine, in
-[Testing with Bobcat](https://wolverinefx.net/guide/testing-with-bobcat#spec-identity-audit).
+[Testing with Bobcat](https://wolverinefx.net/guide/testing#with-wolverinefx-bobcat).

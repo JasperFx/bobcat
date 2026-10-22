@@ -29,7 +29,7 @@ BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.
 BOBCAT_SPEC_PREVIEW=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples --list-tests
 ```
 
-**Forty of the eighty-nine specifications fail on purpose**, which is why `IsTestProject` is `false`:
+**Forty of the ninety-six specifications fail on purpose**, which is why `IsTestProject` is `false`:
 `dotnet test` never collects this project, and a red run here is the samples working.
 
 `Specs/RecoveryHintProbes.cs` is not a Storyteller sample. It's three specifications that
@@ -65,6 +65,10 @@ declares on itself (issue #469). They're green unless `BOBCAT_HINT_PROBE` is set
 | — (`docs/expected-objects.md`) | `ExpectedObjectSpecs.*` | every expected-object form over `OrderGrammar`, once holding and once disagreeing: partial objects, whole objects, `Expect.Value`, collection members, a keyed dictionary, member checks; eight fail on purpose |
 | — (`docs/getting-started.md`) | `GettingStartedSpecs.using_sentences` | the first specification over the cut-down `CalculatorSteps` grammar; green |
 | — (`docs/tutorials/specifications-with-code.md`) | `WithdrawalSpecs.*` | the tutorial's specs over `Account`: narrated, vocabulary, decision table, set verification, theory; three fail on purpose for the page's failure renderings |
+| — (`docs/spec-identities.md`) | `DiscountSpecs.discount` / `GoldCustomerSpecs.*` | one theory over `Discounts`, its three rows named by arguments, by xUnit's `Label` and by `[BobcatExample]`; and the page's slice-bound opening example; green |
+| — (`docs/spec-identities.md`, bobcat#600) | `AlphaTransportCompliance` / `BetaTransportCompliance` / `GammaTransportCompliance` | one `[BobcatSpec]` on an abstract generic base, run as a specification per subclass; green, and Gamma's copy skipped the way BOBCAT040 asks |
+| — (`docs/diagnostics.md`) | `ApplyDiscountSpecs.*` | a slice bound by `typeof`; green |
+| — (`docs/xunit.md`) | `DaemonSpecs.the_daemon_catches_up` | `[BobcatFeature]` alone, recorded by the assembly-level hook the package applies; green |
 
 Not yet: the five `Create Objects` documents about *constructing* an object rather than checking one
 (`Set_Up_a_Single_Address`, `As_Table`, `Using_ObjectIs`, `Using_WithInput`, `Using_LoadObjectBy` —

@@ -9,15 +9,15 @@ bobcat resident ./artifacts/MySpecs     # registers both `cold` and `warm`
 ```
 
 There is nothing to configure on the suite. `bobcat resident` offers both modes, and the console
-chooses one per command. A runner never quietly downgrades: a warm command it cannot honour is
+chooses one per command: [`bobcat ui`'s run buttons](bobcat-ui.md#run-buttons) offer both, and a run a
+button started says `warm` on its card. A runner never quietly downgrades: a warm command it cannot honour is
 refused (`unsupported-mode`) with the reason, never run cold instead.
 
 ## What warmth buys, and what it does not
 
 **It keeps the CLR warm: the JIT, the loaded assemblies and the code generation.** Measured against
 `Bobcat.Xunit.Samples`, three run requests into one live host took **72ms, then 11ms, then 4ms** for
-the same work, and two warm commands ran a whole test class in 2.9s where a cold launch per command
-paid for a process each time.
+the same work, where a cold launch pays for a process every time.
 
 **It does not keep your test framework's fixtures up.** xUnit's assembly and collection fixtures,
 `IAsyncLifetime` and class fixtures are created and disposed *within* a run request, so a second
@@ -50,7 +50,8 @@ platform's own test uid. The runner joins the two through the suite's spec manif
 A uid matches exactly one test, so a warm command can run **any** set of identities, including sets
 a cold TUnit command cannot express as one tree-node filter. An identity whose test cannot be found
 is **refused by name** rather than dropped: a request for three specifications that silently ran two
-would look exactly like a pass.
+would look exactly like a pass. A data row's own identity is refused as well, because every row of a
+data-driven method shares its location; ask for the method's identity and every row runs.
 
 NUnit and MSTest suites are refused by `bobcat resident` at launch, warm or cold, until their filter
 spelling is verified.
