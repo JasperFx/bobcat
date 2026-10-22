@@ -24,6 +24,20 @@ public class DiscountSpecs
         Discounts.Apply(amount, tier).ShouldBe(total);
     }
     // #endregion row-identities
+
+    // #region examples-table
+    [BobcatTheory(typeof(ApplyDiscount))]
+    [BobcatExamples("""
+        | amount | tier     | expected |
+        | 100    | Gold     | 80       |
+        | 100    | Standard | 100      |
+        """)]
+    public void the_tier_discount_comes_off(int amount, Tier tier, int expected)
+    {
+        // Then the tier's percentage comes off
+        Discounts.Apply(amount, tier).ShouldBe(expected);
+    }
+    // #endregion examples-table
 }
 
 /// <summary>

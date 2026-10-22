@@ -29,7 +29,7 @@ BOBCAT_SPEC_CONSOLE=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.
 BOBCAT_SPEC_PREVIEW=1 ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples --list-tests
 ```
 
-**Forty of the ninety-six specifications fail on purpose**, which is why `IsTestProject` is `false`:
+**Forty-one of the hundred and nineteen specifications fail on purpose**, which is why `IsTestProject` is `false`:
 `dotnet test` never collects this project, and a red run here is the samples working.
 
 `Specs/RecoveryHintProbes.cs` is not a Storyteller sample. It's three specifications that
@@ -65,10 +65,16 @@ declares on itself (issue #469). They're green unless `BOBCAT_HINT_PROBE` is set
 | — (`docs/expected-objects.md`) | `ExpectedObjectSpecs.*` | every expected-object form over `OrderGrammar`, once holding and once disagreeing: partial objects, whole objects, `Expect.Value`, collection members, a keyed dictionary, member checks; eight fail on purpose |
 | — (`docs/getting-started.md`) | `GettingStartedSpecs.using_sentences` | the first specification over the cut-down `CalculatorSteps` grammar; green |
 | — (`docs/tutorials/specifications-with-code.md`) | `WithdrawalSpecs.*` | the tutorial's specs over `Account`: narrated, vocabulary, decision table, set verification, theory; three fail on purpose for the page's failure renderings |
-| — (`docs/spec-identities.md`) | `DiscountSpecs.discount` / `GoldCustomerSpecs.*` | one theory over `Discounts`, its three rows named by arguments, by xUnit's `Label` and by `[BobcatExample]`; and the page's slice-bound opening example; green |
+| — (`docs/spec-identities.md`) | `DiscountSpecs.discount` / `GoldCustomerSpecs.*` | one theory over `Discounts`, its three rows named by arguments, by xUnit's `Label` and by `[BobcatExample]`; a `[BobcatExamples]` table (`the_tier_discount_comes_off`, for `docs/marker-steps.md`); and the page's slice-bound opening example; green |
 | — (`docs/spec-identities.md`, bobcat#600) | `AlphaTransportCompliance` / `BetaTransportCompliance` / `GammaTransportCompliance` | one `[BobcatSpec]` on an abstract generic base, run as a specification per subclass; green, and Gamma's copy skipped the way BOBCAT040 asks |
 | — (`docs/diagnostics.md`) | `ApplyDiscountSpecs.*` | a slice bound by `typeof`; green |
 | — (`docs/xunit.md`) | `DaemonSpecs.the_daemon_catches_up` | `[BobcatFeature]` alone, recorded by the assembly-level hook the package applies; green |
+| — (`docs/marker-steps.md`) | `when_the_daemon_catches_up` / `DaemonStepSpecs.*` over `DaemonContext` | marker comments on a Marten-shaped daemon suite: a comment that stays a comment, helpers nested under a comment, a wrapped marker; green |
+| — (`docs/marker-steps.md`) | `ReconciliationSpecs` / `ConsoleHostSpecs` | `// *` keywordless bullets, and a helper of another keyword ending a comment's region; green |
+| — (`docs/marker-steps.md`) | `BookingSpecs` / `ConfirmationSpecs` over `SchedulingSteps` | value placeholders, `[BobcatSlice]` with a method-level rebinding, `[BobcatSpec]` before and after, `Name`, `Pending` and `Lifecycle.Acceptance`; the pending one is skipped and the Acceptance one fails into a skip |
+| — (`docs/marker-steps.md`) | `StepHelperSpecs.*` | `SpecAssert.EventuallyAsync` in a helper, gather-then-stop (fails on purpose), and a projected assertion in a loop |
+| — (`docs/marker-steps.md`) | `RunningAppSpecs` / `EvidenceSpecs` | a fixture that would throw `SpecCatastrophicException`, and `SpecAttachment`; green |
+| — (`docs/marker-steps.md`) | `DepositSpecs` / `PostedDepositSpecs` / `OpenAccountSpecs` / `CreateBookingSpecs` over `SampleScenario` | a scenario vocabulary of the samples' own, whose `[EventModelRole]`/`[EventModelTrigger]` stamp the Event Model from the test bodies; green |
 
 Not yet: the five `Create Objects` documents about *constructing* an object rather than checking one
 (`Set_Up_a_Single_Address`, `As_Table`, `Using_ObjectIs`, `Using_WithInput`, `Using_LoadObjectBy` —

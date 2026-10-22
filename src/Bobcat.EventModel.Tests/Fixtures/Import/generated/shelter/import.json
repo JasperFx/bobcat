@@ -1,0 +1,242 @@
+{
+  "model": "Shelter",
+  "callouts": [
+    {
+      "slice": "ApplyToVolunteer",
+      "code": "inferred-stream-start",
+      "aggregates": [
+        "VolunteerApplication"
+      ],
+      "message": "\u26A0 inferred: starts the VolunteerApplication stream \u2014 no example gives it an earlier VolunteerApplication event; \u0027VolunteerApplication\u0027 is the subject 3 of its 4 events share.",
+      "evidence": {
+        "events": [
+          "VolunteerApplicationSubmitted"
+        ],
+        "examples": [
+          "submitted"
+        ]
+      },
+      "override": "--starts-stream ApplyToVolunteer=VolunteerApplication"
+    },
+    {
+      "slice": "ReviewVolunteerApplication",
+      "code": "inferred-against",
+      "aggregates": [
+        "VolunteerApplication"
+      ],
+      "message": "\u26A0 inferred: decides against VolunteerApplication \u2014 its examples give VolunteerApplication events before it appends; \u0027VolunteerApplication\u0027 is the subject 3 of its 4 events share.",
+      "evidence": {
+        "events": [
+          "VolunteerApplicationSubmitted"
+        ],
+        "examples": [
+          "reviewed"
+        ]
+      },
+      "override": "--aggregate ReviewVolunteerApplication=VolunteerApplication"
+    },
+    {
+      "slice": "ApproveVolunteer",
+      "code": "inferred-against",
+      "aggregates": [
+        "VolunteerApplication"
+      ],
+      "message": "\u26A0 inferred: decides against VolunteerApplication \u2014 its examples give VolunteerApplication events before it appends; \u0027VolunteerApplication\u0027 is the subject 3 of its 4 events share.",
+      "evidence": {
+        "events": [
+          "VolunteerApplicationReviewed"
+        ],
+        "examples": [
+          "approved"
+        ]
+      },
+      "override": "--aggregate ApproveVolunteer=VolunteerApplication"
+    },
+    {
+      "slice": "RejectVolunteerApplication",
+      "code": "inferred-against",
+      "aggregates": [
+        "VolunteerApplication"
+      ],
+      "message": "\u26A0 inferred: decides against VolunteerApplication \u2014 its examples give VolunteerApplication events before it appends; \u0027VolunteerApplication\u0027 is the subject 3 of its 4 events share.",
+      "evidence": {
+        "events": [
+          "VolunteerApplicationReviewed"
+        ],
+        "examples": [
+          "rejected"
+        ]
+      },
+      "override": "--aggregate RejectVolunteerApplication=VolunteerApplication"
+    },
+    {
+      "slice": "RequestHomeCheck",
+      "code": "stream-start-from-unimported-chapter",
+      "aggregates": [
+        "HomeCheck"
+      ],
+      "message": "\u26A0 starts the HomeCheck stream? It is inferred to decide against HomeCheck, but the only HomeCheck events its examples give first, ApplicationReviewed, come from chapter \u0027ShelterReviewsApplication\u0027, which was not imported. If it starts the stream, import with --starts-stream RequestHomeCheck=HomeCheck.",
+      "evidence": {
+        "events": [
+          "ApplicationReviewed"
+        ],
+        "examples": [
+          "requested"
+        ],
+        "chapters": [
+          "ShelterReviewsApplication"
+        ]
+      },
+      "override": "--starts-stream RequestHomeCheck=HomeCheck"
+    },
+    {
+      "slice": "AcceptHomeCheckAssignment",
+      "code": "inferred-against",
+      "aggregates": [
+        "HomeCheck"
+      ],
+      "message": "\u26A0 inferred: decides against HomeCheck \u2014 its examples give HomeCheck events before it appends; \u0027HomeCheck\u0027 is the subject 2 of its 3 events share.",
+      "evidence": {
+        "events": [
+          "HomeCheckRequested"
+        ],
+        "examples": [
+          "accepted"
+        ]
+      },
+      "override": "--aggregate AcceptHomeCheckAssignment=HomeCheck"
+    },
+    {
+      "slice": "AcceptHomeCheckAssignment",
+      "code": "inferred-against",
+      "aggregates": [
+        "VolunteerApplication"
+      ],
+      "message": "\u26A0 inferred: decides against VolunteerApplication \u2014 its examples give VolunteerApproved from the VolunteerApplication stream; \u0027VolunteerApplication\u0027 is the subject 3 of its 4 events share.",
+      "evidence": {
+        "events": [
+          "VolunteerApproved"
+        ],
+        "examples": [
+          "accepted"
+        ]
+      },
+      "override": "--aggregate AcceptHomeCheckAssignment=VolunteerApplication"
+    },
+    {
+      "slice": "AcceptHomeCheckAssignment",
+      "code": "several-streams",
+      "aggregates": [
+        "HomeCheck",
+        "VolunteerApplication"
+      ],
+      "message": "\u26A0 draws on several streams (HomeCheck, VolunteerApplication): choose several [WriteModel] IEventStream\u003CT\u003E parameters or a DCB decider (bobcat#443).",
+      "evidence": {
+        "events": [],
+        "examples": [
+          "accepted"
+        ]
+      }
+    },
+    {
+      "slice": "ProposeHomeCheckAppointment",
+      "code": "inferred-stream-start",
+      "aggregates": [
+        "Appointment"
+      ],
+      "message": "\u26A0 inferred: starts the Appointment stream \u2014 no example gives it an earlier Appointment event; \u0027Appointment\u0027 is the subject 3 of its 3 events share.",
+      "evidence": {
+        "events": [
+          "HomeCheckAppointmentProposed"
+        ],
+        "examples": [
+          "home check proposed"
+        ]
+      },
+      "override": "--starts-stream ProposeHomeCheckAppointment=Appointment"
+    },
+    {
+      "slice": "ProposeFosterHandoverAppointment",
+      "code": "inferred-stream-start",
+      "aggregates": [
+        "Appointment"
+      ],
+      "message": "\u26A0 inferred: starts the Appointment stream \u2014 no example gives it an earlier Appointment event; \u0027Appointment\u0027 is the subject 3 of its 3 events share.",
+      "evidence": {
+        "events": [
+          "FosterHandoverAppointmentProposed"
+        ],
+        "examples": [
+          "foster proposed"
+        ]
+      },
+      "override": "--starts-stream ProposeFosterHandoverAppointment=Appointment"
+    },
+    {
+      "slice": "ConfirmAppointment",
+      "code": "inferred-against",
+      "aggregates": [
+        "Appointment"
+      ],
+      "message": "\u26A0 inferred: decides against Appointment \u2014 its examples give Appointment events before it appends; \u0027Appointment\u0027 is the subject 3 of its 3 events share.",
+      "evidence": {
+        "events": [
+          "HomeCheckAppointmentProposed"
+        ],
+        "examples": [
+          "confirmed"
+        ]
+      },
+      "override": "--aggregate ConfirmAppointment=Appointment"
+    },
+    {
+      "slice": "CancelAppointment",
+      "code": "inferred-against",
+      "aggregates": [
+        "Appointment"
+      ],
+      "message": "\u26A0 inferred: decides against Appointment \u2014 its examples give Appointment events before it appends; \u0027Appointment\u0027 is the subject 3 of its 3 events share.",
+      "evidence": {
+        "events": [
+          "AppointmentConfirmed"
+        ],
+        "examples": [
+          "cancelled"
+        ]
+      },
+      "override": "--aggregate CancelAppointment=Appointment"
+    }
+  ],
+  "report": [
+    "chapter \u0027Volunteering\u0027: Command slice \u0027ApplyToVolunteer\u0027.",
+    "chapter \u0027Volunteering\u0027: Command slice \u0027ReviewVolunteerApplication\u0027.",
+    "chapter \u0027Volunteering\u0027: Command slice \u0027ApproveVolunteer\u0027.",
+    "chapter \u0027Volunteering\u0027: Command slice \u0027RejectVolunteerApplication\u0027.",
+    "chapter \u0027Volunteering\u0027: Command slice \u0027RequestHomeCheck\u0027.",
+    "chapter \u0027Volunteering\u0027: Command slice \u0027AcceptHomeCheckAssignment\u0027.",
+    "chapter \u0027Booking\u0027: Automation slice \u0027ProposeHomeCheckAppointment\u0027.",
+    "chapter \u0027Booking\u0027: Automation slice \u0027ProposeFosterHandoverAppointment\u0027.",
+    "chapter \u0027Booking\u0027: Command slice \u0027ConfirmAppointment\u0027.",
+    "chapter \u0027Booking\u0027: Command slice \u0027CancelAppointment\u0027.",
+    "10 slice(s) from 2 chapter(s).",
+    "\u26A0 inferred: HomeCheckRequested is on the same stream as ApplicationReviewed, because an example of \u0027RequestHomeCheck\u0027 gives one and expects the other, though their names share no subject.",
+    "\u26A0 inferred: FosterHandoverAppointmentProposed joined the Appointment stream by name only \u2014 \u0027FosterHandoverAppointment\u0027 ends in \u0027Appointment\u0027, and no example links it to another event.",
+    "\u26A0 inferred aggregate VolunteerApplication for VolunteerApplicationSubmitted, VolunteerApplicationReviewed, VolunteerApproved, VolunteerApplicationRejected: \u0027VolunteerApplication\u0027 is the subject 3 of its 4 events share.",
+    "\u26A0 inferred aggregate HomeCheck for ApplicationReviewed, HomeCheckRequested, HomeCheckAssignmentAccepted: \u0027HomeCheck\u0027 is the subject 2 of its 3 events share.",
+    "\u26A0 inferred aggregate Appointment for HomeCheckAppointmentProposed, AppointmentConfirmed, AppointmentCancelled, FosterHandoverAppointmentProposed: \u0027Appointment\u0027 is the subject 3 of its 3 events share; FosterHandoverAppointmentProposed joined it by name only.",
+    "\u26A0 slice \u0027ApplyToVolunteer\u0027: inferred that it starts the VolunteerApplication stream \u2014 no example gives it an earlier VolunteerApplication event; \u0027VolunteerApplication\u0027 is the subject 3 of its 4 events share.",
+    "\u26A0 slice \u0027ReviewVolunteerApplication\u0027: inferred that it decides against VolunteerApplication \u2014 its examples give VolunteerApplication events before it appends; \u0027VolunteerApplication\u0027 is the subject 3 of its 4 events share.",
+    "\u26A0 slice \u0027ApproveVolunteer\u0027: inferred that it decides against VolunteerApplication \u2014 its examples give VolunteerApplication events before it appends; \u0027VolunteerApplication\u0027 is the subject 3 of its 4 events share.",
+    "\u26A0 slice \u0027RejectVolunteerApplication\u0027: inferred that it decides against VolunteerApplication \u2014 its examples give VolunteerApplication events before it appends; \u0027VolunteerApplication\u0027 is the subject 3 of its 4 events share.",
+    "\u26A0 slice \u0027RequestHomeCheck\u0027: inferred that it decides against HomeCheck \u2014 its examples give HomeCheck events before it appends; \u0027HomeCheck\u0027 is the subject 2 of its 3 events share.",
+    "\u26A0 slice \u0027RequestHomeCheck\u0027 starts the HomeCheck stream? It is inferred to decide against HomeCheck, but the only HomeCheck events its examples give first, ApplicationReviewed, come from chapter \u0027ShelterReviewsApplication\u0027, which was not imported. If it starts the stream, import with --starts-stream RequestHomeCheck=HomeCheck.",
+    "\u26A0 slice \u0027AcceptHomeCheckAssignment\u0027: inferred that it decides against HomeCheck \u2014 its examples give HomeCheck events before it appends; \u0027HomeCheck\u0027 is the subject 2 of its 3 events share.",
+    "\u26A0 slice \u0027AcceptHomeCheckAssignment\u0027: inferred that it decides against VolunteerApplication \u2014 its examples give VolunteerApproved from the VolunteerApplication stream; \u0027VolunteerApplication\u0027 is the subject 3 of its 4 events share.",
+    "\u26A0 slice \u0027AcceptHomeCheckAssignment\u0027 draws on several streams (HomeCheck, VolunteerApplication): choose several [WriteModel] IEventStream\u003CT\u003E parameters or a DCB decider (bobcat#443).",
+    "\u26A0 slice \u0027ProposeHomeCheckAppointment\u0027: inferred that it starts the Appointment stream \u2014 no example gives it an earlier Appointment event; \u0027Appointment\u0027 is the subject 3 of its 3 events share.",
+    "\u26A0 slice \u0027ProposeFosterHandoverAppointment\u0027: inferred that it starts the Appointment stream \u2014 no example gives it an earlier Appointment event; \u0027Appointment\u0027 is the subject 3 of its 3 events share.",
+    "\u26A0 slice \u0027ConfirmAppointment\u0027: inferred that it decides against Appointment \u2014 its examples give Appointment events before it appends; \u0027Appointment\u0027 is the subject 3 of its 3 events share.",
+    "\u26A0 slice \u0027CancelAppointment\u0027: inferred that it decides against Appointment \u2014 its examples give Appointment events before it appends; \u0027Appointment\u0027 is the subject 3 of its 3 events share."
+  ],
+  "files": []
+}

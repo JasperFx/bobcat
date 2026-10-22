@@ -1,0 +1,62 @@
+{
+  "model": "K9Crush",
+  "callouts": [
+    {
+      "slice": "SwipeOnDog",
+      "code": "inferred-against",
+      "aggregates": [
+        "Dog"
+      ],
+      "message": "\u26A0 inferred: decides against Dog \u2014 its examples give Dog events before it appends; \u0027Dog\u0027 is the subject 2 of its 2 events share.",
+      "evidence": {
+        "events": [
+          "DogLiked"
+        ],
+        "examples": [
+          "a like is recorded"
+        ]
+      },
+      "override": "--aggregate SwipeOnDog=Dog"
+    },
+    {
+      "slice": "DetectMutualMatch",
+      "code": "stream-start-unknown",
+      "aggregates": [
+        "MutualMatch"
+      ],
+      "message": "\u26A0 no example says whether it starts the MutualMatch stream, so it is assumed to append to one.",
+      "evidence": {
+        "events": [
+          "MutualMatchDetected"
+        ],
+        "examples": []
+      },
+      "override": "--starts-stream DetectMutualMatch=MutualMatch"
+    },
+    {
+      "slice": "DetectMutualMatch",
+      "code": "inferred-against",
+      "aggregates": [
+        "MutualMatch"
+      ],
+      "message": "\u26A0 inferred: decides against MutualMatch \u2014 its examples give MutualMatch events before it appends; named for the subject of MutualMatchDetected, its only event.",
+      "evidence": {
+        "events": [],
+        "examples": []
+      },
+      "override": "--aggregate DetectMutualMatch=MutualMatch"
+    }
+  ],
+  "report": [
+    "chapter \u0027TheSwiper\u0027: Command slice \u0027SwipeOnDog\u0027 triggered by \u0027Discovery Feed\u0027.",
+    "chapter \u0027TheSwiper\u0027: Automation slice \u0027DetectMutualMatch\u0027 triggered by \u0027Dog Liked\u0027.",
+    "chapter \u0027TheSwiper\u0027: View slice \u0027MatchList\u0027.",
+    "chapter \u0027TheSwiper\u0027: View slice \u0027MatchList\u0027 consumes 3 event(s): DogLiked, DogPassed, MutualMatchDetected.",
+    "3 slice(s) from 1 chapter(s).",
+    "\u26A0 inferred aggregate Dog for DogLiked, DogPassed: \u0027Dog\u0027 is the subject 2 of its 2 events share.",
+    "\u26A0 inferred aggregate MutualMatch for MutualMatchDetected: named for the subject of MutualMatchDetected, its only event.",
+    "\u26A0 slice \u0027SwipeOnDog\u0027: inferred that it decides against Dog \u2014 its examples give Dog events before it appends; \u0027Dog\u0027 is the subject 2 of its 2 events share.",
+    "\u26A0 slice \u0027DetectMutualMatch\u0027: inferred that it decides against MutualMatch \u2014 its examples give MutualMatch events before it appends; named for the subject of MutualMatchDetected, its only event."
+  ],
+  "files": []
+}

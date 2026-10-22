@@ -1,0 +1,61 @@
+{
+  "model": "Shop",
+  "callouts": [
+    {
+      "slice": "PlaceOrder",
+      "code": "stream-start-unknown",
+      "aggregates": [
+        "Order"
+      ],
+      "message": "\u26A0 no example says whether it starts the Order stream, so it is assumed to append to one.",
+      "evidence": {
+        "events": [
+          "OrderPlaced"
+        ],
+        "examples": []
+      },
+      "override": "--starts-stream PlaceOrder=Order"
+    },
+    {
+      "slice": "PlaceOrder",
+      "code": "inferred-against",
+      "aggregates": [
+        "Order"
+      ],
+      "message": "\u26A0 inferred: decides against Order \u2014 its examples give Order events before it appends; \u0027Order\u0027 is the subject 2 of its 2 events share.",
+      "evidence": {
+        "events": [],
+        "examples": []
+      },
+      "override": "--aggregate PlaceOrder=Order"
+    },
+    {
+      "slice": "CancelOrder",
+      "code": "inferred-against",
+      "aggregates": [
+        "Order"
+      ],
+      "message": "\u26A0 inferred: decides against Order \u2014 its examples give Order events before it appends; \u0027Order\u0027 is the subject 2 of its 2 events share.",
+      "evidence": {
+        "events": [
+          "OrderPlaced"
+        ],
+        "examples": [
+          "an order is cancelled"
+        ]
+      },
+      "override": "--aggregate CancelOrder=Order"
+    }
+  ],
+  "report": [
+    "chapter \u0027Ordering\u0027: Command slice \u0027PlaceOrder\u0027.",
+    "chapter \u0027Ordering\u0027: Command slice \u0027CancelOrder\u0027.",
+    "chapter \u0027Ordering\u0027: View slice \u0027OrderSummary\u0027.",
+    "chapter \u0027Ordering\u0027: View slice \u0027OrderSummary\u0027 consumes 2 event(s): OrderPlaced, OrderCancelled.",
+    "3 slice(s) from 1 chapter(s).",
+    "\u26A0 inferred aggregate Order for OrderPlaced, OrderCancelled: \u0027Order\u0027 is the subject 2 of its 2 events share.",
+    "\u26A0 slice \u0027PlaceOrder\u0027: inferred that it decides against Order \u2014 its examples give Order events before it appends; \u0027Order\u0027 is the subject 2 of its 2 events share.",
+    "\u26A0 slice \u0027CancelOrder\u0027: inferred that it decides against Order \u2014 its examples give Order events before it appends; \u0027Order\u0027 is the subject 2 of its 2 events share."
+  ],
+  "files": []
+}

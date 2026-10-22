@@ -397,11 +397,17 @@ chapter 'TheSwiper': Automation slice 'DetectMutualMatch' triggered by 'Dog Like
 chapter 'TheSwiper': View slice 'MatchList'.
 chapter 'TheSwiper': View slice 'MatchList' consumes 3 event(s): DogLiked, DogPassed, MutualMatchDetected.
 3 slice(s) from 1 chapter(s).
-Wrote 6 stub type(s) in 3 file(s) under ./Features.
-Wrote the event model to ./K9Crush.cs. The segmentation above is a set of guesses, so correct one
-with an edit rather than a re-import.
-Model 'K9Crush': 3 slice(s), 1 bound specification(s).
+⚠ inferred aggregate Dog for DogLiked, DogPassed: 'Dog' is the subject 2 of its 2 events share.
+⚠ inferred aggregate MutualMatch for MutualMatchDetected: named for the subject of MutualMatchDetected, its only event.
+⚠ slice 'SwipeOnDog': inferred that it decides against Dog — its examples give Dog events before it appends; 'Dog' is the subject 2 of its 2 events share.
+⚠ slice 'DetectMutualMatch': inferred that it decides against MutualMatch — its examples give MutualMatch events before it appends; named for the subject of MutualMatchDetected, its only event.
+Wrote 5 stub file(s) under …/K9Crush/Features.
+Wrote 1 event model definition(s): Features/TheSwiper/TheSwiperModel.cs. Register them with AddEventModel<T>() (or let Wolverine discover them). The segmentation above is a set of guesses, so correct one with an edit rather than a re-import.
+Model 'K9Crush': 3 slice(s), 2 bound specification(s).
 ```
+
+That is the import of [`k9crush.yaml`](https://github.com/JasperFx/bobcat/blob/main/src/Bobcat.EventModel.Tests/Fixtures/Import/boards/k9crush.yaml),
+one of the boards whose import `ImportFixtureTests` keeps. The C# on this page is what those imports wrote.
 
 Pass `--out` the application project's directory; everything lands under it.
 
@@ -412,23 +418,9 @@ holds what the slice produces: its command (or the read model of a view), the ev
 the messages it publishes. That is also the file `wolverine scaffold` adds the handler to, so a
 command and its handler live side by side. A type no slice produces, such as an aggregate or an
 event consumed from elsewhere, gets a file of its own under the chapter of the first slice that
-names it.
+names it. `Features/TheSwiper/SwipeOnDog.cs`:
 
-```csharp
-// Features/TheSwiper/SwipeOnDog.cs
-namespace K9Crush.TheSwiper;
-
-/// <summary>
-/// the command of SwipeOnDog.
-/// </summary>
-public record SwipeOnDog(Guid Id);
-
-/// <summary>
-/// emitted by SwipeOnDog.
-/// consumed by MatchList.
-/// </summary>
-public record DogLiked;
-```
+<<< ../src/Bobcat.EventModel.Tests/Fixtures/Import/generated/k9crush/Features/TheSwiper/SwipeOnDog.cs{cs}
 
 **A stub has only what the board names, plus an `Id` where it names no identity.** An emlang export
 usually carries no field information, since the board's props are intentionally omitted. Events
@@ -470,15 +462,11 @@ examples**:
   never quietly made aggregate-less.
 
 Every inferred aggregate is called out, in the report and as a comment on the slice in the
-definition, so a wrong guess is a one-line edit there:
+definition, so a wrong guess is a one-line edit there. From the import of
+[`shelter.yaml`](https://github.com/JasperFx/bobcat/blob/main/src/Bobcat.EventModel.Tests/Fixtures/Import/boards/shelter.yaml),
+where `Appointment` is also the chapter's default aggregate (below), so the slice needs no `.Against<Appointment>()`:
 
-```csharp
-// ⚠ inferred: decides against Appointment — its examples give Appointment events before it appends; 'Appointment' is the subject 7 of its 7 events share.
-model.Command<ConfirmAppointment>()
-    .InChapter("BookingAppointments")
-    .Against<Appointment>()
-    .Emits<AppointmentConfirmed>();
-```
+<<< ../src/Bobcat.EventModel.Tests/Fixtures/Import/generated/shelter/Features/Booking/BookingModel.cs#confirm-appointment{cs}
 
 Or say it outright on the import, which always wins over the inference. Several at once go after
 one flag:
@@ -491,16 +479,13 @@ bobcat import-event-model board.yaml --aggregate ConfirmAppointment=Booking Acce
 `--aggregate` overrides are then the aggregates it decides against besides, and what its examples
 give first is never joined to the stream it starts.
 
-**Import part of a board with `--chapter`.** `--chapter BookingAppointments VolunteeringAndHomeChecks`
+**Import part of a board with `--chapter`.** `--chapter Volunteering Booking`
 imports only those chapters. The rest of the board is still read, as evidence. When the only events
 an example gives before a command acts come from a chapter you left out, nothing imported shows the
 stream existing first, so the command may well start it. The import asks:
 
 ```
-⚠ slice 'RequestHomeCheck' starts the HomeCheck stream? It is inferred to decide against HomeCheck,
-but the only HomeCheck events its examples give first, ApplicationReviewed, come from chapter
-'ShelterReviewsApplication', which was not imported. If it starts the stream, import with
---starts-stream RequestHomeCheck=HomeCheck.
+⚠ slice 'RequestHomeCheck' starts the HomeCheck stream? It is inferred to decide against HomeCheck, but the only HomeCheck events its examples give first, ApplicationReviewed, come from chapter 'ShelterReviewsApplication', which was not imported. If it starts the stream, import with --starts-stream RequestHomeCheck=HomeCheck.
 ```
 
 The same question is asked, without a chapter name, when no slice on the board emits the event.
@@ -514,16 +499,26 @@ that settles it:
 {
   "slice": "RequestHomeCheck",
   "code": "stream-start-from-unimported-chapter",
-  "aggregates": [ "HomeCheck" ],
-  "message": "⚠ starts the HomeCheck stream? …",
+  "aggregates": [
+    "HomeCheck"
+  ],
+  "message": "\u26A0 starts the HomeCheck stream? It is inferred to decide against HomeCheck, but the only HomeCheck events its examples give first, ApplicationReviewed, come from chapter \u0027ShelterReviewsApplication\u0027, which was not imported. If it starts the stream, import with --starts-stream RequestHomeCheck=HomeCheck.",
   "evidence": {
-    "events": [ "ApplicationReviewed" ],
-    "examples": [ "home check requested" ],
-    "chapters": [ "ShelterReviewsApplication" ]
+    "events": [
+      "ApplicationReviewed"
+    ],
+    "examples": [
+      "requested"
+    ],
+    "chapters": [
+      "ShelterReviewsApplication"
+    ]
   },
   "override": "--starts-stream RequestHomeCheck=HomeCheck"
 }
 ```
+
+Non-ASCII characters such as `⚠` and `—` arrive escaped (`\u26A0`), as any JSON parser reads them.
 
 | Code | Means | Settled by |
 |---|---|---|
@@ -563,61 +558,35 @@ to the Wolverine repository in 1.0.0-rc.2; this command no longer raises them.
 
 Each chapter gets one `EventModelDefinition`, beside its stubs in `Features/{Chapter}/{Chapter}Model.cs`,
 declaring that chapter's slices through the JasperFx.Events fluent API. The chapter is said once at the
-top, and so is the aggregate most of the chapter's commands decide against:
+top, and so is the aggregate most of the chapter's commands decide against. The shelter board's
+`Features/Booking/BookingModel.cs`, where the two automations start the `Appointment` stream (a slice that
+starts a stream ignores the default) and the two commands decide against it:
 
-```csharp
-public class BookingAppointmentsModel : EventModelDefinition
-{
-    public override void Configure(EventModelBuilder model)
-    {
-        model.InChapter("BookingAppointments");
-        // ⚠ inferred: 6 of the 6 commands here decide against Appointment, so it is the
-        // default; .Against<T>() on a slice replaces it, and .NoAggregate() says it has none.
-        model.ForAggregate<Appointment>();
-
-        model.Command<ConfirmAppointment>()
-            .TriggeredBy("Confirm Appointment", TriggerKind.Human)
-            .Emits<AppointmentConfirmed>()
-            .LinksToSpecification("ConfirmAppointment/appointment confirmed");
-
-        model.Command<ProposeHomeCheckAppointment>()
-            .StartsStream<Appointment>()   // a slice that starts a stream ignores the default
-            .Emits<HomeCheckAppointmentProposed>();
-    }
-}
-```
+<<< ../src/Bobcat.EventModel.Tests/Fixtures/Import/generated/shelter/Features/Booking/BookingModel.cs#booking-model{cs}
 
 A chapter whose commands have no clear majority aggregate gets no default, and every command says its
 own. The definitions set no `Name`, so every chapter joins the application's model. Pass
 `--single-definition` for one `<Model>.cs` holding every slice, each with its own `.InChapter(…)`.
 
-Register each with `services.AddEventModel<BookingAppointmentsModel>()` and it joins the model on the
+Register each with `services.AddEventModel<BookingModel>()` and it joins the model on the
 **Declared** rung, where a claim the code derives always wins and any difference between the two
 shows up as a `SourceDisagreement` hotspot. That gap is the design-first to-do list.
 
 #### `--strong-typed-ids`: an identity type per aggregate
 
 Without it an identity the model does not type is a `Guid`, which is what every Critter Stack store
-defaults a stream id to. With it each aggregate gets one, in `Identities.cs` in the root namespace:
+defaults a stream id to. With it each aggregate gets one, in `Identities.cs` in the root namespace. From
+the import of [`shop.yaml`](https://github.com/JasperFx/bobcat/blob/main/src/Bobcat.EventModel.Tests/Fixtures/Import/boards/shop.yaml)
+with `--strong-typed-ids`:
 
-```csharp
-[JsonConverter(typeof(OrderId.Converter))]
-public readonly record struct OrderId(Guid Value) : IParsable<OrderId>
-{
-    public override string ToString() => Value.ToString();
-    public static OrderId Parse(string s, IFormatProvider? provider) => new(Guid.Parse(s));
-    // TryParse, and a nested JSON converter so the wire carries the value
-}
-```
+<<< ../src/Bobcat.EventModel.Tests/Fixtures/Import/generated/shop/Identities.cs{cs}
 
 Everything that addresses that stream then takes it — the aggregate's `Id`, the command's `Id` or
 `{Aggregate}Id`, the identity member of each of its events (including one the board marks, such as an
 `Email` keying a customer) and the read model projected from it, and the definition declares it, which is a **Declared** claim the store's own projection later agrees
 with (jasperfx#1004):
 
-```csharp
-model.Aggregate<Order>().IdentifiedBy<OrderId>();
-```
+<<< ../src/Bobcat.EventModel.Tests/Fixtures/Import/generated/shop/Features/Ordering/OrderingModel.cs#identified-by{cs}
 
 Three things worth knowing:
 
@@ -695,8 +664,7 @@ does exist gets what the board has and the file lacks, and nothing in it is chan
 - **It is idempotent.** Run it twice and the second run changes nothing.
 - Each merge prints a line, e.g. `Added 1 slice declaration (SubmitHomeCheckReport) to
   Features/VolunteeringAndHomeChecks/VolunteeringAndHomeChecksModel.cs.` or `Added 1 role
-  (RecordAppointmentNoShow: Emits(AppointmentNoShowRecorded)) to
-  Features/BookingAppointments/BookingAppointmentsModel.cs.`, and `--json` lists the file with
+  (RecordAppointmentNoShow: Emits(AppointmentNoShowRecorded)) to Features/Booking/BookingModel.cs.`, and `--json` lists the file with
   `"mode": "merge"`.
 - **`--force` still overwrites**, as before.
 
@@ -704,14 +672,11 @@ does exist gets what the board has and the file lacks, and nothing in it is chan
 
 When the board gives a slice the definition already declares a new event, message, consumed event,
 read, read model or projection, the stub file gains the type and the definition gains a statement at
-the end of `Configure` that **reopens the slice by name** with just the missing roles:
+the end of `Configure` that **reopens the slice by name** with just the missing roles. Here
+[`noshow-v1.yaml`](https://github.com/JasperFx/bobcat/blob/main/src/Bobcat.EventModel.Tests/Fixtures/Import/boards/noshow-v1.yaml)
+was imported, then `noshow-v2.yaml`, which gives `RecordAppointmentNoShow` a second event:
 
-```csharp
-        model.Command<RecordAppointmentNoShow>()
-            .TriggeredBy("Record Appointment No-Show", TriggerKind.Human);
-
-        model.Slice("RecordAppointmentNoShow").Emits<AppointmentNoShowRecorded>();
-```
+<<< ../src/Bobcat.EventModel.Tests/Fixtures/Import/generated/noshow/Features/Booking/BookingModel.cs{cs}
 
 The declaration itself is never edited. JasperFx folds every statement naming a slice into one slice
 and unions their roles, in one definition or across several, so the model and `wolverine scaffold` see
