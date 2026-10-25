@@ -36,6 +36,7 @@ export default defineConfig({
           { text: 'Integrating with Your IDE', link: '/tutorials/ide-integration' },
           { text: 'Event Modeling and SDD', link: '/tutorials/event-modeling' },
           { text: 'Reliable Integration Testing', link: '/tutorials/reliable-integration-testing' },
+          { text: 'Test Infrastructure with Aspire', link: '/tutorials/aspire-test-infrastructure' },
           { text: 'Agent Friendly Tests', link: '/tutorials/agent-friendly-tests' }
         ]
       },

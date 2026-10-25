@@ -5,6 +5,8 @@
     <Platform Name="x86" />
   </Configurations>
   <Folder Name="/src/">
+    <Project Path="src/Bobcat.Aspire.Samples.AppHost/Bobcat.Aspire.Samples.AppHost.csproj" />
+    <Project Path="src/Bobcat.Aspire.Samples/Bobcat.Aspire.Samples.csproj" />
     <Project Path="src/Bobcat.Console/Bobcat.Console.csproj" />
     <Project Path="src/Bobcat.EventModel.Tests/Bobcat.EventModel.Tests.csproj" />
     <Project Path="src/Bobcat.EventModel/Bobcat.EventModel.csproj" />

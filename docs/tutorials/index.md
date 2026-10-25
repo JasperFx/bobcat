@@ -15,6 +15,7 @@ We advise you to start here on your first look at Bobcat.
 | Run and debug specs from your IDE's test explorer | [Integrating Bobcat with Your IDE](ide-integration.md) |
 | Design a system as an Event Model and build from it with the Critter Stack | [Event Modeling and Spec Driven Development](event-modeling.md) |
 | Stop a large, slow integration suite from being flaky | [Reliable Integration Testing](reliable-integration-testing.md) |
+| Start a suite's Postgres, RabbitMQ or SQL Server from an Aspire AppHost instead of docker-compose | [Test Infrastructure with Aspire](aspire-test-infrastructure.md) |
 | Give a coding agent a fast feedback loop: failures that say what the system did, and a rerun of only what was red | [Agent Friendly Integration Tests](agent-friendly-tests.md) |
 
 ## Bobcat's History

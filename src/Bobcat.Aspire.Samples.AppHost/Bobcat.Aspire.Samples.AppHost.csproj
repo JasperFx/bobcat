@@ -1,0 +1,30 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.6.3">
+
+  <!--
+    The Aspire AppHost that owns the Aspire sample's test infrastructure (bobcat#769,
+    docs/tutorials/aspire-test-infrastructure.md). It is the docker-compose.yml of
+    src/Bobcat.Aspire.Samples, written in C#: the spec assembly starts it once through
+    Aspire.Hosting.Testing. The Sdk version above moves with the Aspire.* pins in
+    src/Directory.Packages.props.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- ASPIRE010: the CLI bundle serves `aspire run`; Aspire.Hosting.Testing starts this AppHost with
+         the orchestration package the SDK already references. -->
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+    <UserSecretsId>5f3b8c2e-7a41-4d6b-9e0c-2b7d4a1f6c93</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" />
+    <PackageReference Include="Aspire.Hosting.SqlServer" />
+    <!-- Lifts the 10.0.12 Aspire.Hosting brings transitively past its advisories (NU1902/NU1903). -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
+  </ItemGroup>
+
+</Project>
