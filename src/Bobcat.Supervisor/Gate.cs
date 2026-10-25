@@ -50,7 +50,8 @@ public sealed class Gate
         }
 
         // 2. Build once. The hosts then run as built, and the bootstrap is paid once per gate
-        //    rather than once per suite.
+        //    rather than once per suite. Whoever built them, the next check is what says a
+        //    selected framework was not produced.
         try
         {
             await build(units, ct);
@@ -176,19 +177,49 @@ public sealed class Gate
             return;
         }
 
-        var targets = request.Solution is { } solution ? [solution] : request.Projects.Select(p => p.Path).ToArray();
-        foreach (var framework in frameworks)
+        foreach (var step in DefaultBuildSteps(request.Solution, units))
         {
-            foreach (var target in targets)
-            {
-                await dotnetBuild(target, framework, ct);
-            }
+            await dotnetBuild(step, ct);
         }
     }
 
-    private async Task dotnetBuild(string target, string framework, CancellationToken ct)
+    /// <summary>
+    /// The default build, as the <c>dotnet build</c> invocations it makes (bobcat#774).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A solution is built once, with no <c>-f</c>.</b> <c>-f</c> on a solution applies to every
+    /// project in it, so a netstandard2.0 source generator or a net9.0-only library beside the
+    /// test projects fails to build and the gate never reaches its units. Without it each project
+    /// builds its own <c>TargetFrameworks</c>, and the check that every selected unit's host exists
+    /// — which runs next whatever built them — is what says a framework was not produced.
+    /// </para>
+    /// <para>
+    /// <b>Without a solution each unit's project is built for that unit's framework</b>, once per
+    /// (project, framework). A framework is only ever a unit's when its project declares it, and
+    /// <c>-f</c> on one project does not reach its references (each negotiates its nearest
+    /// framework), so this is safe and builds no framework the gate will not run.
+    /// </para>
+    /// </remarks>
+    internal static IReadOnlyList<GateBuildStep> DefaultBuildSteps(string? solution, IReadOnlyList<GateUnit> units)
     {
-        var arguments = $"build \"{target}\" -c {_declaration.Configuration} -f {framework} --nologo -v quiet";
+        if (solution is not null) return [new GateBuildStep(solution, null)];
+
+        return units
+            .Select(u => new GateBuildStep(u.Project.Path, u.Framework))
+            .Distinct()
+            .ToArray();
+    }
+
+    /// <summary>The arguments of one default <c>dotnet build</c>.</summary>
+    internal static string BuildArguments(GateBuildStep step, string configuration)
+        => $"build \"{step.Target}\" -c {configuration}" +
+           (step.Framework is { } framework ? $" -f {framework}" : "") +
+           " --nologo -v quiet";
+
+    private async Task dotnetBuild(GateBuildStep step, CancellationToken ct)
+    {
+        var arguments = BuildArguments(step, _declaration.Configuration);
         log($"dotnet {arguments}");
 
         var info = new ProcessStartInfo("dotnet", arguments)
@@ -234,7 +265,7 @@ public sealed class Gate
             string[] lines;
             lock (tail) lines = tail.ToArray();
             throw new InvalidOperationException(
-                $"dotnet build {Path.GetFileName(target)} -f {framework} exited {process.ExitCode}:{Environment.NewLine}" +
+                $"dotnet build {Path.GetFileName(step.Target)}{(step.Framework is { } f ? $" -f {f}" : "")} exited {process.ExitCode}:{Environment.NewLine}" +
                 string.Join(Environment.NewLine, lines));
         }
     }
@@ -300,3 +331,6 @@ public sealed class Gate
         lock (_log) _declaration.Log(message);
     }
 }
+
+/// <summary>One default <c>dotnet build</c>: a solution or project, and the framework, or null for its own.</summary>
+internal sealed record GateBuildStep(string Target, string? Framework);

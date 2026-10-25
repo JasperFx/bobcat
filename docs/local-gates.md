@@ -32,7 +32,7 @@ var gate = new GateDeclaration
     WorkerBudget = Environment.ProcessorCount / 2,      // the default
     Frameworks = FrameworkSelection.Parse(framework),   // null → newest; "all"; "net9.0"
     Configuration = "Release",
-    Solution = "wolverine.slnx",                        // one dotnet build per framework
+    Solution = "wolverine.slnx",                        // built once; each project its own frameworks
     RunTagPrefix = "local-gates/wolverine-gate",        // default: BOBCAT_RUN_TAG
 };
 
@@ -69,6 +69,12 @@ The rules:
 - **A project with no track** is limited only by the budget.
 - **The budget is one number across every unit.** A unit asking for more workers than the budget
   is clamped to it, never held back; a smaller unit fills the gap beside a larger one.
+  **Workers are database connections too.** Every lane of every unit running at once opens its own
+  pool, so units that share one Postgres can exhaust its `max_connections` well before they exhaust
+  the CPU (Marten measured four lanes of its event-sourcing suite alone peaking above 100). The gate
+  does not know what a worker connects to; if your suites share a server, size `WorkerBudget` to
+  its free connections as well as to cores -- Marten's gate reads `max_connections` minus the
+  connections already open and clamps its budget to that.
 - **A target framework is part of the unit.** `(project, framework)` is what is scheduled, and two
   frameworks of one project hold the same tracks. By default a project runs on its **newest**
   framework only (CI runs the matrix); `FrameworkSelection.All` -- `--framework all` on a Nuke
@@ -89,10 +95,20 @@ The rules:
    reported by track and the gate aborts with exit code 2 -- nothing ran, so nothing is known.
    `Track.Listening` is the cheapest honest "is the container up"; add a `Check` for anything more
    (a schema, a queue, a compose project name). The gate never starts, stops or resets a container.
-2. **Build once**: `dotnet build <Solution or each project> -c <Configuration> -f <framework>` for
-   each framework the gate runs, then every host runs as built. `Build` substitutes your own step
-   (a Nuke `DotNetBuild`); `SkipBuild = true` is the promise that the hosts are already there, and
-   a missing host is then reported with the path it looked for.
+2. **Build once**, then every host runs as built. With a `Solution` that is one
+   `dotnet build <Solution> -c <Configuration>` with **no `-f`**, so every project builds its own
+   `TargetFrameworks` -- a netstandard2.0 source generator or a net9.0-only library beside the test
+   projects builds as it always does ([bobcat#774](https://github.com/JasperFx/bobcat/issues/774);
+   `-f` on a solution applies to every project in it and fails those with `NETSDK1005`). Without a
+   solution it is `dotnet build <project> -c <Configuration> -f <framework>` once per unit, which
+   only ever names a framework the project targets. Whoever built them, the gate then checks that
+   every selected unit's host exists and aborts naming the path it looked for if one does not.
+   - **`Build` is the escape hatch** when the default is wrong for your repository -- a solution
+     too large to build whole before a push, a build that needs properties, or a Nuke
+     `DotNetBuild` you already have. It is called once with a `GateBuild` (the solution, the
+     projects, the frameworks the gate runs, newest first, and the configuration); throw to fail the
+     gate. The host check still runs after it.
+   - `SkipBuild = true` is the promise that the hosts are already there.
 3. **Print the plan**: every unit in the order it will be offered to the budget, with its workers,
    tracks and predicted duration.
 4. **Run, longest first.** Whenever a unit finishes, the longest waiting unit whose tracks are free
