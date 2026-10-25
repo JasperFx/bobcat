@@ -127,6 +127,20 @@
     <!-- Only the F# shape fixtures for the partial-object tests (bobcat#417); nothing shipped references it. -->
     <PackageVersion Include="FSharp.Core" Version="9.0.303" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
+
+    <!--
+      The Aspire sample pair only (src/Bobcat.Aspire.Samples.AppHost + src/Bobcat.Aspire.Samples,
+      bobcat#769, docs/tutorials/aspire-test-infrastructure.md). Nothing shipped references them.
+      Every Aspire.* package moves together with the AppHost's Sdk attribute (Aspire.AppHost.Sdk/13.6.3),
+      which supplies Aspire.Hosting.AppHost itself: a PackageVersion for it here is NU1009.
+    -->
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.6.3" />
+    <PackageVersion Include="Aspire.Hosting.RabbitMQ" Version="13.6.3" />
+    <PackageVersion Include="Aspire.Hosting.SqlServer" Version="13.6.3" />
+    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.6.3" />
+    <PackageVersion Include="Npgsql" Version="10.0.0" />
+    <!-- Aspire.Hosting 13.6.3 brings 10.0.12 transitively, which has known advisories (NU1902/NU1903). -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
   </ItemGroup>
 
 </Project>

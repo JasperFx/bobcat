@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A Bobcat spec assembly whose Docker dependencies are owned by an Aspire AppHost
+    (../Bobcat.Aspire.Samples.AppHost) rather than docker-compose.yml: bobcat#769,
+    docs/tutorials/aspire-test-infrastructure.md. An assembly fixture starts the AppHost once
+    through Aspire.Hosting.Testing and hands the connection string to the system under test.
+
+    Compiled by every build, so the docs' code cannot rot, but NEVER collected by `dotnet test` or
+    ./build.sh CI: running it starts a Postgres container, and the root run must not need Docker.
+    Run it directly (Docker running):
+
+      dotnet build src/Bobcat.Aspire.Samples
+      ./src/Bobcat.Aspire.Samples/bin/Debug/net10.0/Bobcat.Aspire.Samples
+
+    The opt-out is Bobcat.Xunit.Samples' (see that csproj for why each property is needed on MTP 2.x).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+
+    <IsTestProject>false</IsTestProject>
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+    <GenerateTestingPlatformConfigurationFile>true</GenerateTestingPlatformConfigurationFile>
+    <GenerateSelfRegisteredExtensions>true</GenerateSelfRegisteredExtensions>
+
+    <!-- The interceptor opt-in the Bobcat.Generators PACKAGE carries in buildTransitive; in-repo
+         it is stated here. -->
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Bobcat.Generated</InterceptorsNamespaces>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The platform-extension registration the Bobcat.Xunit PACKAGE carries in buildTransitive. -->
+    <TestingPlatformBuilderHook Include="0A1C4D7E-3B52-4F8A-9C61-7D2E8B4A5F30">
+      <DisplayName>Bobcat.Xunit</DisplayName>
+      <TypeFullName>Bobcat.Xunit.TestingPlatformBuilderHook</TypeFullName>
+    </TestingPlatformBuilderHook>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Testing" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="xunit.v3" />
+    <!-- Lifts the 10.0.12 Aspire.Hosting brings transitively past its advisories (NU1902/NU1903). -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The AppHost, referenced like any project: Aspire generates Projects.Bobcat_Aspire_Samples_AppHost
+         from it, which is what DistributedApplicationTestingBuilder.CreateAsync<T>() starts. -->
+    <ProjectReference Include="..\Bobcat.Aspire.Samples.AppHost\Bobcat.Aspire.Samples.AppHost.csproj" />
+
+    <ProjectReference Include="..\Bobcat\Bobcat.csproj" />
+    <ProjectReference Include="..\Bobcat.Xunit\Bobcat.Xunit.csproj" />
+    <ProjectReference Include="..\Bobcat.Generators\Bobcat.Generators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
