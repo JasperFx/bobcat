@@ -51,7 +51,9 @@ public sealed class GateDeclaration
 
     /// <summary>
     /// What the default build step builds: a solution path, or null to build each declared
-    /// project. One <c>dotnet build</c> per framework the gate runs, then every host runs as built.
+    /// project. A solution is built once with no <c>-f</c>, so each project in it builds its own
+    /// target frameworks (bobcat#774); without one, each unit's project is built for that unit's
+    /// framework. Every host then runs as built.
     /// </summary>
     public string? Solution { get; set; }
 
@@ -64,7 +66,9 @@ public sealed class GateDeclaration
     /// <summary>
     /// A build step of the caller's own, in place of the default <c>dotnet build</c> — a Nuke
     /// target's <c>DotNetBuild</c>, say. Called once with the frameworks the gate will run; throw
-    /// to fail the gate. Ignored when <see cref="SkipBuild"/> is set.
+    /// to fail the gate. Ignored when <see cref="SkipBuild"/> is set. The escape hatch when the
+    /// default build is wrong for a repository: it builds the solution once without <c>-f</c>, so a
+    /// solution that cannot build every project's frameworks in one go needs this.
     /// </summary>
     public Func<GateBuild, CancellationToken, Task>? Build { get; set; }
 

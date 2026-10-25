@@ -163,6 +163,51 @@ public class GateEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task the_default_build_builds_a_solution_whose_other_projects_do_not_target_the_units_framework()
+    {
+        // The Marten shape (bobcat#774): a netstandard2.0 generator beside a net10.0 host. With
+        // -f net10.0 on the solution the generator failed to build and nothing ran.
+        var root = Path.Combine(_temp, "mixed");
+        writeProject(root, "Generator", "<TargetFramework>netstandard2.0</TargetFramework>", null);
+        writeProject(root, "Host", "<TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType>",
+            "System.Console.WriteLine(\"not a test host\");");
+        var solution = Path.Combine(root, "Mixed.slnx");
+        File.WriteAllText(solution,
+            "<Solution><Project Path=\"Generator/Generator.csproj\" /><Project Path=\"Host/Host.csproj\" /></Solution>");
+
+        var gate = new GateDeclaration
+        {
+            Solution = solution,
+            PublishToMonitor = false,
+            DurationsPath = null,
+            Log = line => { lock (_log) _log.Add(line); }
+        };
+        // The host is no test host; its factory says so, which proves the build produced it.
+        gate.Project(Path.Combine(root, "Host"))
+            .LaunchingWith(_ => throw new InvalidOperationException("built, not supervisable"));
+
+        var results = await gate.Run(TestContext.Current.CancellationToken);
+
+        results.AbortReason.ShouldBeNull(results.ToText());
+        results.Units.Single().Error.ShouldNotBeNull().Message.ShouldBe("built, not supervisable");
+        lock (_log)
+        {
+            _log.ShouldContain($"dotnet build \"{solution}\" -c Debug --nologo -v quiet");
+            _log.ShouldNotContain(line => line.StartsWith("dotnet build") && line.Contains(" -f "));
+        }
+    }
+
+    private static void writeProject(string root, string name, string properties, string? program)
+    {
+        var directory = Path.Combine(root, name);
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, name + ".csproj"),
+            $"<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup>{properties}</PropertyGroup></Project>");
+        File.WriteAllText(Path.Combine(directory, name + ".cs"),
+            program ?? "namespace Generated { public static class Marker { } }");
+    }
+
+    [Fact]
     public async Task a_missing_host_aborts_with_the_path_it_looked_for()
     {
         var gate = declaration(new RecordingSink());

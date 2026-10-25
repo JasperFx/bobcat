@@ -92,6 +92,41 @@ public class GateDeclarationTests : IDisposable
             OperatingSystem.IsWindows() ? "CoreTests.exe" : "CoreTests"));
     }
 
+    // ─── the default build (bobcat#774) ───────────────────────────────
+
+    [Fact]
+    public void a_solution_is_built_once_with_no_framework_whatever_frameworks_the_gate_runs()
+    {
+        var gate = new GateDeclaration { Frameworks = FrameworkSelection.All, Configuration = "Release" };
+        gate.Project(project("CoreTests", "net9.0;net10.0"));
+        gate.Project(project("Plain", "net10.0"));
+
+        var steps = Gate.DefaultBuildSteps("marten.slnx", gate.Units());
+
+        steps.ShouldBe([new GateBuildStep("marten.slnx", null)]);
+        Gate.BuildArguments(steps[0], "Release").ShouldBe("build \"marten.slnx\" -c Release --nologo -v quiet");
+    }
+
+    [Fact]
+    public void without_a_solution_each_units_project_is_built_for_that_units_framework_only()
+    {
+        var gate = new GateDeclaration { Frameworks = FrameworkSelection.All };
+        var core = project("CoreTests", "net9.0;net10.0");
+        var plain = project("Plain", "net10.0");
+        gate.Project(core);
+        gate.Project(plain);
+
+        var steps = Gate.DefaultBuildSteps(null, gate.Units());
+
+        // Never Plain for net9.0, which it does not target: no cross product of projects and frameworks.
+        steps.ShouldBe([
+            new GateBuildStep(core, "net10.0"),
+            new GateBuildStep(core, "net9.0"),
+            new GateBuildStep(plain, "net10.0")
+        ]);
+        Gate.BuildArguments(steps[1], "Debug").ShouldBe($"build \"{core}\" -c Debug -f net9.0 --nologo -v quiet");
+    }
+
     [Fact]
     public void newest_only_by_default()
     {
