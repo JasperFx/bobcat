@@ -9,8 +9,8 @@ public record OrderLine(string Sku, int Quantity);
 
 public record ShippingAddress(string City, string Country);
 
-public record PlacedOrder(string Id, ShippingAddress ShipTo, List<OrderLine> Lines, decimal Total,
-    DateTimeOffset PlacedAt);
+public record PlacedOrder(string Id, ShippingAddress ShipTo, List<OrderLine> Lines,
+    Dictionary<string, string> Headers, decimal Total, DateTimeOffset PlacedAt);
 
 /// <summary>
 /// bobcat#456, as a reader sees it: the worked examples behind <c>docs/expected-objects.md</c>. Every
@@ -32,6 +32,7 @@ public class ExpectedObjectTests
         "O-1",
         new ShippingAddress("Austin", "US"),
         [new OrderLine("ABC", 2), new OrderLine("DEF", 1)],
+        new Dictionary<string, string> { ["accept"] = "json", ["auth"] = "token" },
         30.004m,
         DateTimeOffset.UnixEpoch);
 
@@ -175,6 +176,68 @@ public class ExpectedObjectTests
                 """))));
 
         recording.Steps.Single().Status.ShouldBe(ResultStatus.success);
+    }
+
+    [Fact]
+    public void a_dictionary_member_of_a_partial_object_is_compared_by_key()
+    {
+        // bobcat#761: the same entries in another order agree, as they do through a whole object
+        var (recording, _) = Projected.Run("the same headers", () =>
+            _grammar.TheOrderMatches(TheOrder, Specify<PlacedOrder>()
+                .With(x => x.Headers, new Dictionary<string, string> { ["auth"] = "token", ["accept"] = "json" })));
+
+        recording.Steps.Single().Status.ShouldBe(ResultStatus.success);
+    }
+
+    [Fact]
+    public void a_key_one_side_lacks_reads_as_that_key_in_the_members_cell()
+    {
+        var (_, render) = Projected.Run("a missing and an extra header", () =>
+            _grammar.TheOrderMatches(TheOrder, Specify<PlacedOrder>()
+                .With(x => x.Headers, new Dictionary<string, string> { ["auth"] = "token", ["trace"] = "abc" })));
+
+        // One cell for the member, owning the keyed differences -- not the whole dictionary written
+        // out on both sides, which is what bobcat#761 opened on
+        render.Step("the order matches").Cells.Select(x => x.Name).ShouldBe(["Headers"]);
+
+        var headers = cell(render, "Headers");
+        headers.Status.ShouldBe(ResultStatus.failed);
+        headers.Expected.ShouldContain("[trace]: abc (MISSING: no entry under 'trace')");
+        headers.Expected.ShouldContain("[accept]: NULL (EXTRA: no entry expected under 'accept')");
+        headers.Actual.ShouldContain("[accept]: json (EXTRA: no entry expected under 'accept')");
+        headers.Expected.ShouldNotContain("KeyValuePair");
+        headers.Expected.ShouldNotContain("[auth]");
+    }
+
+    [Fact]
+    public void a_wrong_value_under_a_key_is_that_key()
+    {
+        var (_, render) = Projected.Run("a wrong header value", () =>
+            _grammar.TheOrderMatches(TheOrder, Specify<PlacedOrder>()
+                .With(x => x.Headers, new Dictionary<string, string> { ["accept"] = "xml", ["auth"] = "token" })));
+
+        var headers = cell(render, "Headers");
+        headers.Status.ShouldBe(ResultStatus.failed);
+        headers.Expected.ShouldBe("[accept]: xml");
+        headers.Actual.ShouldBe("[accept]: json");
+    }
+
+    [Fact]
+    public void a_partial_object_from_a_vertical_table_is_unaffected()
+    {
+        var partial = PartialObjects.FromTable(typeof(PlacedOrder), """
+            | field       | value  |
+            | Id          | O-1    |
+            | ShipTo.City | Dallas |
+            """).Single();
+
+        var (_, render) = Projected.Run("a vertical table", () => _grammar.TheOrderMatches(TheOrder, partial));
+
+        cell(render, "Id").Status.ShouldBe(ResultStatus.success);
+        var city = cell(render, "ShipTo.City");
+        city.Status.ShouldBe(ResultStatus.failed);
+        city.Expected.ShouldBe("Dallas");
+        city.Actual.ShouldBe("Austin");
     }
 
     [Fact]

@@ -117,13 +117,8 @@ public class ExpectedObjectSpecs
     // #region dictionary-keyed
     [Fact]
     public void a_dictionary_member_is_compared_by_key()
-        => _orders.TheOrderIs(Expect.Value(new PlacedOrder(
-                "O-1",
-                new ShippingAddress("Austin", "US"),
-                [new OrderLine("ABC", 2), new OrderLine("DEF", 1)],
-                new Dictionary<string, string> { ["auth"] = "token", ["trace"] = "abc" },
-                30.004m,
-                new DateTimeOffset(2026, 10, 20, 9, 0, 1, TimeSpan.Zero))));
+        => _orders.TheOrderMatches(Specify<PlacedOrder>()
+            .With(x => x.Headers, new Dictionary<string, string> { ["auth"] = "token", ["trace"] = "abc" }));
     // #endregion dictionary-keyed
 
     // ---- member checks -------------------------------------------------------------------------
