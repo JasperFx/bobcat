@@ -368,36 +368,31 @@ Shouldly compares elements with `Equals`, which is reference equality for a clas
 ## A dictionary member is keyed
 
 A dictionary compares by key, not by position, so two dictionaries holding the same entries agree
-whatever order they enumerate in. A key one side lacks reads as that one key:
+whatever order they enumerate in. A key one side lacks reads as that one key, and the member's cell
+carries each keyed disagreement -- the same whether the dictionary is named by a partial object, as
+here, or reached through a whole object or an `Expect.Value`:
 
 <<< ../src/Bobcat.Xunit.Samples/Specs/ExpectedObjectSpecs.cs#dictionary-keyed{cs}
 
 ```
   a dictionary member is compared by key FAILED
   ────────────────────────────────────────────────
-    ✗ Then  the order is (1ms)
-╭───┬─────────────┬──────────────────────────────────────────────────┬─────────╮
-│ # │ order       │ values                                           │ Verdict │
-├───┼─────────────┼──────────────────────────────────────────────────┼─────────┤
-│ 1 │ PlacedOrder │ expected 'Headers[trace]: abc (MISSING: no entry │  FAIL   │
-│   │             │ under 'trace'), Headers[accept]: NULL (EXTRA: no │         │
-│   │             │ entry expected under 'accept')', got             │         │
-│   │             │ 'Headers[trace]: NULL (MISSING: no entry under   │         │
-│   │             │ 'trace'), Headers[accept]: json (EXTRA: no entry │         │
-│   │             │ expected under 'accept')'                        │         │
-╰───┴─────────────┴──────────────────────────────────────────────────┴─────────╯
+    ✗ Then  the order matches (7ms)
+╭───┬────────────────────────────────────────────────────────────────┬─────────╮
+│ # │ Headers                                                        │ Verdict │
+├───┼────────────────────────────────────────────────────────────────┼─────────┤
+│ 1 │ expected '[trace]: abc (MISSING: no entry under 'trace'),      │  FAIL   │
+│   │ [accept]: NULL (EXTRA: no entry expected under 'accept')', got │         │
+│   │ '[trace]: NULL (MISSING: no entry under 'trace'), [accept]:    │         │
+│   │ json (EXTRA: no entry expected under 'accept')'                │         │
+╰───┴────────────────────────────────────────────────────────────────┴─────────╯
 ```
+
+The `auth` entry both sides agree on is not reported. A wrong value under a key that both sides
+have reads as that key alone (`[accept]: xml` against `[accept]: json`).
 
 A `List<KeyValuePair<,>>` is deliberately **not** read this way: it is an ordered list that may hold
 one key twice, and reading it by key would lose its order and silently drop a duplicate's members.
-
-::: warning Through a partial object, a dictionary is still one value
-The keyed comparison runs when the dictionary is reached through a whole object or an
-`Expect.Value`, as above. A partial object naming the member directly,
-`Specify<PlacedOrder>().With(x => x.Headers, …)`, compares the dictionary as one value today and
-reports one cell with both sides written out
-([bobcat#761](https://github.com/JasperFx/bobcat/issues/761)).
-:::
 
 ## Values with their own meaning
 

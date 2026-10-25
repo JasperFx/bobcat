@@ -161,8 +161,9 @@ public static class PartialMatching
 
             // A collection member is matched as a set (bobcat#456), so a disagreement names the item
             // that disagreed. Reporting the whole collection on both sides read "expected
-            // List`1[Line], was List`1[Line]" — the same text either side of a failure.
-            if (!specified.IsText && isCollection(specified.Value))
+            // List`1[Line], was List`1[Line]" — the same text either side of a failure. A dictionary
+            // member is keyed the same way (bobcat#761), so a key one side lacks reads as that key.
+            if (!specified.IsText && (isCollection(specified.Value) || ObjectComparison.IsDictionary(specified.Value)))
             {
                 differences.AddRange(ObjectComparison.DifferencesAt(specified.Path, actualValue, specified.Value));
                 continue;
