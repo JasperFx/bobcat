@@ -794,8 +794,12 @@ by driving that host narrowed to the specifications the command named -- a fresh
 command (`cold`), or one host held open between commands (`warm`), as the console chooses.
 
 **What it is pointed at** is the spec project's test host: the executable itself, the build output
-folder holding it (the one executable with a `.runtimeconfig.json` beside it; several are refused by
-name), the `.csproj`, or the directory holding that `.csproj`. A project is resolved to the host
+folder holding it, the `.csproj`, or the directory holding that `.csproj`. A folder's executables are
+the ones with a `.runtimeconfig.json` beside them, and a spec project that references the application
+it tests has two ([bobcat#797](https://github.com/JasperFx/bobcat/issues/797)). With several, the one
+the folder's own project builds wins (its `AssemblyName`, read through MSBuild), then the only one
+whose `.deps.json` carries a test framework or Bobcat; a folder still ambiguous after both is refused,
+naming the candidates. A project is resolved to the host
 MSBuild says it builds, for `--framework` (the newest it targets by default) and `--configuration`
 (`Debug` by default) -- **nothing is built**: a runner is relaunched by whatever rebuilt the suite,
 and a project whose build is not there is refused with the path it looked at.

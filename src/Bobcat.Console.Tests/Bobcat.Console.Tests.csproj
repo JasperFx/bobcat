@@ -27,6 +27,11 @@
          by its .csproj in ResidentHostTests. -->
     <ProjectReference Include="..\Bobcat.Supervisor.ProjectedWorker\Bobcat.Supervisor.ProjectedWorker.csproj"
                       ReferenceOutputAssembly="false" />
+
+    <!-- Build ordering only: a spec project that references an executable web app, so its build
+         output folder holds two executables (bobcat#797). -->
+    <ProjectReference Include="..\Bobcat.Console.SampleWeb.Specs\Bobcat.Console.SampleWeb.Specs.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>
