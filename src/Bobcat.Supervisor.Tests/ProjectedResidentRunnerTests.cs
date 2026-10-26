@@ -414,37 +414,15 @@ public class ProjectedResidentRunnerTests : IDisposable
 
     // --- The executable a parent launches.
 
-    [Fact]
-    public async Task the_bobcat_tool_runs_a_projected_suite_resident_and_exits_75_on_restart()
+    [Theory]
+    [InlineData("--supervised", null)]
+    [InlineData(null, "BOBCAT_SUPERVISED")]
+    public async Task the_bobcat_tool_runs_a_projected_suite_resident_and_exits_75_on_restart_for_a_declared_parent(
+        string? flag, string? variable)
     {
-        File.Exists(tool).ShouldBeTrue($"The bobcat tool was not built at {tool}");
-
         using var monitor = new FakeMonitorHost();
-
-        var info = new ProcessStartInfo(tool)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            WorkingDirectory = Path.GetDirectoryName(tool)!
-        };
-
-        info.ArgumentList.Add("resident");
-        info.ArgumentList.Add(projectedHost);
-        info.ArgumentList.Add("--url");
-        info.ArgumentList.Add(monitor.Url);
-
-        // Issue #397's half of this: the parent names the runner, so the same checkout is the same
-        // runner across every relaunch.
-        info.Environment["BOBCAT_RUNNER_ID"] = "the-projected-checkout";
-        info.Environment["TESTINGPLATFORM_TELEMETRY_OPTOUT"] = "1";
-
         var output = new List<string>();
-        using var process = Process.Start(info)!;
-        process.OutputDataReceived += (_, e) => { if (e.Data is not null) lock (output) output.Add(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) lock (output) output.Add("ERR " + e.Data); };
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+        using var process = startTool(monitor, output, flag, variable);
 
         try
         {
@@ -467,17 +445,96 @@ public class ProjectedResidentRunnerTests : IDisposable
 
             await process.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(60)).Token);
 
-            string said;
-            lock (output) said = string.Join("\n  ", output);
-
             process.ExitCode.ShouldBe(
                 ResidentMode.RestartExitCode,
-                "a restart is 'relaunch me', which 0 cannot say. the tool said:\n  " + said);
+                "a declared parent relaunches on 75, which 0 cannot say. the tool said:\n  " + said(output));
         }
         finally
         {
-            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-            catch { /* already gone */ }
+            stop(process);
         }
+    }
+
+    [Fact]
+    public async Task with_no_parent_the_bobcat_tool_restarts_in_place_under_the_same_runner_id()
+    {
+        // bobcat#796: `bobcat resident <host>` is how the docs teach it, with nothing above it. Exiting
+        // 75 there left nothing to relaunch the runner, so the UI's "restart" meant "kill".
+        using var monitor = new FakeMonitorHost();
+        var output = new List<string>();
+        using var process = startTool(monitor, output, flag: null, variable: null);
+
+        try
+        {
+            await eventually(
+                () => payload<RunnerRegistration>(monitor, RunnerWire.RegisteredType),
+                "the tool never registered a projected runner");
+
+            monitor.Send("1", CloudEvent.From(
+                "stoat", RunnerWire.RestartCommandType, new RestartCommand("t-restart")));
+
+            var registrations = await eventually(
+                () => registrationsOf(monitor) is { Count: >= 2 } both ? both : null,
+                "the runner never registered again after the restart");
+
+            registrations.Select(x => x.RunnerId).ShouldAllBe(id => id == "the-projected-checkout",
+                "the console keeps the runner's row only if the restarted runner is the same runner");
+            registrations[^1].Specs.ShouldContain(knownSpec, "the suite is loaded afresh, not forgotten");
+
+            process.HasExited.ShouldBeFalse("a restart with no parent must not end the process. the tool said:\n  " + said(output));
+            said(output).ShouldContain("in place");
+        }
+        finally
+        {
+            stop(process);
+        }
+    }
+
+    private static List<RunnerRegistration> registrationsOf(FakeMonitorHost monitor)
+        => eventsOf(monitor).Where(e => e.Type == RunnerWire.RegisteredType).Select(e => e.DataAs<RunnerRegistration>()!).ToList();
+
+    private static Process startTool(FakeMonitorHost monitor, List<string> output, string? flag, string? variable)
+    {
+        File.Exists(tool).ShouldBeTrue($"The bobcat tool was not built at {tool}");
+
+        var info = new ProcessStartInfo(tool)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = Path.GetDirectoryName(tool)!
+        };
+
+        info.ArgumentList.Add("resident");
+        info.ArgumentList.Add(projectedHost);
+        info.ArgumentList.Add("--url");
+        info.ArgumentList.Add(monitor.Url);
+        if (flag is not null) info.ArgumentList.Add(flag);
+
+        // Issue #397's half of this: the parent names the runner, so the same checkout is the same
+        // runner across every relaunch.
+        info.Environment["BOBCAT_RUNNER_ID"] = "the-projected-checkout";
+        info.Environment["TESTINGPLATFORM_TELEMETRY_OPTOUT"] = "1";
+
+        // Set either way, so a BOBCAT_SUPERVISED in the environment running these tests decides nothing.
+        info.Environment["BOBCAT_SUPERVISED"] = variable is null ? "" : "1";
+
+        var process = Process.Start(info)!;
+        process.OutputDataReceived += (_, e) => { if (e.Data is not null) lock (output) output.Add(e.Data); };
+        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) lock (output) output.Add("ERR " + e.Data); };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        return process;
+    }
+
+    private static string said(List<string> output)
+    {
+        lock (output) return string.Join("\n  ", output);
+    }
+
+    private static void stop(Process process)
+    {
+        try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+        catch { /* already gone */ }
     }
 }

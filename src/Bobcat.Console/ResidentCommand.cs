@@ -30,6 +30,10 @@ public class ResidentInput
     [Description("List what the host specifies and exit, without registering with anything")]
     public bool ListFlag { get; set; }
 
+    [Description("A parent relaunches this runner: exit 75 on a restart instead of restarting in place. Also BOBCAT_SUPERVISED=1")]
+    [FlagAlias("supervised", true)]
+    public bool SupervisedFlag { get; set; }
+
     /// <summary>
     /// What the process should exit with — 75 after a restart (issue #397), 0 otherwise. Read back
     /// by <c>Program</c>, because JasperFx's true/false cannot carry a third answer.
@@ -60,8 +64,14 @@ public class ResidentInput
 /// anyone who never asks for warm.
 /// </para>
 /// <para>
-/// <b>It exits 75 after a restart</b>, exactly as a resident spec host does (issue #397), so one
-/// parent can relaunch either on the same rule.
+/// <b>A restart restarts, whoever launched it (bobcat#796).</b> With no parent, which is how the docs
+/// teach it, a <c>restart</c> reloads the suite (so a rebuilt host's specifications are picked up)
+/// and registers again under the same runner id, in this process. Exiting 75 there would leave
+/// nothing to relaunch it, and every Run button for the suite would lose its runner. A parent that
+/// relaunches on 75 (<c>stoat runner</c>, a container supervisor) declares itself with
+/// <c>--supervised</c> or <c>BOBCAT_SUPERVISED=1</c> and gets exactly the old contract: <b>exit 75
+/// after a restart</b>, as a resident spec host does (issue #397), so one parent can relaunch
+/// either on the same rule.
 /// </para>
 /// </remarks>
 [Description("Keep a suite available to a monitor, running specifications when the monitor asks", Name = "resident")]
@@ -75,17 +85,58 @@ public class ResidentCommand : JasperFxAsyncCommand<ResidentInput>
 
     public override async Task<bool> Execute(ResidentInput input)
     {
+        var options = new ResidentRunnerOptions
+        {
+            // Commands come from ONE console, while the run they ask for may be published to
+            // several (bobcat#530) — so the whole list goes to the suite, and the first entry is
+            // where this runner registers and reads its command stream. Null leaves the runner to
+            // resolve BOBCAT_MONITOR_URL's first target for itself.
+            Url = input.UrlFlag is { Length: > 0 } flag ? MonitorPublisher.ParseUrls(flag)[0] : null,
+            Log = System.Console.WriteLine
+        };
+
+        // Built once, so a restart in place (bobcat#796) registers under the SAME id: the console
+        // keeps the runner's row, its history and its Run buttons rather than meeting a stranger.
+        if (input.IdFlag is { Length: > 0 } id) options = options with { RunnerId = id };
+
+        var supervised = input.SupervisedFlag || ResidentMode.SupervisedByEnvironment();
+
+        while (true)
+        {
+            var suite = await loadSuite(input);
+            if (suite is null) return false;
+
+            if (input.ListFlag)
+            {
+                await using (suite) list(suite);
+                return true;
+            }
+
+            await using (suite)
+            {
+                input.ExitCode = await ResidentMode.Run(suite, options);
+            }
+
+            if (input.ExitCode != ResidentMode.RestartExitCode || supervised) return true;
+
+            // No parent will relaunch this process, so the restart happens here: the suite is
+            // loaded afresh — the reason to restart is usually a rebuilt host — and the runner
+            // registers again.
+            System.Console.WriteLine($"Restarting resident runner {options.RunnerId} in place (no parent declared with {ResidentMode.SupervisedOption}).");
+        }
+    }
+
+    private static async Task<WarmProjectedResidentSuite?> loadSuite(ResidentInput input)
+    {
         // The executable, or the folder or .csproj that leads to it (bobcat#785). A path that leads
         // nowhere is a usage error: one line, exit 1, no stack trace.
         var host = await TestHostPath.ResolveAsync(input.HostPath, input.FrameworkFlag, input.ConfigurationFlag);
-
-        WarmProjectedResidentSuite suite;
 
         try
         {
             // Warm-capable, which subsumes cold: a cold command is delegated to
             // OutOfProcessResidentSuite unchanged, so this is strictly additive.
-            suite = await WarmProjectedResidentSuite.For(
+            return await WarmProjectedResidentSuite.For(
                 host,
 
                 // The same origins the runner was pointed at, whole, so a commanded run lands on
@@ -100,38 +151,16 @@ public class ResidentCommand : JasperFxAsyncCommand<ResidentInput>
             // wiring mistake with an answer in the message: a path that is not built, a suite with
             // no runner adapter, a framework whose filter spelling Bobcat will not guess at.
             System.Console.Error.WriteLine(e.Message);
-            return false;
+            return null;
         }
+    }
 
-        if (input.ListFlag)
-        {
-            System.Console.WriteLine(
-                $"{suite.Suite} ({suite.Lane}/{suite.Manifest.Framework}), "
-                + $"{suite.SpecIdentities.Count} specification(s):");
+    private static void list(WarmProjectedResidentSuite suite)
+    {
+        System.Console.WriteLine(
+            $"{suite.Suite} ({suite.Lane}/{suite.Manifest.Framework}), "
+            + $"{suite.SpecIdentities.Count} specification(s):");
 
-            foreach (var identity in suite.SpecIdentities) System.Console.WriteLine($"  {identity}");
-
-            return true;
-        }
-
-        var options = new ResidentRunnerOptions
-        {
-            // Commands come from ONE console, while the run they ask for may be published to
-            // several (bobcat#530) — so the whole list went to the suite above, and the first
-            // entry is where this runner registers and reads its command stream. Null leaves the
-            // runner to resolve BOBCAT_MONITOR_URL's first target for itself.
-            Url = input.UrlFlag is { Length: > 0 } flag ? MonitorPublisher.ParseUrls(flag)[0] : null,
-            Log = System.Console.WriteLine
-        };
-
-
-        if (input.IdFlag is { Length: > 0 } id) options = options with { RunnerId = id };
-
-        await using (suite)
-        {
-            input.ExitCode = await ResidentMode.Run(suite, options);
-        }
-
-        return true;
+        foreach (var identity in suite.SpecIdentities) System.Console.WriteLine($"  {identity}");
     }
 }

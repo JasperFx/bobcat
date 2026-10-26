@@ -11,6 +11,9 @@ import Breadcrumbs from '@/components/Breadcrumbs.vue'
 import LiveRunProgress from '@/components/LiveRunProgress.vue'
 import RunToc from '@/components/RunToc.vue'
 import { useRunners } from '@/composables/useRunners'
+import { storeToRefs } from 'pinia'
+import { useRunnersStore } from '@/stores/runners-store'
+import { buildProblemFor, buildProblems } from '@/lib/builds'
 import { formatAbsolute, formatDuration, formatRelative, useNow } from '@/composables/time'
 import { ensureRunEvents } from '@/messages/hydrate'
 import { commandForRun, describeCommand, rebuiltSince } from '@/lib/runners'
@@ -47,6 +50,12 @@ watch(() => props.runId, (runId) => void ensureRunEvents(runId), { immediate: tr
 
 /** bobcat#652: this run is of the code before the runner's last rebuild. */
 const stale = computed(() => (run.value ? rebuiltSince(run.value, runners.value) : undefined))
+
+// bobcat#795: this suite's build is broken right now — the runs here are of code from before the break.
+const { builds } = storeToRefs(useRunnersStore())
+const brokenBuild = computed(() =>
+  run.value ? buildProblemFor(buildProblems(builds.value, runners.value), run.value.suite, [run.value.repository]) : undefined,
+)
 const scenarios = computed(() => (run.value ? visibleScenarios(run.value) : []))
 
 onMounted(() => {
@@ -299,6 +308,20 @@ function durationOf(scenario: ScenarioState): string | null {
       </el-tag>
       <el-tag v-if="run.orphaned" size="small" type="warning" title="The publisher went away and the run never finished.">orphaned</el-tag>
     </dl>
+
+    <el-alert
+      v-if="brokenBuild"
+      :type="brokenBuild.failed ? 'error' : 'info'"
+      :closable="false"
+      show-icon
+      class="bm-run-build"
+      data-testid="run-build"
+      :title="brokenBuild.failed
+        ? `${run.suite} does not build right now (${brokenBuild.source}) — this run is of the code before the break`
+        : `${run.suite} is rebuilding (${brokenBuild.source})`"
+    >
+      <pre v-if="brokenBuild.failed && brokenBuild.detail" class="bm-run-build-errors">{{ brokenBuild.detail }}</pre>
+    </el-alert>
 
     <!-- Summary tiles: the run in five numbers. A tile is also the rail's filter. -->
     <div v-if="summary" class="bm-run-tiles" data-testid="run-tiles">
@@ -661,5 +684,13 @@ button.bm-tile:hover,
   font-size: 12px;
   font-weight: 400;
   color: var(--bm-link);
+}
+.bm-run-build {
+  margin: 8px 0 12px;
+}
+.bm-run-build-errors {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  font-size: 12px;
 }
 </style>

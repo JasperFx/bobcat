@@ -338,3 +338,29 @@ describe('what starts open', () => {
     wrapper.unmount()
   })
 })
+
+describe('a broken build on the run page (bobcat#795)', () => {
+  it('says the suite\'s build is broken, with the compiler\'s errors, when the report names this suite and checkout', async () => {
+    seed()
+    pushed()
+    useRunnersStore().builds = [
+      { suite: 'Wallets', repository: '/code/wallets', branch: 'main', state: 'build-failed', detail: 'Wallet.cs(9,4): error CS0103: The name \'notAThing\' does not exist', at: '2026-10-26T10:43:00Z' },
+    ]
+    const wrapper = await mountRun()
+    const alert = wrapper.find('[data-testid="run-build"]')
+    expect(alert.exists()).toBe(true)
+    expect(alert.text()).toContain('notAThing')
+    wrapper.unmount()
+  })
+
+  it('stays quiet for a build of another suite, which once read as this one because watch named it by project file', async () => {
+    seed()
+    pushed()
+    useRunnersStore().builds = [
+      { suite: 'Tests', repository: '/code/wallets', branch: 'main', state: 'build-failed', detail: 'error CS0103', at: '2026-10-26T10:43:00Z' },
+    ]
+    const wrapper = await mountRun()
+    expect(wrapper.find('[data-testid="run-build"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})

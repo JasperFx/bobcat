@@ -36,6 +36,19 @@ public static class ResidentMode
     /// </summary>
     public const int RestartExitCode = 75;
 
+    /// <summary>
+    /// The argument a parent passes to say it relaunches the runner on <see cref="RestartExitCode"/>
+    /// (bobcat#796). Without it, <c>bobcat resident</c> restarts in place, because nothing else would.
+    /// </summary>
+    public const string SupervisedOption = "--supervised";
+
+    /// <summary>The same declaration as an environment variable, for a parent that cannot add an argument.</summary>
+    public const string SupervisedVariable = "BOBCAT_SUPERVISED";
+
+    /// <summary>Whether a parent declared, by environment, that it relaunches the runner on a restart.</summary>
+    public static bool SupervisedByEnvironment()
+        => Environment.GetEnvironmentVariable(SupervisedVariable)?.ToLowerInvariant() is "1" or "on" or "true";
+
     /// <summary>Whether this process was asked to be a resident runner.</summary>
     public static bool Requested(IReadOnlyList<string> arguments)
         => arguments.Any(argument => argument.Equals(Option, StringComparison.OrdinalIgnoreCase))

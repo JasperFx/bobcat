@@ -412,13 +412,16 @@ public class SpecWatchCommand : JasperFxAsyncCommand<SpecInput>
     /// </summary>
     private static async Task<bool> rebuild(SpecProject project)
     {
-        await BuildStatusPublisher.PublishAsync(BuildStatusPublisher.Report(project.Name, project.Directory, BuildStatusReport.Building));
+        // bobcat#795: the suite name a run publishes, so the board can put a broken build on its own row.
+        var suite = await project.SuiteNameAsync();
+
+        await BuildStatusPublisher.PublishAsync(BuildStatusPublisher.Report(suite, project.Directory, BuildStatusReport.Building));
 
         var built = await project.BuildAsync();
 
         await BuildStatusPublisher.PublishAsync(built
-            ? BuildStatusPublisher.Report(project.Name, project.Directory, BuildStatusReport.Built)
-            : BuildStatusPublisher.Report(project.Name, project.Directory, BuildStatusReport.BuildFailed,
+            ? BuildStatusPublisher.Report(suite, project.Directory, BuildStatusReport.Built)
+            : BuildStatusPublisher.Report(suite, project.Directory, BuildStatusReport.BuildFailed,
                 BuildStatusPublisher.ErrorsIn(project.LastBuildFailure ?? "")));
 
         return built;

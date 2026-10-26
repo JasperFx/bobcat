@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildProblems, type BuildStatusReported } from '../builds'
+import { buildProblemFor, buildProblems, type BuildStatusReported } from '../builds'
 import type { RunnerView } from '../runners'
 
 /** bobcat#651 — what the board's banner says doesn't compile, from both producers. */
@@ -40,5 +40,18 @@ describe('buildProblems', () => {
 
     expect(problems).toHaveLength(1)
     expect(problems[0]!.failed).toBe(true)
+  })
+})
+
+describe('buildProblemFor (bobcat#795)', () => {
+  const problems = buildProblems([build('BankAccountES.Tests', 'build-failed', 'WithdrawFunds.cs(25,49): error CS0103')], null)
+
+  it('finds the suite\'s problem when any path the suite is known by matches the checkout it was built in', () => {
+    expect(buildProblemFor(problems, 'BankAccountES.Tests', ['JasperFx/wolverine', '/code/'])?.detail).toContain('CS0103')
+  })
+
+  it('does not attach a build to another suite, or to the same suite in another checkout', () => {
+    expect(buildProblemFor(problems, 'Tests', ['/code'])).toBeUndefined()
+    expect(buildProblemFor(problems, 'BankAccountES.Tests', ['/elsewhere', null, undefined])).toBeUndefined()
   })
 })

@@ -26,9 +26,9 @@
 
   <ItemGroup>
     <!-- The tools only (Bobcat.EventModel, Bobcat.Console, Bobcat.Ui) and the tests that drive them: see the header. -->
-    <PackageVersion Include="JasperFx" Version="2.90.2" />
-    <PackageVersion Include="JasperFx.Events" Version="2.90.2" />
-    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.46.0" />
+    <PackageVersion Include="JasperFx" Version="2.95.1" />
+    <PackageVersion Include="JasperFx.Events" Version="2.95.1" />
+    <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.54.0" />
 
     <!-- Core's own references, received transitively through JasperFx before bobcat#744. -->
     <PackageVersion Include="Spectre.Console" Version="0.55.0" />
@@ -44,8 +44,8 @@
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
 
     <!-- Bobcat.Ui's host (bobcat#744 leaves the UI its Wolverine coupling: it is a tool). -->
-    <PackageVersion Include="WolverineFx.Http" Version="6.46.0" />
-    <PackageVersion Include="WolverineFx.SignalR" Version="6.46.0" />
+    <PackageVersion Include="WolverineFx.Http" Version="6.54.0" />
+    <PackageVersion Include="WolverineFx.SignalR" Version="6.54.0" />
         <!--
       TypeScript contract codegen for the monitor's Vue SPA (CritterWatch's GenerateCommand
       pattern): NJsonSchema reflects the MonitorEvents.cs records through the same STJ settings

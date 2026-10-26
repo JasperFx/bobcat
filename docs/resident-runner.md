@@ -165,10 +165,21 @@ database, warm saves the process and the JIT, not the boot. The measurements and
   from exactly the thing that poisoned the warm host. A person who wants a working warm session asks
   for `restart`.
 
-## `restart` means "exit so I can be relaunched"
+## `restart` means "start me again"
 
 It **cuts an in-flight run short** rather than waiting. A wedged run is the main reason someone
 restarts a runner, so a restart that waited would be useless in exactly the case it exists for.
+
+**Who does the starting again depends on whether anything is above the runner**
+([bobcat#796](https://github.com/JasperFx/bobcat/issues/796)):
+
+- **`bobcat resident <host>` on its own** restarts **in place**: it reloads the suite, so a rebuilt
+  host's specifications are picked up, and registers again under the same runner id. Exiting there
+  would leave nothing to relaunch it, and the UI's "restart" would quietly mean "kill".
+- **Under a parent that relaunches it** (`stoat runner`, a container supervisor), the parent declares
+  itself with `--supervised` or `BOBCAT_SUPERVISED=1`, and the runner **exits** with the codes below.
+  A resident spec host (`--resident` / `BOBCAT_RESIDENT=1`) always exits this way, because its
+  process *is* the suite and only something outside it can start it again.
 
 | Exit code | What it means to a parent |
 |---|---|

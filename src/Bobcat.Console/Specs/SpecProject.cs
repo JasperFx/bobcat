@@ -35,6 +35,27 @@ internal sealed class SpecProject
     /// <summary>The test host executable, once <see cref="BuildAsync"/> has found it.</summary>
     public string HostPath { get; private set; } = "";
 
+    private string? _suiteName;
+
+    /// <summary>
+    /// The name runs of this project publish as their suite: the assembly name, which is what a run's
+    /// <c>run_started</c> carries and the board groups by. The project file's name is only the
+    /// fallback, because the two differ whenever <c>AssemblyName</c> is set (bobcat#795: a
+    /// <c>Tests.csproj</c> building <c>BankAccountES.Tests</c> reported its builds as "Tests", so a
+    /// broken build never reached its own suite). Read from MSBuild once, then kept.
+    /// </summary>
+    public async Task<string> SuiteNameAsync()
+    {
+        if (_suiteName is not null) return _suiteName;
+
+        var (exitCode, output) = await Shell.RunAsync("dotnet",
+            ["msbuild", ProjectPath, "-getProperty:AssemblyName", $"-p:TargetFramework={Framework}", $"-p:Configuration={Configuration}"]);
+
+        var assemblyName = output.Trim();
+        _suiteName = exitCode == 0 && assemblyName.Length > 0 && !assemblyName.Contains('\n') ? assemblyName : Name;
+        return _suiteName;
+    }
+
     /// <summary>
     /// The project named — a .csproj, or a directory holding exactly one — or, with nothing named,
     /// the one under the current directory that references Bobcat. Several candidates are offered as

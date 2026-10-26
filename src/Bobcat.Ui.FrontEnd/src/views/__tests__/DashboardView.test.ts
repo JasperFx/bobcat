@@ -5,6 +5,7 @@ import { ElMessageBox } from 'element-plus'
 import { useRunsStore } from '@/stores/runs-store'
 import { useBoardStore } from '@/stores/board-store'
 import { resetRunners } from '@/composables/useRunners'
+import { useRunnersStore } from '@/stores/runners-store'
 import type { RunnerView } from '@/lib/runners'
 import DashboardView from '../DashboardView.vue'
 
@@ -90,6 +91,26 @@ describe('DashboardView', () => {
   })
 
   describe('grouped by suite (bobcat#786)', () => {
+    it('marks a suite whose build is broken on its own row, matched by suite name and checkout (bobcat#795)', async () => {
+      finishedRun(store, 'r1', 'Busy.Suite', '2026-09-01T11:40:00Z')
+      finishedRun(store, 'r2', 'Quiet.Suite', '2026-09-01T11:00:00Z')
+      const runnersStore = useRunnersStore()
+      runnersStore.runners = []
+      runnersStore.builds = [
+        { suite: 'Busy.Suite', repository: '/repo', branch: 'main', state: 'build-failed', detail: 'Specs.cs(3,1): error CS1002', at: '2026-09-01T11:59:00Z' },
+      ]
+      const page = render()
+      await flushPromises()
+
+      const chips = page.findAll('[data-testid="suite-build"]')
+      expect(chips).toHaveLength(1)
+      expect(chips[0]!.text()).toBe('build failed')
+      expect(chips[0]!.attributes('title')).toContain('CS1002')
+      const rows = page.findAll('[data-testid="suite-row"]')
+      expect(rows[0]!.find('[data-testid="suite-build"]').exists()).toBe(true)
+      expect(rows[1]!.find('[data-testid="suite-build"]').exists()).toBe(false)
+    })
+
     it('shows one row per suite with its latest result, however many runs it has', async () => {
       finishedRun(store, 'r1', 'Busy.Suite', '2026-09-01T11:40:00Z')
       finishedRun(store, 'r2', 'Busy.Suite', '2026-09-01T11:50:00Z', '/repo', 2)
