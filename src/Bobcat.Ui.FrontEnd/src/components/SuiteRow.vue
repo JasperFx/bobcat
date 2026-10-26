@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import type { RunState } from '@/stores/runs-store'
 import type { RunnerView } from '@/lib/runners'
-import { loadMode, modeFor, runnerState } from '@/lib/runners'
+import { runnerState } from '@/lib/runners'
 import { commandLineOf, plannedHintOf } from '@/lib/liveProgress'
 import { useRunners } from '@/composables/useRunners'
 import { HISTORY_LENGTH, verdictToneOf, type SuiteGroup } from '@/lib/runBoard'
@@ -64,8 +64,6 @@ const latestVerdict = computed(() => {
 
 const runner = computed(() => props.group.runner)
 const runnerTone = computed(() => (runner.value ? runnerState(runner.value) : null))
-/** `▶ Run all · warm`: the mode the button will send, so the row says what pressing it does. */
-const runLabel = computed(() => (runner.value ? `Run all · ${modeFor(runner.value, loadMode())}` : ''))
 
 // How many cards the expansion shows before "and N older": the strip's length, by default.
 const showAll = ref(false)
@@ -116,7 +114,7 @@ function previousTo(run: RunState): RunState[] {
         </router-link>
         {{ runnerTone!.label }}
       </span>
-      <RunButton v-if="runner && runner.specs > 0" :target="{ all: true, runnerId: runner.runnerId }" :label="runLabel" />
+      <RunButton v-if="runner && runner.specs > 0" :target="{ all: true, runnerId: runner.runnerId }" label="Run all" :modes="runner.modes" />
     </div>
 
     <!-- The live run's bar sits under the row whatever the expansion: it is what someone is waiting on. -->

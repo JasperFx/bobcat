@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { relayToStore } from '@/messages/relayToStore'
 import RunButton from '../RunButton.vue'
 import type { RunnerView } from '@/lib/runners'
+import { resetRunMode } from '@/composables/runMode'
 
 /**
  * stoat#78 — the button a person presses to run a spec on a resident runner. What is under test:
@@ -39,6 +40,7 @@ describe('RunButton', () => {
     candidates = []
     followed = null
     localStorage.clear()
+    resetRunMode()
     vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
       if (init?.method === 'POST') {
         posts.push({ url, body: JSON.parse(String(init.body)) })
@@ -116,6 +118,57 @@ describe('RunButton', () => {
 
     expect(wrapper.find('[data-testid="run-progress"]').text()).toContain('running')
     expect(wrapper.find('[data-testid="run-link"]').attributes('href')).toBe('/runs/run-9')
+    wrapper.unmount()
+  })
+
+  // bobcat#787: the button says the mode it will send, and remembers the viewer's choice.
+  it('shows its mode, and choosing warm in one dialog changes every button at once', async () => {
+    candidates = [runner({ modes: ['cold', 'warm'] })]
+    const first = render()
+    const second = render({ specs: ['F/b'] })
+    expect(first.find('[data-testid="run-button"]').text()).toBe('▶ Run again · cold')
+
+    await first.find('[data-testid="run-button"]').trigger('click')
+    await flushPromises()
+    await first.find('.bm-run-mode .el-radio-button:last-child input').setValue()
+    await flushPromises()
+
+    expect(first.find('[data-testid="run-button"]').text()).toBe('▶ Run again · warm')
+    expect(second.find('[data-testid="run-button"]').text()).toBe('▶ Run again · warm')
+    expect(localStorage.getItem('bobcat.runs.mode')).toBe('warm')
+
+    await first.find('[data-testid="run-send"]').trigger('click')
+    await flushPromises()
+    expect(posts[0]!.body).toEqual({ specs: ['F/a'], mode: 'warm', by: 'bobcat-ui' })
+    first.unmount()
+    second.unmount()
+  })
+
+  it('beside a runner it knows, the chip says the mode that runner gets', async () => {
+    localStorage.setItem('bobcat.runs.mode', 'warm')
+    resetRunMode()
+    const coldOnly = mount(RunButton, { props: { target: { all: true }, label: 'Run all', modes: ['cold'] }, global: { stubs: { teleport: true } } })
+    const both = mount(RunButton, { props: { target: { all: true }, label: 'Run all', modes: ['cold', 'warm'] }, global: { stubs: { teleport: true } } })
+    expect(coldOnly.find('[data-testid="run-button"]').text()).toBe('▶ Run all · cold')
+    expect(both.find('[data-testid="run-button"]').text()).toBe('▶ Run all · warm')
+    coldOnly.unmount()
+    both.unmount()
+  })
+
+  it('says when warm was asked for but this runner has no warm host, and sends cold', async () => {
+    localStorage.setItem('bobcat.runs.mode', 'warm')
+    resetRunMode()
+    candidates = [runner()]
+    const wrapper = render()
+    expect(wrapper.find('[data-testid="run-button"]').text()).toBe('▶ Run again · warm')
+
+    await wrapper.find('[data-testid="run-button"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="cold-only"]').text()).toContain('no warm host')
+
+    await wrapper.find('[data-testid="run-send"]').trigger('click')
+    await flushPromises()
+    expect(posts[0]!.body).toEqual({ specs: ['F/a'], mode: 'cold', by: 'bobcat-ui' })
     wrapper.unmount()
   })
 

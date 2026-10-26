@@ -124,8 +124,21 @@ build, and the **connection** as a dot.
   `stoat runner` for a resident runner it rebuilds. Until the build is fixed, the suite's runs are of
   the code before the change that broke it.
 
+**A run's page** opens from its card. It leads with a breadcrumb trail -- `Runs › suite › run` --
+whose run segment carries the run's identity (when it started, its tag, its branch), then the run's
+header: when it started, one labelled clock (how long it took, or how long it has been going), its
+tag, the checkout and branch (the full path is the tooltip), its mode and the command that caused it,
+and the agent session if any. Summary tiles count passed, failed, running, no result yet and passed
+on retry, and while the run is live the same overall progress bar the board's suite row shows:
+done of the planned total, elapsed and an estimate, green until the first failure and red after it. Down the side is a **table of contents**: the suite tree, suite › feature › scenario,
+with a live status on every node and the counts per feature. A tile or a chip filters it and the
+page by status, clicking a node scrolls to it, **Go to running** scrolls the running scenario into
+view, and **follow** keeps it there as the run advances. A passed scenario is folded to its line;
+a failed or running one is open on its specification, and any of them opens with a click.
+
 Each scenario has a page of its own at `/runs/{runId}/specs/{Feature}/{Scenario}` -- a URL you can
-paste into a pull request -- that renders the specification the test produced: each step with its
+paste into a pull request, with the same trail back, `Runs › suite › run › feature › scenario` --
+that renders the specification the test produced: each step with its
 verdict and duration, each named comparison judged on its own (`✗ count: expected '12', got '0'`),
 tables as grids, the scenario's own reports beneath the steps (what the system did, as grids -- a
 failing scenario's, or every scenario's on a `--verbose` run), and an exception in a panel at the
@@ -148,8 +161,11 @@ bobcat resident ./artifacts/MySpecs
 ```
 
 A runner registers what its suite specifies, and the buttons send it the identities to run, **cold**
-(a fresh test host on the current code) or **warm** (a test host kept open between runs). With no
-runner attached, the button says how to start one.
+(a fresh test host on the current code) or **warm** (a test host kept open between runs). Every
+button says which it will send -- `▶ Run again · warm` -- from the choice remembered in your browser,
+which the Cold / Warm switch in the dialog changes for every button at once; a runner with no warm
+host gets a cold run, and the dialog says so. With no runner attached, the button says how to start
+one.
 
 The board gives every attached runner a row for its suite, before anything has run, with its state
 and a **Run all** button that runs its whole project; the status strip names the runner on every

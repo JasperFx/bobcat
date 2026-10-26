@@ -56,9 +56,10 @@ describe('RunnerView', () => {
     await flushPromises()
 
     const labels = wrapper.findAll('[data-testid="run-button"]').map((b) => b.text())
-    expect(labels).toContain('▶ Run all (3)')
-    expect(labels).toContain('▶ Run feature (2)')
-    expect(labels.filter((l) => l === '▶ Run')).toHaveLength(3)
+    // bobcat#787: every button says the mode it will send.
+    expect(labels).toContain('▶ Run all (3) · cold')
+    expect(labels).toContain('▶ Run feature (2) · cold')
+    expect(labels.filter((l) => l === '▶ Run · cold')).toHaveLength(3)
   })
 
   it('says so when the runner registered no steps, rather than showing bare titles as if that were all', async () => {
