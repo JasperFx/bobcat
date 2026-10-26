@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
@@ -119,6 +119,13 @@ async function mountPage(query: Record<string, string> = {}) {
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  // The page lists the console's models on mount (bobcat#799). These cases seed the store directly, so
+  // the console never answers: a fetch that never settles, rather than one that reaches the network.
+  vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 describe('EventModelPage', () => {
@@ -254,5 +261,166 @@ describe('EventModelPage — viewport in the URL (#296)', () => {
 
     expect(wrapper.find('[data-testid="event-model-crumbs"]').exists()).toBe(false)
     expect(wrapper.find('.em-zoom-level').text()).toBe('100%')
+  })
+})
+
+/**
+ * bobcat#799 — several models on one console. The walkthrough's canvas opened on CritterCrush, pushed 13
+ * days earlier from another repository, while every run on the board was BankAccountES: no switcher, and
+ * nothing on the header to say the model was stale.
+ */
+describe('EventModelPage — which model, and where it came from (#799)', () => {
+  const day = 24 * 60 * 60 * 1000
+  // Half a minute past each mark, so the page's clock (read at mount, a moment before these) still
+  // lands in the same bucket.
+  const ago = (ms: number) => new Date(Date.now() - ms - 30_000).toISOString()
+
+  const listing = () => ({
+    current: 'CritterCrush',
+    preferred: 'BankAccount',
+    models: [
+      {
+        name: 'CritterCrush',
+        lastPushedAt: ago(13 * day),
+        slices: 17,
+        hasRunsOnBoard: false,
+        sources: [
+          {
+            source: 'CritterCrush-Specs',
+            pushedAt: ago(13 * day),
+            pushedAtIsFileTime: true,
+            root: null,
+            repository: null,
+            branch: null,
+          },
+        ],
+      },
+      {
+        name: 'BankAccount',
+        lastPushedAt: ago(10 * 60 * 1000),
+        slices: 13,
+        hasRunsOnBoard: true,
+        sources: [
+          {
+            source: 'BankAccountES-Tests',
+            pushedAt: ago(10 * 60 * 1000),
+            pushedAtIsFileTime: false,
+            root: '/code/wolverine',
+            repository: 'JasperFx/wolverine',
+            branch: 'main',
+          },
+          {
+            source: 'default',
+            pushedAt: ago(3 * 60 * 60 * 1000),
+            pushedAtIsFileTime: false,
+            root: '/code/wolverine',
+            repository: 'JasperFx/wolverine',
+            branch: null,
+          },
+        ],
+      },
+    ],
+  })
+
+  const named = (name: string): EventModelDescriptor => ({
+    name,
+    slices: [{ name: `${name}Slice`, pattern: 'Command', elements: [], edges: [], specifications: [] }],
+  })
+
+  /** A console holding both models; a GET for any other name is a 404, as the real one answers. */
+  function stubConsole() {
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/api/event-models') return new Response(JSON.stringify(listing()), { status: 200 })
+      const name = new URL(url, 'http://console').searchParams.get('name') ?? 'CritterCrush'
+      return ['CritterCrush', 'BankAccount'].includes(name)
+        ? new Response(JSON.stringify(named(name)), { status: 200 })
+        : new Response(null, { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetch)
+    return fetch
+  }
+
+  function modelSwitcher(wrapper: Awaited<ReturnType<typeof mountPage>>) {
+    return wrapper
+      .findAllComponents({ name: 'ElSelect' })
+      .find((c) => c.attributes('data-testid') === 'model-switcher')
+  }
+
+  it('opens on the preferred model rather than the one pushed last', async () => {
+    const fetch = stubConsole()
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    expect(fetch).toHaveBeenCalledWith('/api/event-model?name=BankAccount')
+    expect(wrapper.find('[data-testid="model-name"]').text()).toContain('BankAccount')
+    expect(wrapper.find('[data-slice="BankAccountSlice"]').exists()).toBe(true)
+  })
+
+  it('says when each source was last pushed, and from where', async () => {
+    stubConsole()
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    const sources = wrapper.findAll('[data-testid="model-source"]')
+    expect(sources.map((s) => s.attributes('data-source'))).toEqual(['BankAccountES-Tests', 'default'])
+    expect(sources[0]!.text()).toContain('last pushed 10m ago from JasperFx/wolverine (main)')
+    expect(sources[1]!.text()).toContain('last pushed 3h ago from JasperFx/wolverine')
+    expect(wrapper.find('[data-testid="model-not-on-board"]').exists()).toBe(false)
+  })
+
+  it('a ?model= in the URL wins, and a stale model says it is stale', async () => {
+    stubConsole()
+    const wrapper = await mountPage({ model: 'CritterCrush' })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="model-name"]').text()).toContain('CritterCrush')
+    const source = wrapper.find('[data-testid="model-source"]')
+    // Stored before the console kept push times, so it is the file's write time, and says so.
+    expect(source.text()).toContain('last written 13d ago')
+    expect(source.text()).not.toContain(' from ')
+    expect(wrapper.find('[data-testid="model-not-on-board"]').exists()).toBe(true)
+  })
+
+  it('switching models puts the choice in the URL, drops the old viewport, and draws the other one', async () => {
+    const fetch = stubConsole()
+    const wrapper = await mountPage({ focus: 'slice:BankAccountSlice', z: '0.5' })
+    await flushPromises()
+
+    const switcher = modelSwitcher(wrapper)
+    expect(switcher).toBeDefined()
+    switcher!.vm.$emit('update:modelValue', 'CritterCrush')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.model).toBe('CritterCrush')
+    expect(router.currentRoute.value.query.focus).toBeUndefined()
+    expect(router.currentRoute.value.query.z).toBeUndefined()
+    expect(fetch).toHaveBeenCalledWith('/api/event-model?name=CritterCrush')
+    expect(wrapper.find('[data-slice="CritterCrushSlice"]').exists()).toBe(true)
+  })
+
+  it('offers no switcher when the console holds one model', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === '/api/event-models'
+          ? new Response(JSON.stringify({ ...listing(), models: [listing().models[1]] }), { status: 200 })
+          : new Response(JSON.stringify(named('BankAccount')), { status: 200 })
+      )
+    )
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    expect(modelSwitcher(wrapper)).toBeUndefined()
+    expect(wrapper.find('[data-testid="model-provenance"]').exists()).toBe(true)
+  })
+
+  it('a URL naming a model the console does not hold says so, and keeps the switcher', async () => {
+    stubConsole()
+    const wrapper = await mountPage({ model: 'Gone' })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="event-model-unknown"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="event-model-absent"]').exists()).toBe(false)
+    expect(modelSwitcher(wrapper)).toBeDefined()
   })
 })

@@ -20,10 +20,13 @@ public static class RunnerWireHandler
     {
         runners.Register(registered, identity.SlugFor(registered.Repository));
 
-        if (registered.Suite is { Length: > 0 } suite && registered.Specs.Count > 0
-            && model.PruneSpecifications(suite, registered.Specs.ToHashSet(StringComparer.Ordinal)))
+        if (registered.Suite is not { Length: > 0 } suite || registered.Specs.Count == 0) return;
+
+        // One notice per model that changed (bobcat#799): the suite's half may belong to a model other
+        // than the one a bare read serves, and the page showing it is the one that has to redraw.
+        foreach (var name in model.PruneSpecifications(suite, registered.Specs.ToHashSet(StringComparer.Ordinal)))
         {
-            await bus.PublishAsync(new Contracts.EventModelChanged(model.Name ?? string.Empty));
+            await bus.PublishAsync(new Contracts.EventModelChanged(name));
         }
     }
 

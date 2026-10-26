@@ -1,4 +1,5 @@
 using Bobcat.Ui.Contracts;
+using Bobcat.Ui.Runs;
 using Microsoft.AspNetCore.Http;
 using Wolverine;
 using Wolverine.Http;
@@ -22,12 +23,27 @@ namespace Bobcat.Ui.EventModel;
 /// </summary>
 public static class EventModelEndpoints
 {
-    /// <summary>The current descriptor, or 404 when none has been published yet.</summary>
+    /// <summary>
+    /// The current descriptor — the model pushed last — or 404 when none has been published yet.
+    /// <c>?name=</c> reads that model instead (bobcat#799), and 404s when the console holds none of
+    /// that name.
+    /// </summary>
     [WolverineGet("/api/event-model")]
-    public static IResult Get([NotBody] EventModelStore store)
-        => store.Read() is { } json
+    public static IResult Get([NotBody] EventModelStore store, string? name = null)
+        => store.Read(string.IsNullOrWhiteSpace(name) ? null : name) is { } json
             ? Results.Content(json, "application/json")
             : Results.NotFound();
+
+    /// <summary>
+    /// Every model the console holds (bobcat#799), with each source's last push time and the checkout
+    /// it came from, which model the bare read serves, and which the canvas opens on.
+    /// </summary>
+    [WolverineGet("/api/event-models")]
+    public static EventModelListing List([NotBody] EventModelStore store, [NotBody] MonitorRunRegistry registry)
+        => EventModelListing.Build(
+            store.Models(),
+            store.Name,
+            registry.All().Select(run => (run.Repository, run.RepositorySlug)));
 
     /// <summary>
     /// Publish the default source's descriptor — whole document, replacing what that source
@@ -38,8 +54,11 @@ public static class EventModelEndpoints
     public static Task<IResult> Put(
         HttpRequest request,
         [NotBody] EventModelStore store,
-        [NotBody] IMessageBus bus)
-        => PutSource(EventModelStore.DefaultSource, request, store, bus);
+        [NotBody] IMessageBus bus,
+        string? root = null,
+        string? repository = null,
+        string? branch = null)
+        => PutSource(EventModelStore.DefaultSource, request, store, bus, root, repository, branch);
 
     /// <summary>
     /// Publish ONE producer's contribution to the model (CritterWatch#1212). <c>GET</c> serves the
@@ -47,20 +66,32 @@ public static class EventModelEndpoints
     /// generated source can each push their half and the slices fold together by name.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A re-push replaces only that source, which is what keeps it idempotent — a producer that
     /// renames or drops a slice actually loses it, instead of leaving the old one behind forever.
+    /// </para>
+    /// <para>
+    /// The optional <c>root</c> / <c>repository</c> / <c>branch</c> query parameters say where the half
+    /// was produced. Bobcat's runner and <c>import-event-model --url</c> have sent them since bobcat#532
+    /// and Wolverine's <c>event-model --url</c> sends them too; since bobcat#799 the console keeps them
+    /// with the push time, for the canvas header and the model switcher. A producer that sends none is
+    /// stored exactly as before.
+    /// </para>
     /// </remarks>
     [WolverinePut("/api/event-model/{source}")]
     public static async Task<IResult> PutSource(
         string source,
         HttpRequest request,
         [NotBody] EventModelStore store,
-        [NotBody] IMessageBus bus)
+        [NotBody] IMessageBus bus,
+        string? root = null,
+        string? repository = null,
+        string? branch = null)
     {
         using var reader = new StreamReader(request.Body);
         var body = await reader.ReadToEndAsync(request.HttpContext.RequestAborted);
 
-        var failure = store.TryStore(body, source);
+        var failure = store.TryStore(body, source, EventModelPushOrigin.From(root, repository, branch));
         if (failure is not null)
         {
             return Results.Problem(statusCode: 400, detail: $"Not an EventModelDescriptor: {failure}");

@@ -285,7 +285,7 @@ public class EventModelStoreTests : IDisposable
 
         store.PruneSpecifications("BankAccountES.Tests",
             new HashSet<string> { "Watch Probe/freezing is frozen", "Watch Probe/a row (amount: 5)", "Accounts/opens" })
-            .ShouldBeTrue();
+            .ShouldBe(["Bank"]);
 
         var slices = JsonDocument.Parse(store.Read()!).RootElement.GetProperty("slices");
         string[] identities(int slice) =>
@@ -298,7 +298,7 @@ public class EventModelStoreTests : IDisposable
         // Persisted, and a second registration of the same list changes nothing
         new EventModelStore(_dataPath).PruneSpecifications("BankAccountES.Tests",
             new HashSet<string> { "Watch Probe/freezing is frozen", "Watch Probe/a row (amount: 5)", "Accounts/opens" })
-            .ShouldBeFalse();
+            .ShouldBeEmpty();
     }
 
     [Fact]
@@ -307,7 +307,7 @@ public class EventModelStoreTests : IDisposable
         var store = new EventModelStore(_dataPath);
         store.TryStore(probe).ShouldBeNull();
 
-        store.PruneSpecifications("BankAccountES.Tests", new HashSet<string>()).ShouldBeFalse();
+        store.PruneSpecifications("BankAccountES.Tests", new HashSet<string>()).ShouldBeEmpty();
         store.Read()!.ShouldContain("freezing twice");
     }
 }

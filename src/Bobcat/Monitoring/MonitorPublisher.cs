@@ -287,6 +287,47 @@ public sealed class MonitorPublisher : IMonitorEventSink, IAsyncDisposable
     }
 
     /// <summary>
+    /// The names of every Event Model the console holds, from <c>GET /api/event-models</c>
+    /// (bobcat#799) — or null when the console does not list them, which is every console before that
+    /// listing existed, and when anything at all goes wrong reading it.
+    /// </summary>
+    /// <remarks>
+    /// Null is the answer that keeps the old behaviour, so it is the answer to anything that is not
+    /// plainly the listing: a 404, a 200 that is not JSON (an SPA fallback page, a console that answers
+    /// every unknown path), JSON without a <c>models</c> array.
+    /// </remarks>
+    internal async Task<IReadOnlyList<string>?> EventModelNames(CancellationToken token)
+    {
+        try
+        {
+            using var response = await _client.GetAsync(SpecEventModelPublisher.ListingRoute, token);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var body = await response.Content.ReadAsStringAsync(token);
+            using var document = JsonDocument.Parse(body);
+
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("models", out var models)
+                || models.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            return models.EnumerateArray()
+                .Where(m => m.ValueKind == JsonValueKind.Object)
+                .Select(m => m.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String
+                    ? name.GetString()
+                    : null)
+                .OfType<string>()
+                .ToArray();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// What became of one <see cref="PublishEventModel"/>. Three outcomes, not two, and the
     /// distinction is load-bearing: a <b>dropped</b> push (the console went away, the ceiling
     /// expired) is silent by the invariant at the top of this file, while a <b>refused</b> one —

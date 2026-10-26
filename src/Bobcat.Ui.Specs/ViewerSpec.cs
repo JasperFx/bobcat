@@ -281,6 +281,19 @@ public abstract class ViewerSpec(MonitorHost host) : IAsyncLifetime
             }
             """, source);
 
+    /// <summary>
+    /// bobcat#799 -- a push that says where it came from, with the optional <c>root</c> / <c>repository</c>
+    /// / <c>branch</c> query parameters Bobcat's runner and Wolverine's <c>event-model --url</c> send.
+    /// </summary>
+    [When("the source \"{source}\" publishes the event model \"{name}\" from the repository \"{repository}\"")]
+    internal Task WhenTheSourcePublishesTheEventModelFrom(string source, string name, string repository)
+        => putEventModel($$"""
+            {
+              "name": "{{name}}",
+              "slices": [{ "name": "{{name}}Slice", "projectionTypes": [], "readModelTypes": [] }]
+            }
+            """, source, $"?root=%2Fcode%2F{Uri.EscapeDataString(name)}&repository={Uri.EscapeDataString(repository)}&branch=main");
+
     /// <summary>bobcat#298 -- a slice with a chapter, the way the emlang import or a chapter binding produces one.</summary>
     [When("the event model \"{name}\" is published with slice \"{slice}\" in chapter \"{chapter}\"")]
     internal Task WhenTheEventModelIsPublishedWithChapter(string name, string slice, string chapter)
@@ -355,7 +368,7 @@ public abstract class ViewerSpec(MonitorHost host) : IAsyncLifetime
     /// PUT the body and capture both the status and any <see cref="EventModelChanged"/> the console
     /// broadcast (#169), so one step serves the wire assertions and the push assertion.
     /// </summary>
-    private async Task putEventModel(string json, string? source = null)
+    private async Task putEventModel(string json, string? source = null, string query = "")
     {
         var url = source is null ? "/api/event-model" : $"/api/event-model/{source}";
         // A presence assertion, deliberately: the session waits for activity to settle and the
@@ -369,6 +382,11 @@ public abstract class ViewerSpec(MonitorHost host) : IAsyncLifetime
                 var result = await host.AlbaHost.Scenario(s =>
                 {
                     s.Put.Text(json).ToUrl(url);
+                    // ToUrl takes a path; the provenance query (bobcat#799) is set on the request itself.
+                    if (query.Length > 0)
+                    {
+                        s.ConfigureHttpContext(c => c.Request.QueryString = new Microsoft.AspNetCore.Http.QueryString(query));
+                    }
                     s.IgnoreStatusCode();
                 });
 
@@ -407,6 +425,42 @@ public abstract class ViewerSpec(MonitorHost host) : IAsyncLifetime
     {
         await fetchRaw("/api/event-model");
         check("name", JsonDocument.Parse(_lastBody).RootElement.GetProperty("name").GetString() ?? "", name);
+    }
+
+    /// <summary>bobcat#799 -- <c>GET /api/event-model?name=</c> reads that model, whatever was pushed last.</summary>
+    [Then("asking for the event model \"{name}\" by name serves it")]
+    internal async Task ThenAskingForTheEventModelByNameServesIt(string name)
+    {
+        await fetchRaw($"/api/event-model?name={Uri.EscapeDataString(name)}");
+        check("status", _lastStatus, 200);
+        check("name", JsonDocument.Parse(_lastBody).RootElement.GetProperty("name").GetString() ?? "", name);
+    }
+
+    /// <summary>bobcat#799 -- the models <c>GET /api/event-models</c> lists, most recently pushed first.</summary>
+    [Then("the console lists the event models \"{names}\"")]
+    internal async Task ThenTheConsoleListsTheEventModels(string names)
+    {
+        await fetchRaw("/api/event-models");
+        var listed = JsonDocument.Parse(_lastBody).RootElement.GetProperty("models").EnumerateArray()
+            .Select(m => m.GetProperty("name").GetString())
+            .ToArray();
+        check("models", string.Join(", ", listed), names);
+    }
+
+    /// <summary>bobcat#799 -- each source of a listed model says when it was pushed and from where.</summary>
+    [Then("the event model \"{name}\" is listed as pushed from the repository \"{repository}\" on branch \"{branch}\"")]
+    internal async Task ThenTheEventModelIsListedAsPushedFrom(string name, string repository, string branch)
+    {
+        await fetchRaw("/api/event-models");
+        var model = JsonDocument.Parse(_lastBody).RootElement.GetProperty("models").EnumerateArray()
+            .Single(m => m.GetProperty("name").GetString() == name);
+        var source = model.GetProperty("sources").EnumerateArray().Single();
+
+        check("repository", source.GetProperty("repository").GetString() ?? "", repository);
+        check("branch", source.GetProperty("branch").GetString() ?? "", branch);
+        check("root", source.GetProperty("root").GetString() ?? "", $"/code/{name}");
+        fact(source.TryGetProperty("pushedAt", out var at) && at.GetDateTimeOffset() > DateTimeOffset.UtcNow.AddMinutes(-5),
+            $"No recent pushedAt on '{name}': {_lastBody}");
     }
 
     // ---------------------------------------------------------------- actions (When)

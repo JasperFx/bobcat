@@ -195,6 +195,96 @@ public class SpecEventModelPublishingTests : IDisposable
     public void model_names_are_related_when_they_share_a_word(string left, string right, bool related)
         => SpecEventModelPublisher.NamesShareAWord(left, right).ShouldBe(related);
 
+    // ---- bobcat#799: a console that lists its models keeps every one reachable by name ------------
+
+    /// <summary>
+    /// The walkthrough: a console still serving CritterCrush, pushed a fortnight earlier from another
+    /// repository, refused every BankAccountES spec run's half, and the notice went to standard error,
+    /// which <c>dotnet test</c> does not show. On a console that lists its models the half hides nothing.
+    /// </summary>
+    [Fact]
+    public async Task a_console_that_lists_its_models_takes_a_half_of_an_unrelated_model()
+    {
+        using var host = new FakeMonitorHost { CurrentEventModelName = "CritterCrush", HeldEventModelNames = ["CritterCrush"] };
+        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        publisher.ShouldNotBeNull();
+
+        var notices = new List<string>();
+        var published = await SpecEventModelPublisher.PublishAll(
+            publisher, [half(model: "BankAccount")], notices.Add);
+
+        published.ShouldBe(["BankAccountES-Tests"]);
+        notices.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task a_half_joins_its_own_model_when_the_console_holds_it_even_while_serving_another()
+    {
+        using var host = new FakeMonitorHost
+        {
+            CurrentEventModelName = "BankAccountES", HeldEventModelNames = ["BankAccountES", "BankAccountES.Tests"]
+        };
+        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        publisher.ShouldNotBeNull();
+
+        (await SpecEventModelPublisher.PublishAll(publisher, [half(model: "BankAccountES.Tests")]))
+            .ShouldBe(["BankAccountES-Tests"]);
+    }
+
+    /// <summary>
+    /// What the rule is still for: a half whose name looks like a misspelling of the current model's
+    /// would only start a second model that never joins the first, so it is still withheld with the
+    /// rename in the notice.
+    /// </summary>
+    [Fact]
+    public async Task a_misspelt_half_is_still_withheld_by_a_console_that_lists_its_models()
+    {
+        using var host = new FakeMonitorHost { CurrentEventModelName = "BankAccountES", HeldEventModelNames = ["BankAccountES"] };
+        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        publisher.ShouldNotBeNull();
+
+        var notices = new List<string>();
+        (await SpecEventModelPublisher.PublishAll(publisher, [half(model: "BankAccountES.Tests")], notices.Add))
+            .ShouldBeEmpty();
+
+        host.EventModelPushes.ShouldBeEmpty();
+        notices.ShouldHaveSingleItem().ShouldContain("EventModelName(\"BankAccountES\")");
+    }
+
+    /// <summary>A console with no listing — every console before #799 — keeps the #294 rule exactly.</summary>
+    [Fact]
+    public async Task a_console_without_the_listing_still_withholds_an_unrelated_half()
+    {
+        using var host = new FakeMonitorHost { CurrentEventModelName = "CritterCrush" };
+        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        publisher.ShouldNotBeNull();
+
+        (await publisher.EventModelNames(CancellationToken.None)).ShouldBeNull(
+            "the fallback's empty 200 is not a listing");
+        (await SpecEventModelPublisher.PublishAll(publisher, [half(model: "BankAccount")])).ShouldBeEmpty();
+    }
+
+    /// <summary>The listing costs a request only when there is a mismatch to decide.</summary>
+    [Fact]
+    public async Task a_half_naming_the_current_model_never_asks_for_the_listing()
+    {
+        using var host = new FakeMonitorHost { CurrentEventModelName = "BankAccountES", HeldEventModelNames = ["BankAccountES"] };
+        await using var publisher = await MonitorPublisher.TryConnect(host.Url);
+        publisher.ShouldNotBeNull();
+
+        (await SpecEventModelPublisher.PublishAll(publisher, [half()])).ShouldNotBeEmpty();
+        host.EventModelListingReads.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("CritterCrush", "BankAccount", null, true)]
+    [InlineData("CritterCrush", "BankAccount", "CritterCrush", false)]
+    [InlineData("BankAccountES", "BankAccountES.Tests", "BankAccountES", true)]
+    [InlineData("BankAccountES", "BankAccountES.Tests", "BankAccountES,BankAccountES.Tests", false)]
+    public void a_half_is_withheld_only_where_publishing_it_would_hide_or_misname_a_model(
+        string current, string model, string? held, bool withheld)
+        => SpecEventModelPublisher.Withholds(current, model, held?.Split(',')).ShouldBe(withheld);
+
     [Fact]
     public async Task a_half_naming_the_model_already_on_the_console_is_published()
     {

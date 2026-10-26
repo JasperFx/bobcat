@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import type { EventModelDescriptor } from '@jasperfx/event-model-vue'
-import { outcomesFor, undeclaredTouches, useEventModelStore } from '../event-model-store'
+import { eventModelUrl, outcomesFor, sourceOrigin, undeclaredTouches, useEventModelStore } from '../event-model-store'
 import type { ScenarioState } from '../runs-store'
 
 function descriptor(): EventModelDescriptor {
@@ -141,5 +141,45 @@ describe('undeclaredTouches', () => {
 
   it('no scenario means no drift claim', () => {
     expect(undeclaredTouches(descriptor().slices![0]!, undefined)).toEqual([])
+  })
+})
+
+/** bobcat#799 — reading a model by name, and saying where a source came from. */
+describe('event-model store — several models', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('reads the selected model by name, and the current one when none is selected', async () => {
+    expect(eventModelUrl(null)).toBe('/api/event-model')
+    expect(eventModelUrl('Bank Account & Co')).toBe('/api/event-model?name=Bank%20Account%20%26%20Co')
+
+    const store = useEventModelStore()
+    const urls: string[] = []
+    await store.select('BankAccount', async (url) => {
+      urls.push(String(url))
+      return jsonResponse(200, { name: 'BankAccount', slices: [] })
+    })
+
+    expect(urls).toEqual(['/api/event-model?name=BankAccount'])
+    expect(store.selected).toBe('BankAccount')
+    expect(store.descriptor?.name).toBe('BankAccount')
+  })
+
+  it('names the repository a source was pushed from, else its checkout folder, with the branch', () => {
+    const source = { source: 'default', pushedAt: '', pushedAtIsFileTime: false, root: null, repository: null, branch: null }
+
+    expect(sourceOrigin({ ...source, repository: 'JasperFx/wolverine', root: '/code/wolverine', branch: 'main' }))
+      .toBe('JasperFx/wolverine (main)')
+    expect(sourceOrigin({ ...source, root: '/private/tmp/scratch/wolverine-799' })).toBe('wolverine-799')
+    expect(sourceOrigin(source)).toBeNull()
+  })
+
+  it('keeps the last listing when the console cannot list its models', async () => {
+    const store = useEventModelStore()
+    await store.loadModels(async () => jsonResponse(200, { current: 'A', preferred: 'A', models: [] }))
+    await store.loadModels(async () => jsonResponse(500))
+
+    expect(store.listing?.preferred).toBe('A')
   })
 })

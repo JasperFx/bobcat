@@ -201,7 +201,7 @@ public class SpecEventModelPublishingTests : IDisposable
         await runTheSpecs(console);
 
         // It landed under the source Bobcat names this assembly: its name, dots turned into '-'.
-        Directory.EnumerateFiles(_dataPath, "event-model*.json")
+        Directory.EnumerateFiles(_dataPath, "event-model*.json", SearchOption.AllDirectories)
             .Select(Path.GetFileName)
             .ShouldBe(["event-model.json", "event-model.Bobcat-Ui-Tests.json"], ignoreOrder: true);
 
@@ -243,7 +243,7 @@ public class SpecEventModelPublishingTests : IDisposable
         store.TryStore(await specHalf(), SpecSource).ShouldBeNull();
         store.TryStore(await specHalf(), SpecSource).ShouldBeNull();
 
-        Directory.EnumerateFiles(_dataPath, "event-model*.json")
+        Directory.EnumerateFiles(_dataPath, "event-model*.json", SearchOption.AllDirectories)
             .Select(Path.GetFileName)
             .ShouldBe(["event-model.Bobcat-Ui-Tests.json"]);
 
@@ -255,17 +255,18 @@ public class SpecEventModelPublishingTests : IDisposable
     }
 
     /// <summary>
-    /// The contract issue #294 says nothing checks. <c>GET /api/event-model</c> merges only the sources
-    /// naming the CURRENT model, and the current name is whatever was pushed last -- so a spec half naming a
-    /// different model would not join the host's half, it would HIDE it. That is a worse outcome than not
-    /// publishing, so the bracket does not publish. (The notice it writes instead is pinned in
-    /// <c>Bobcat.Tests</c>; here the assertion is that the other half survives.)
+    /// The contract issue #294 says nothing checks, on a console that does NOT list its models -- every
+    /// console before bobcat#799. Its <c>GET /api/event-model</c> merges only the sources naming the CURRENT
+    /// model, and the current name is whatever was pushed last -- so a spec half naming a different model
+    /// would not join the host's half, it would HIDE it. That is a worse outcome than not publishing, so
+    /// the bracket does not publish. (The notice it writes instead is pinned in <c>Bobcat.Tests</c>; here
+    /// the assertion is that the other half survives.)
     /// </summary>
     [Fact]
-    public async Task a_spec_half_naming_another_model_is_withheld_rather_than_hiding_the_host_half()
+    public async Task a_spec_half_naming_another_model_is_withheld_by_a_console_that_lists_no_models()
     {
         var store = new EventModelStore(_dataPath);
-        using var console = new FakeConsole(store);
+        using var console = new FakeConsole(store) { ListsModels = false };
 
         // This assembly declares [assembly: EventModelName("Wallets")]; the console is serving
         // something else entirely -- two models, not two halves of one.
@@ -278,13 +279,41 @@ public class SpecEventModelPublishingTests : IDisposable
         await runTheSpecs(console);
         console.Ingested.ShouldNotBeEmpty();
 
-        Directory.EnumerateFiles(_dataPath, "event-model*.json")
+        Directory.EnumerateFiles(_dataPath, "event-model*.json", SearchOption.AllDirectories)
             .Select(Path.GetFileName)
             .ShouldBe(["event-model.json"]);
 
         var merged = mergedModel(store);
         merged.Name.ShouldBe("Payments");
         merged.Slices.Single(s => s.Name == "CreditWallet").HandlerType.ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// bobcat#799, what the walkthrough hit: a console serving another application's model (pushed a
+    /// fortnight earlier, from another repository) withheld every spec run's half of the model being
+    /// worked on. A console that lists its models keeps each one reachable by name, so the half lands
+    /// beside the other model, hides nothing, and the other model is untouched.
+    /// </summary>
+    [Fact]
+    public async Task a_spec_half_naming_another_model_lands_beside_it_on_a_console_that_lists_models()
+    {
+        var store = new EventModelStore(_dataPath);
+        using var console = new FakeConsole(store);
+
+        store.TryStore(hostHalf("Payments"), EventModelStore.DefaultSource).ShouldBeNull();
+
+        await runTheSpecs(console);
+
+        store.Models().Select(m => m.Name).ShouldBe(["Wallets", "Payments"]);
+
+        var wallets = JsonSerializer.Deserialize<EventModelDescriptor>(store.Read("Wallets")!, EventModelStore.Wire)!;
+        wallets.Slices.Single(s => s.Name == "CreditWallet").Specifications.Select(s => s.Identity)
+            .ShouldContain("Wallet/Crediting a wallet emits the credited event");
+
+        var payments = JsonSerializer.Deserialize<EventModelDescriptor>(store.Read("Payments")!, EventModelStore.Wire)!;
+        payments.Slices.Single(s => s.Name == "CreditWallet").HandlerType.ShouldNotBeNull();
+        payments.Slices.Single(s => s.Name == "CreditWallet").Specifications.ShouldBeEmpty(
+            "the half went to its own model, not into the other application's");
     }
 
     /// <summary>A handler type the host half names and no spec assembly could know about.</summary>
@@ -307,6 +336,13 @@ public class SpecEventModelPublishingTests : IDisposable
         private bool _disposed;
 
         public string Url { get; }
+
+        /// <summary>
+        /// Serve <c>GET /api/event-models</c> as the console does since bobcat#799. Off, the route falls to
+        /// the catch-all's empty 200, which is what a console that predates the listing looks like to a
+        /// publisher that only trusts a JSON <c>models</c> array.
+        /// </summary>
+        public bool ListsModels { get; init; } = true;
 
         /// <summary>
         /// Every <c>/api/ingest</c> batch this console took. Read by the withholding test, which would
@@ -363,7 +399,12 @@ public class SpecEventModelPublishingTests : IDisposable
                     var path = context.Request.Url?.AbsolutePath ?? "";
                     var method = context.Request.HttpMethod;
 
-                    if (path == "/api/event-model" && method == "GET")
+                    if (path == "/api/event-models" && method == "GET" && ListsModels)
+                    {
+                        var listing = new { models = _store.Models().Select(m => new { name = m.Name }) };
+                        await answer(context, 200, JsonSerializer.Serialize(listing));
+                    }
+                    else if (path == "/api/event-model" && method == "GET")
                     {
                         Interlocked.Increment(ref _modelReads);
                         var json = _store.Read();

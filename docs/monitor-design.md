@@ -764,7 +764,8 @@ from a different repository or checkout than the newest one stale (stoat#92), wh
 left over from an older build of a model stop merging into the current canvas. They are read from
 files only, as the run's own repository and branch are, and a field Bobcat cannot read is left off
 rather than guessed -- a detached HEAD sends no `branch`, a remote with no `owner/name` no
-`repository`. A console that predates them ignores them. The run reads the working directory's
+`repository`. A console that predates them ignores them; `bobcat ui` keeps them with each source's
+push time since bobcat#799, for the canvas header and its model switcher. The run reads the working directory's
 checkout, the same one `run_started` reports; the import reads the checkout of its `--out` directory,
 where the stubs it pushes the model for were written.
 
@@ -778,6 +779,16 @@ application's, which is routine on a shared machine -- point `BOBCAT_MONITOR_URL
 or set `BOBCAT_MONITOR=0`, which also stops the run's events going to it. When the two model names
 share no word (`CritterCrush` against `CqrsMinimalApi`) the second fix is named first; never rename a
 model after an unrelated application to silence the notice.
+
+**A console that lists its models takes more (bobcat#799).** `bobcat ui` keeps every model reachable
+by name and lists them on `GET /api/event-models`, so on such a console a half naming another model
+hides nothing. There the half is sent when the console already holds a model of its name, or when the
+two names share no word -- another application's model on a shared console, which before #799 kept a
+spec run's half off the canvas whenever an older model of another repository had been pushed last. It
+is still withheld, with the notice above, when its name shares a word with the current model's and the
+console holds no model of that name: that is the misspelt half `[assembly: EventModelName]` is for. A
+console that does not list its models (a 404, or any answer without a `models` array) gets the rule
+above unchanged.
 
 **When it goes.** The Gherkin runner sent it from the same place it attached to the console, once per
 run, and a resident runner ran one run per command, cold or warm. That lane is gone (#471), and since

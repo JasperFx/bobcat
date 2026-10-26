@@ -75,6 +75,18 @@ internal sealed class FakeMonitorHost : IDisposable
     /// <summary>Refuse every push with the 400 the real store returns for a body it cannot parse.</summary>
     public bool RejectEventModelPushes { get; set; }
 
+    /// <summary>
+    /// The models <c>GET /api/event-models</c> lists (bobcat#799), or null for a console that predates
+    /// the listing — whose unknown route falls to this host's empty 200, the shape a publisher must read
+    /// as "no listing".
+    /// </summary>
+    public IReadOnlyList<string>? HeldEventModelNames { get; set; }
+
+    /// <summary>How many times a publisher asked for the listing.</summary>
+    public int EventModelListingReads => Volatile.Read(ref _eventModelListingReads);
+
+    private int _eventModelListingReads;
+
     // --- The resident runner wire (issue #390).
 
     /// <summary>Every CloudEvent a runner POSTed to <c>/api/runners/events</c>, as raw JSON.</summary>
@@ -172,6 +184,20 @@ internal sealed class FakeMonitorHost : IDisposable
                     if (HoldIngestUntil is { } hold) await hold.Task;
                     lock (_batches) _batches.Add(body);
                     context.Response.StatusCode = 202;
+                }
+                else if (path == "/api/event-models" && context.Request.HttpMethod == "GET"
+                         && HeldEventModelNames is { } held)
+                {
+                    Interlocked.Increment(ref _eventModelListingReads);
+                    var json = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        current = CurrentEventModelName,
+                        models = held.Select(name => new { name, sources = Array.Empty<object>() })
+                    });
+                    var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+                    context.Response.StatusCode = 200;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.OutputStream.WriteAsync(bytes);
                 }
                 else if (path == "/api/event-model" && context.Request.HttpMethod == "GET")
                 {
