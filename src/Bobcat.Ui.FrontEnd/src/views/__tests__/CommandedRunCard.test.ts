@@ -9,12 +9,14 @@ import DashboardView from '../DashboardView.vue'
  * bobcat#646 — every commanded run's card read `BankAccountES.Tests · bobcat @ branch · xunit` with a
  * count, so a spec, a feature, a slice and the whole project were told apart only by the count. The
  * card now says what was run, how, and who asked, and while it runs how far through its selection.
+ * Since bobcat#786 the live run's line is on its suite row's progress panel, and on the card once
+ * the row is expanded.
  */
 const routerLinkStub = { template: '<a><slot /></a>', props: ['to'] }
 
 // element-plus's select recurses on a sibling's re-render under happy-dom (not in a browser: checked in
 // Chromium), and the board's own selects are not what this tests.
-const stubs = { RouterLink: routerLinkStub, teleport: true, ElSelect: true, ElOption: true }
+const stubs = { RouterLink: routerLinkStub, teleport: true, ElSelect: true, ElOption: true, ElDropdown: true, ElDropdownMenu: true, ElDropdownItem: true }
 
 describe('a commanded run on the board', () => {
   let page: VueWrapper | null = null
@@ -57,7 +59,14 @@ describe('a commanded run on the board', () => {
     page = mount(DashboardView, { global: { stubs } })
     await flushPromises()
 
-    expect(page.find('[data-testid="run-command"]').text())
+    expect(page.find('[data-testid="live-progress"] [data-testid="run-command"]').text())
+      .toBe('Run 2 in feature Bank · warm · from bobcat-ui · 0 finished of 2 specs selected')
+    // The planned total is the command's selection, not the runner's twenty-two.
+    expect(page.find('[data-testid="live-counts"]').text()).toBe('0 / 2 · 0 passed')
+
+    await page.find('[data-testid="suite-toggle"]').trigger('click')
+    await flushPromises()
+    expect(page.find('[data-testid="run-card"] [data-testid="run-command"]').text())
       .toBe('Run 2 in feature Bank · warm · from bobcat-ui · 0 finished of 2 specs selected')
   })
 
@@ -69,7 +78,8 @@ describe('a commanded run on the board', () => {
 
     page = mount(DashboardView, { global: { stubs } })
     await flushPromises()
-    expect(page.find('[data-testid="runners-panel"]').exists()).toBe(true)
+    // The runner is on the suite's row (bobcat#786), where the runner panel used to be.
+    expect(page.find('[data-testid="suite-runner"]').text()).toContain('listening')
 
     expect(page.find('[data-testid="run-command"]').exists()).toBe(false)
   })

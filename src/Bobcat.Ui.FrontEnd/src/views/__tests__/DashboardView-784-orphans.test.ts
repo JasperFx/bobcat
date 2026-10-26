@@ -46,13 +46,23 @@ describe('an orphaned run on the board', () => {
     const page = mount(DashboardView, { global: { stubs } })
     await flushPromises()
 
-    const card = () => page.find('.bm-run-card')
+    // bobcat#786: the board is grouped by suite; the live run's bar sits under its suite's row, and
+    // the card with its Eject is in the row's expansion.
+    const row = () => page.find('[data-testid="suite-row"]')
+    expect(row().attributes('data-live')).toBe('true')
+    expect(row().find('[data-testid="live-progress"]').exists()).toBe(true)
+    await row().find('[data-testid="suite-toggle"]').trigger('click')
+    await flushPromises()
+
+    const card = () => page.find('[data-testid="run-card"]')
     expect(card().attributes('data-live')).toBe('true')
     expect(card().find('.bm-eject').exists()).toBe(false)
 
     relayToStore({ type: 'run_orphaned', data: { runId: RUN, lastEventAt: '2026-10-26T11:52:00Z' } })
     await flushPromises()
 
+    expect(row().attributes('data-live')).toBe('false')
+    expect(row().find('[data-testid="live-progress"]').exists()).toBe(false)
     expect(card().attributes('data-live')).toBe('false')
     expect(card().text()).toContain('orphaned')
     expect(card().find('.bm-eject').exists()).toBe(true)
