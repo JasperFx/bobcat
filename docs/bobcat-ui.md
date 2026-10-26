@@ -12,7 +12,7 @@ It is part of the free `bobcat` tool, under the same MIT license as the rest of 
 the model and the specs that prove it is the part of spec driven development that has to be in
 everybody's hands, so it is.
 
-![The run board](/images/bobcat-ui-run-board.png)
+![The run board: a row per suite with its five-run history, the attached runner and its Run all, and the status strip across the top](/images/bobcat-ui-run-board.png)
 
 ## Installing and updating
 
@@ -90,6 +90,16 @@ what has elapsed; a suite with no history is extrapolated from its own pace), an
 The bar is green while everything passes, red at the first failure, and amber while the only trouble
 so far is a retry.
 
+![A live run: the suite sorts to the top with its progress bar, and the status strip carries the same mini bar on every page](/images/bobcat-ui-live-run.png)
+
+**Run all is offered only where it can run** ([bobcat#798](https://github.com/JasperFx/bobcat/issues/798)).
+A runner that is *rebuilding* still takes the command, which the UI holds until the runner is back.
+A runner that is not connected, has exited or failed to build cannot, so its row says how to start
+one instead: `start a runner: bobcat resident <test host>`. Until the board's first summary arrives,
+the page shows a loading placeholder rather than a partial board or a premature "No runs yet".
+
+![A runner that went away: its row says how to start one instead of offering Run all](/images/bobcat-ui-start-a-runner.png)
+
 **A status strip on every page**, one line under the top navigation, the Event Model canvas
 included: the attached **runner** (its state, how long it has been up, whether it offers warm runs,
 when its code was built; several runners fold into one segment with a dropdown), the **build** -- shown
@@ -97,6 +107,19 @@ only when a watched project does not compile, and then **the whole strip turns r
 compiler errors a click away -- the **live run** with a mini progress bar (several live runs are a
 dropdown, filtered by the board's repository filter), **watch** when `bobcat watch` has reported a
 build, and the **connection** as a dot.
+
+**A broken build shows where you are looking**
+([bobcat#795](https://github.com/JasperFx/bobcat/issues/795)): the strip turns red on every page, the
+suite's own row carries a `build failed` chip (`building…` while it rebuilds), and the suite's run
+pages say the run is of the code before the break, with the compiler's errors. The build is matched
+to the suite by the suite's **assembly name** and the checkout, the same identity its runs report
+under, so a `Tests.csproj` that builds `BankAccountES.Tests` lights the `BankAccountES.Tests` row,
+and the same suite in another worktree is not blamed. The strip's error dialog closes itself once
+the next report says the build is fixed.
+
+![A broken build: the strip is red, the suite's row says build failed](/images/bobcat-ui-build-broken.png)
+
+![The same suite's run page names the break and shows the compiler's errors](/images/bobcat-ui-build-broken-run.png)
 
 - **Steps stream in** for the scenario in flight: step *n* of *N* with elapsed time, row *k* of *M*
   for a table, and the interim message of a step that is polling.
@@ -136,6 +159,14 @@ page by status, clicking a node scrolls to it, **Go to running** scrolls the run
 view, and **follow** keeps it there as the run advances. A passed scenario is folded to its line;
 a failed or running one is open on its specification, and any of them opens with a click.
 
+![A run's page: the trail back, the run's identity, Re-run failed and Run again, the tiles, the table of contents and the scenarios by feature](/images/bobcat-ui-run-page.png)
+
+Filtering to **failed** (a tile, a chip, or `?status=failed` in the URL) leaves just the failures,
+each open on its specification: which steps failed, the named comparisons that did not hold, and the
+`Given` the scenario started from.
+
+![The same run filtered to its failure, open on the specification](/images/bobcat-ui-run-page-failed.png)
+
 **Big suites** ([bobcat#801](https://github.com/JasperFx/bobcat/issues/801)):
 
 - **The tree goes as deep as the suite does.** A Bobcat specification sits under its feature. A
@@ -154,6 +185,17 @@ a failed or running one is open on its specification, and any of them opens with
   outside the node.
 - **The zoom and the filter are in the URL**: `?in=suite:Tests.Services&status=failed` arrives
   zoomed and filtered, and a crumb keeps the filter as it zooms out.
+
+A supervised run of CritterWatch's 2,944-test `ServiceTests`, all green, opens as three folded
+nodes rather than one list of 2,944 lines:
+
+![A 2,944-test xUnit suite on arrival: three folded nodes with their counts](/images/bobcat-ui-big-suite.png)
+
+Zoomed into `Tests.Services`, the page is that node's 2,082 tests: the tiles count only them, the
+trail reads `Runs › ServiceTests › run › Tests › Services`, and each test class is a folded line
+with its count.
+
+![Zoomed into Tests.Services: its classes folded, a crumb per level back out](/images/bobcat-ui-big-suite-zoomed.png)
 
 Each scenario has a page of its own at `/runs/{runId}/specs/{Feature}/{Scenario}` -- a URL you can
 paste into a pull request, with the same trail back, `Runs › suite › run › feature › scenario`, whose
