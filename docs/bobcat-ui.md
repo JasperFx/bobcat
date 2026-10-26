@@ -272,10 +272,13 @@ command, aggregate, events, read models and external systems in the usual lanes 
 
 ### Getting a model onto it
 
-The canvas holds whatever has been pushed to it, **merged by model name**, so several sources can
-each contribute what they can see.
+A push names a **model** and a **source**, and the canvas merges every source naming the same model,
+so each producer contributes what it can see. A model usually has two halves, and they come from two
+different places.
 
-**From a running Wolverine application**, which can describe its own model:
+**The application's half, from the application.** Its handlers, endpoints, aggregates and
+projections, and any overlay registered in `Program.cs` with `AddEventModel`, can be described only by
+the running application, and **nothing pushes them for you**:
 
 ```bash
 dotnet run --project src/MyApp -- event-model --url http://localhost:5525/api/event-model
@@ -288,15 +291,54 @@ model again, and starts a `bobcat ui` (with `--no-browser --idle-shutdown`) if n
 bobcat watch-event-model src/MyApp
 ```
 
+**The specifications' half, from a spec run.** A run that finds the UI publishes **only what its spec
+assembly declares**: the slices its `[BobcatSpec]` tests are bound to, the roles their steps stamp, and
+the specification identities that run outcomes join on. It never brings the application's handlers,
+its overlay or anything else the application derives. Wolverine's BankAccountES sample shows the
+difference: its spec runs publish 9 slices, while its 13 slices, the trigger labels from the overlay in
+`Program.cs` and the events its handlers really emit reach the canvas only from the application's push.
+A spec half is published under a source named for the spec assembly, and with the same
+never-slow-never-fail rule as everything else a run publishes.
+
+The halves merge only when they name the same model: Wolverine names the application's model for its
+`ServiceName`, and `[assembly: EventModelName("…")]` names the spec assembly's. A spec half whose name
+looks like a misspelling of the model the UI is serving (`BankAccountES.Tests` beside `BankAccountES`)
+is not published, and the run says why on standard error. **`dotnet test` does not show that
+message**; run the test project's executable directly to see it.
+
 **From an eventmodelers.ai board**, while you import it:
 
 ```bash
 bobcat import-event-model board.yaml --url http://localhost:5525
 ```
 
-**From a spec run.** A run that finds the UI publishes the model its specifications declare, under a
-source named for the spec assembly, with the same never-slow-never-fail rule as everything else it
-publishes.
+**Hotspots that compare sources need both halves.** A **sources disagree** hotspot is not pushed by
+anyone: the UI finds it when it merges a model's sources, where two of them describe the same slice
+differently. In BankAccountES, the application derives that `FreezeAccount` emits `AccountFrozen` and
+`AccountFlagged`, and its specification mentions only `AccountFrozen`. With only the application's
+half on the UI that model has no hotspot; it appears once a spec run has published its half.
+
+### Which model
+
+![The Event Model canvas header, with the model switcher open](/images/bobcat-ui-event-model-switcher.png)
+
+The UI keeps every model pushed to it, each with when every source was last pushed and the checkout
+it came from.
+
+- **The header says how fresh the model is.** Under the model's name, each source is listed with when
+  it was last pushed and the repository (and branch) it came from, so a model nobody has pushed for a
+  fortnight says so. A source stored before the UI recorded push times reads **last written**, and its
+  time is its file's. When the board has runs and none is from this model's repository, a tag says that
+  too.
+- **A switcher, when there is more than one model.** It lists every model, newest push first. The
+  choice goes into the URL as `?model=`, so a reload or a pasted link opens the same model.
+- **Which model opens first.** With no `?model=`, the canvas opens on the most recently pushed model
+  that has a source from a repository with runs on the board, or failing that the most recently pushed
+  model of all.
+
+The same lists are on the wire: `GET /api/event-models` lists the models with their sources, and
+`GET /api/event-model?name=…` reads one. A bare `GET /api/event-model` still serves the model pushed
+last.
 
 ### Reading it
 

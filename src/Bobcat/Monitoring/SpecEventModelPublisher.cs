@@ -53,6 +53,11 @@ namespace Bobcat.Monitoring;
 /// pointing the run at its own console when the one answering serves another (bobcat#621).
 /// </para>
 /// <para>
+/// <b>Narrowed for a console that lists its models (bobcat#799).</b> Such a console keeps every model
+/// reachable by name, so publishing a half of another model hides nothing; it is withheld there only
+/// when its name looks like a misspelling of the current one. See <see cref="Withholds"/>.
+/// </para>
+/// <para>
 /// <b>It never touches a descriptor (bobcat#744).</b> Core references no JasperFx, so the spec assembly
 /// serializes its own half: the generator emits a <see cref="SpecEventModels.Register"/> call whose JSON
 /// producer describes the generated source, stamps its provenance and serializes it with the web defaults
@@ -69,6 +74,9 @@ internal static class SpecEventModelPublisher
 {
     /// <summary>The route both halves of the Event Model wire are published on (issue #268).</summary>
     internal const string Route = "/api/event-model";
+
+    /// <summary>The console's listing of every model it holds (bobcat#799).</summary>
+    internal const string ListingRoute = "/api/event-models";
 
     /// <summary>
     /// The hard ceiling on the whole exchange — one GET plus one PUT per spec assembly.
@@ -177,9 +185,17 @@ internal static class SpecEventModelPublisher
         // just set.
         var current = await publisher.CurrentEventModelName(cts.Token);
 
+        // ...and, only when that name is not the half's, which models it holds (bobcat#799). A console
+        // that lists them keeps every model reachable by name, so a half naming another model no
+        // longer hides anything.
+        var held = halves.Any(h => current is not null && !string.Equals(current, h.ModelName, StringComparison.Ordinal))
+            ? await publisher.EventModelNames(cts.Token)
+            : null;
+
         foreach (var half in halves)
         {
-            if (current is not null && !string.Equals(current, half.ModelName, StringComparison.Ordinal))
+            if (current is not null && !string.Equals(current, half.ModelName, StringComparison.Ordinal)
+                && Withholds(current, half.ModelName, held))
             {
                 notify?.Invoke(MismatchNotice(half, current, publisher.Url));
                 continue;
@@ -216,6 +232,43 @@ internal static class SpecEventModelPublisher
         }
 
         return published;
+    }
+
+    /// <summary>
+    /// Whether a half naming <paramref name="modelName"/> is withheld from a console currently serving
+    /// the differently-named <paramref name="current"/>.
+    /// </summary>
+    /// <param name="held">
+    /// The models the console lists (<c>GET /api/event-models</c>), or null for a console that lists
+    /// none — every console before bobcat#799.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>A console that does not list its models: always withheld</b>, the #294 rule unchanged. Its
+    /// bare read merges only the current model, so publishing would hide the other half.
+    /// </para>
+    /// <para>
+    /// <b>A console that does (bobcat#799) keeps every model reachable by name</b>, so the half hides
+    /// nothing, and the reason for the rule is gone. It is published when the console already holds a
+    /// model of the half's name (it joins it), and when the two names share no word — another
+    /// application's model on a shared console, which is exactly what used to keep the half off the
+    /// canvas: a model pushed a fortnight earlier from another repository refused every spec run of the
+    /// one being worked on, and the notice went to standard error, which <c>dotnet test</c> does not
+    /// show.
+    /// </para>
+    /// <para>
+    /// <b>Still withheld: a name that shares a word with the current one and is new to the console</b>
+    /// (<c>BankAccountES.Tests</c> beside <c>BankAccountES</c>). That is the misspelt half
+    /// <c>[assembly: EventModelName]</c> exists for, and publishing it would only start a second model
+    /// that never joins the first.
+    /// </para>
+    /// </remarks>
+    internal static bool Withholds(string current, string modelName, IReadOnlyList<string>? held)
+    {
+        if (held is null) return true;
+        if (held.Contains(modelName, StringComparer.Ordinal)) return false;
+
+        return NamesShareAWord(current, modelName);
     }
 
     /// <summary>

@@ -89,7 +89,10 @@ initializer first, because a session hook can open the run before any spec code 
 console is serving a differently-named model: `GET` merges only the sources naming the current
 one, and publishing anyway would hide the other half rather than join it. Both halves of the merge
 are keyed on the model name, which is why setting it explicitly is load-bearing rather than
-cosmetic.
+cosmetic. **Narrowed by bobcat#799:** a console that answers `GET /api/event-models` with a `models`
+array keeps every model by name, so there the half is withheld only when the console holds no model
+of its name and the name shares a word with the current one (`SpecEventModelPublisher.Withholds`);
+anything else answering that GET (404, the SPA fallback, an empty 200) keeps the old rule.
 
 - **Every Event Model PUT says where its half came from (bobcat#532, stoat#92)**: optional `root`
   / `repository` / `branch` query parameters from `CheckoutProvenance` (`Monitoring/`), so Stoat can

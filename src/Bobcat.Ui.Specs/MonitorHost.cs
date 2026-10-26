@@ -116,6 +116,10 @@ public sealed class MonitorHost : IAsyncLifetime
     public async Task ForgetEventModelAsync()
     {
         foreach (var file in Directory.EnumerateFiles(DataPath, "event-model*.json")) File.Delete(file);
+
+        // bobcat#799: each model's sources live in a folder of their own.
+        var models = Path.Combine(DataPath, Bobcat.Ui.EventModel.EventModelStore.ModelsFolder);
+        if (Directory.Exists(models)) Directory.Delete(models, recursive: true);
         await Restart();
     }
 

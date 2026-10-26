@@ -40,8 +40,10 @@ export function relayToStore(message: unknown): void {
     // the document — a whole-document replace can be large, and the page already has a GET that
     // serves it. Re-fetching keeps one definition of how a model is loaded instead of two that can
     // disagree.
+    // bobcat#799: the console holds several models, so the store decides whether the push was of the
+    // one on screen.
     case 'event_model_changed':
-      void useEventModelStore().refresh()
+      void useEventModelStore().modelChanged((envelope.data as { name?: string } | undefined)?.name)
       return
     // The console stopped hearing from a run's publisher (bobcat#784).
     case 'run_orphaned':

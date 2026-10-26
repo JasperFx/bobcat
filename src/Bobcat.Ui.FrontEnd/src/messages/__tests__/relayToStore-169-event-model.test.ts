@@ -14,22 +14,24 @@ import { useEventModelStore } from '@/stores/event-model-store'
 describe('#169 — event_model_changed refreshes the Event Model store', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it('re-fetches on the push', () => {
+  // bobcat#799: the push names its model, and the store decides whether that is the one on screen.
+  it('hands the push, with the model it names, to the store', () => {
     const store = useEventModelStore()
-    const refresh = vi.spyOn(store, 'refresh').mockResolvedValue(undefined)
+    const changed = vi.spyOn(store, 'modelChanged').mockResolvedValue(undefined)
 
     relayToStore({ type: 'event_model_changed', data: { name: 'Wallets' } })
 
-    expect(refresh).toHaveBeenCalledOnce()
+    expect(changed).toHaveBeenCalledOnce()
+    expect(changed).toHaveBeenCalledWith('Wallets')
   })
 
   it('ignores an unrelated message', () => {
     const store = useEventModelStore()
-    const refresh = vi.spyOn(store, 'refresh').mockResolvedValue(undefined)
+    const changed = vi.spyOn(store, 'modelChanged').mockResolvedValue(undefined)
 
     relayToStore({ type: 'run_heartbeat', data: { runId: 'x' } })
 
-    expect(refresh).not.toHaveBeenCalled()
+    expect(changed).not.toHaveBeenCalled()
   })
 })
 
@@ -82,5 +84,63 @@ describe('#169 — refresh() is the quiet twin of load()', () => {
 
     expect(store.descriptor).toBeNull()
     expect(store.status).toBe('absent')
+  })
+})
+
+/**
+ * bobcat#799 — a console holds several models. A push of one that is not on screen moves the listing
+ * (its push time, perhaps a new entry in the switcher) and leaves the diagram alone; a push of the one on
+ * screen redraws it as #169 always did.
+ */
+describe('#799 — modelChanged redraws only the model on screen', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  const listing = { current: 'BankAccount', preferred: 'BankAccount', models: [] }
+
+  function consoleFetch(): ReturnType<typeof vi.fn> {
+    return vi.fn().mockImplementation(async (url: string) => {
+      if (url === '/api/event-models') return { ok: true, status: 200, json: async () => listing }
+      const name = new URL(url, 'http://console').searchParams.get('name') ?? 'BankAccount'
+      return { ok: true, status: 200, json: async () => ({ name, slices: [] }) }
+    })
+  }
+
+  it('re-reads the shown model when the push was of it', async () => {
+    const store = useEventModelStore()
+    const fetch = consoleFetch()
+    await store.select('CritterCrush', fetch as never)
+    await store.loadModels(fetch as never)
+    fetch.mockClear()
+
+    await store.modelChanged('CritterCrush', fetch as never)
+
+    expect(fetch.mock.calls.map((c) => c[0])).toEqual(
+      expect.arrayContaining(['/api/event-model?name=CritterCrush', '/api/event-models'])
+    )
+    expect(store.descriptor?.name).toBe('CritterCrush')
+  })
+
+  it("does not swap the diagram for another application's push, but refreshes the listing", async () => {
+    const store = useEventModelStore()
+    const fetch = consoleFetch()
+    await store.select('CritterCrush', fetch as never)
+    await store.loadModels(fetch as never)
+    fetch.mockClear()
+
+    await store.modelChanged('BankAccount', fetch as never)
+
+    expect(fetch.mock.calls.map((c) => c[0])).toEqual(['/api/event-models'])
+    expect(store.descriptor?.name).toBe('CritterCrush')
+  })
+
+  it('a store reading the current model re-reads on any push, since any push can change which is current', async () => {
+    const store = useEventModelStore()
+    const fetch = consoleFetch()
+    await store.load(fetch as never)
+    fetch.mockClear()
+
+    await store.modelChanged('BankAccount', fetch as never)
+
+    expect(fetch.mock.calls.map((c) => c[0])).toEqual(['/api/event-model'])
   })
 })

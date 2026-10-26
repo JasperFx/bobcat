@@ -67,6 +67,21 @@ public class EventModelSpecs(MonitorHost host) : ViewerSpec(host)
         await ThenTheSliceIsInChapter("CreditWallet", "Everyday banking");
     }
 
+    // bobcat#799 -- a console holds several models. The walkthrough's canvas opened on a model pushed a
+    // fortnight earlier from another repository and could not reach the one being worked on.
+    [Fact]
+    public async Task Two_models_stay_reachable_by_name_and_the_listing_says_where_each_came_from()
+    {
+        await WhenTheSourcePublishesTheEventModelFrom("specs", "CritterCrush", "JasperFx/CritterCrush");
+        await WhenTheSourcePublishesTheEventModelFrom("default", "BankAccount", "JasperFx/wolverine");
+        ThenTheEventModelChangeIsBroadcast("BankAccount");
+
+        await ThenThePublishedEventModelIsNamed("BankAccount");
+        await ThenAskingForTheEventModelByNameServesIt("CritterCrush");
+        await ThenTheConsoleListsTheEventModels("BankAccount, CritterCrush");
+        await ThenTheEventModelIsListedAsPushedFrom("CritterCrush", "JasperFx/CritterCrush", "main");
+    }
+
     [Fact]
     public async Task A_successful_push_is_broadcast_so_an_open_page_redraws_without_an_F5()
     {

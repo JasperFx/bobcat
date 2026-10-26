@@ -6,6 +6,12 @@
  * colours slices from a run's evidence (issue #107), and drills down from a clicked slice to
  * its bound scenarios — each rendered as a whole specification through the same component the run
  * page uses, and linked to its own page (stoat#61).
+ *
+ * bobcat#799: a console holds several models. The header names the one on screen and says when each of
+ * its sources was last pushed and from where, and a switcher picks another, kept in the URL as
+ * `?model=` so a reload or a pasted link lands on the same one. With no `?model=` the page opens on the
+ * console's preferred model: the newest pushed from a repository with runs on the board, else the
+ * newest of all. The renderer is the shared package's and knows nothing of this; it is all page.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -23,13 +29,16 @@ import {
   patternLabel,
   patternViolationsOf,
   sliceFor,
+  sourceOrigin,
   undeclaredTouches,
-  useEventModelStore
+  useEventModelStore,
+  type EventModelSourceSummary
 } from '@/stores/event-model-store'
 import { useRunsStore, type RunState, type ScenarioState } from '@/stores/runs-store'
 import SpecificationView from '@/components/SpecificationView.vue'
 import RunButton from '@/components/RunButton.vue'
 import { specHref } from '@/lib/specLinks'
+import { formatAbsolute, formatRelative, useNow } from '@/composables/time'
 
 const model = useEventModelStore()
 const runs = useRunsStore()
@@ -43,9 +52,42 @@ function queryString(name: string): string | null {
   return typeof first === 'string' && first.length > 0 ? first : null
 }
 
-onMounted(() => {
-  if (model.status === 'idle') void model.load()
+onMounted(async () => {
+  // The model to show: the URL's, else the console's preferred one (bobcat#799). A store another
+  // page already loaded with the same selection is left as it is, rather than re-read for nothing.
+  const listing = await model.loadModels()
+  const choice = queryString('model') ?? listing?.preferred ?? null
+  if (model.status === 'idle' || choice !== model.selected) await model.select(choice)
 })
+
+// ---------------------------------------------------------------- which model (bobcat#799)
+
+const now = useNow()
+
+/** Every model the console holds, newest push first. */
+const models = computed(() => model.listing?.models ?? [])
+
+/** The name the switcher shows: the model on screen, or the one asked for when it is not there. */
+const shownName = computed(() => model.descriptor?.name ?? model.selected)
+
+function pushedLabel(source: EventModelSourceSummary): string {
+  const ago = formatRelative(source.pushedAt, now.value) ?? 'at an unknown time'
+  // A half stored before the console kept push times has its file's write time instead.
+  return `${source.pushedAtIsFileTime ? 'last written' : 'last pushed'} ${ago}`
+}
+
+function switchModel(name: string) {
+  if (name === shownName.value) return
+
+  // The viewport, the selection and an arrived-for spec all belong to the model being left.
+  const query: Record<string, unknown> = { ...route.query, model: name }
+  for (const key of ['z', 'x', 'y', 'focus', 'sel', 'spec']) delete query[key]
+  drilled.value = null
+  arrivedFor.value = null
+
+  void router.replace({ query: query as typeof route.query }).catch(() => {})
+  void model.select(name)
+}
 
 // Evidence source: newest run first, user-switchable. The join is by spec identity, so any
 // run of the bound suite colours the canvas; an empty box means design-time only.
@@ -207,7 +249,28 @@ onBeforeUnmount(() => {
 <template>
   <div>
     <div class="bm-em-header">
-      <h2>Event Model<span v-if="model.descriptor"> — {{ model.descriptor.name }}</span></h2>
+      <h2>Event Model<span v-if="model.descriptor" data-testid="model-name"> — {{ model.descriptor.name }}</span></h2>
+      <el-select
+        v-if="models.length > 1"
+        :model-value="shownName"
+        size="small"
+        class="bm-em-model-select"
+        data-testid="model-switcher"
+        aria-label="Event Model"
+        @update:model-value="switchModel"
+      >
+        <template #prefix>model</template>
+        <el-option
+          v-for="entry in models"
+          :key="entry.name"
+          :value="entry.name"
+          :label="entry.name"
+          :data-model="entry.name"
+        >
+          <span>{{ entry.name }}</span>
+          <span class="bm-em-model-option-age">{{ formatRelative(entry.lastPushedAt, now) }}</span>
+        </el-option>
+      </el-select>
       <el-select
         v-if="runChoices.length > 0"
         :model-value="evidenceRun?.runId ?? null"
@@ -226,8 +289,37 @@ onBeforeUnmount(() => {
       </el-select>
     </div>
 
+    <!-- bobcat#799: when each source was last pushed, and from where, so a stale model says so. -->
+    <div v-if="model.shownModel" class="bm-em-provenance" data-testid="model-provenance">
+      <span
+        v-for="source in model.shownModel.sources"
+        :key="source.source"
+        class="bm-em-source"
+        data-testid="model-source"
+        :data-source="source.source"
+      >
+        <code>{{ source.source }}</code>
+        <span :title="formatAbsolute(source.pushedAt) ?? undefined">{{ pushedLabel(source) }}</span>
+        <template v-if="sourceOrigin(source)"> from <strong>{{ sourceOrigin(source) }}</strong></template>
+      </span>
+      <el-tag
+        v-if="!model.shownModel.hasRunsOnBoard && models.some((m) => m.hasRunsOnBoard)"
+        size="small"
+        type="warning"
+        data-testid="model-not-on-board"
+      >
+        no run on the board is from this model's repository
+      </el-tag>
+    </div>
+
     <el-empty
-      v-if="model.status === 'absent'"
+      v-if="model.status === 'absent' && model.selected && models.length > 0"
+      data-testid="event-model-unknown"
+      :description="`This console holds no Event Model named '${model.selected}'.`"
+    />
+
+    <el-empty
+      v-else-if="model.status === 'absent'"
       data-testid="event-model-absent"
       description="No Event Model has been published yet."
     >
@@ -246,8 +338,10 @@ onBeforeUnmount(() => {
       :closable="false"
     />
 
+    <!-- Keyed by name, so switching models starts the canvas afresh rather than at the last one's viewport. -->
     <EventModelView
       v-else-if="model.descriptor"
+      :key="model.descriptor.name"
       :descriptor="model.descriptor"
       :slice-outcomes="sliceOutcomes"
       :initial-viewport="initialViewport"
@@ -358,6 +452,31 @@ onBeforeUnmount(() => {
 
 .bm-em-run-select {
   width: 320px;
+}
+
+.bm-em-model-select {
+  width: 220px;
+}
+
+.bm-em-model-option-age {
+  float: right;
+  margin-left: 12px;
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+.bm-em-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  margin: -8px 0 12px;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.bm-em-source code {
+  margin-right: 4px;
 }
 
 .bm-em-hint {
