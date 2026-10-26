@@ -360,9 +360,12 @@ specification and coloured from that run.
 ## Where it keeps things
 
 Run history and Event Model documents live under **`~/.bobcat/monitor/runs`** --
-`BOBCAT_MONITOR_DATA` moves it. Each run is one NDJSON file of the events it published, and each model
-source is one `event-model.{source}.json`. A restarted UI replays them, so the board comes back as it
-was.
+`BOBCAT_MONITOR_DATA` moves it. Each run is one NDJSON file of the events it published. Each Event
+Model has a folder under `event-models/` (bobcat#799), holding one JSON file per source plus a
+`pushes.json` recording when and from which repository each source was last pushed. A UI from before
+#799 kept one `event-model.{source}.json` per source beside the runs; a newer UI moves those into the
+folders on startup and renames the originals `*.migrated`. A restarted UI replays all of it, so the
+board and the canvas come back as they were.
 
 Two settings bound two different things:
 
