@@ -23,7 +23,7 @@ namespace Bobcat.Ui.Runs;
 /// <c>Monitor:RetentionDays</c>, then <c>BOBCAT_MONITOR_RETENTION_DAYS</c>, then 14 days — and
 /// is the only thing here that ever deletes a file. <see cref="SweepRetainedRuns"/> bounds the
 /// BOARD by count — <c>Monitor:RetentionRuns</c>, then <c>BOBCAT_MONITOR_RETENTION_RUNS</c>,
-/// then 10 — and only ever ejects, so a run evicted from the dashboard keeps its archive on
+/// then 5 — and only ever ejects, so a run evicted from the dashboard keeps its archive on
 /// disk under the age policy for as long as that policy says. Zero or negative disables
 /// either one.
 /// </remarks>
@@ -37,12 +37,14 @@ public sealed class MonitorRunRegistry : IDisposable
     public static readonly TimeSpan DefaultRetention = TimeSpan.FromDays(14);
 
     /// <summary>
-    /// How many finished runs of one job the board keeps by default. Counted per job rather
+    /// How many finished runs of one suite the board keeps by default. Counted per suite rather
     /// than per box — see <see cref="SweepRetainedRuns"/> for why a global cap is the wrong
-    /// shape — and small on purpose: the console is a live dashboard, and the tenth-most-recent
-    /// run of a suite is already something you would go to the archive for.
+    /// shape — and small on purpose: the console is a live dashboard, and the sixth-most-recent
+    /// run of a suite is already something you would go to the archive for. It was 10 until
+    /// bobcat#783, when the group became the repository rather than the checkout path: every
+    /// worktree of a repository now shares the one allowance, so it holds fewer.
     /// </summary>
-    public const int DefaultRetainedRuns = 10;
+    public const int DefaultRetainedRuns = 5;
 
     /// <summary>
     /// <c>BOBCAT_MONITOR_ORPHAN_SECONDS</c>: how long a live run may go silent before it is orphaned
@@ -261,18 +263,29 @@ public sealed class MonitorRunRegistry : IDisposable
 
     /// <summary>
     /// Bound the BOARD: keep the most recent <see cref="RetainedRuns"/> finished runs of each
-    /// job and eject the rest (issue #198). Ejecting, never deleting — the archive stays on
+    /// suite and eject the rest (issue #198). Ejecting, never deleting — the archive stays on
     /// disk under the age policy, which is the same promise the manual Eject button makes and
     /// the whole reason an automatic policy is reasonable at all.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <strong>A job is a repository and a suite</strong>, not the box. A global cap is the
-    /// wrong shape for a shared console: the board observed on this machine carried four
-    /// repositories' worktrees at once, and a global 20 would have let the busiest of them
+    /// <strong>A suite's identity is its repository and its name</strong>, not the box. A global
+    /// cap is the wrong shape for a shared console: the board observed on this machine carried
+    /// four repositories' worktrees at once, and a global 20 would have let the busiest of them
     /// evict every card the quiet ones had — the opposite of what someone watching their own
-    /// gate wants. Per job is also the familiar shape ("the last N builds of this job"), and it
+    /// gate wants. Per suite is also the familiar shape ("the last N builds of this job"), and it
     /// is the identity the card is already named by.
+    /// </para>
+    /// <para>
+    /// <strong>The repository is the slug, not the checkout path</strong> (bobcat#783).
+    /// <c>RunStarted.Repository</c> is the directory the suite ran in, worktrees included, so a
+    /// group keyed on it gave every worktree its own allowance: one development box held 824 runs
+    /// across 213 (path, suite) groups and 74 paths, while the board's repository filter grouped
+    /// the same runs by slug. The group is <see cref="RunProjection.RepositorySlug"/> when the
+    /// registry could resolve one, so every branch and worktree of a repository shares the one
+    /// allowance — the branch is a property of the run, not part of the group. A run with no slug
+    /// (a path that is not a checkout on this machine) keeps its path, as before: unattributed is
+    /// an answer, and folding every unattributed run into one group would be a guess.
     /// </para>
     /// <para>
     /// <strong>A run that is not finished is never evicted</strong>, however old the board
@@ -296,7 +309,7 @@ public sealed class MonitorRunRegistry : IDisposable
             var doomed = _entries.Values
                 .Select(e => e.Projection)
                 .Where(p => p.Finished || p.Orphaned)
-                .GroupBy(p => (p.Repository, p.Suite))
+                .GroupBy(p => (p.RepositorySlug ?? p.Repository, p.Suite))
                 .SelectMany(job => job
                     .OrderByDescending(p => p.StartedAt ?? DateTimeOffset.MinValue)
                     .Skip(_retainedRuns))

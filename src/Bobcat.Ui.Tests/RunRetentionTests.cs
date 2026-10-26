@@ -34,8 +34,19 @@ public class RunRetentionTests : IDisposable
     private static DateTimeOffset at(int minute) => new(2026, 9, 1, 10, minute, 0, TimeSpan.Zero);
 
     /// <summary>Retention disabled, so a test writes the board it means to test.</summary>
-    private MonitorRunRegistry registry(int retainedRuns = 0)
-        => new(_dataPath, TimeSpan.Zero, retainedRuns);
+    private MonitorRunRegistry registry(int retainedRuns = 0, Repositories.IRepositoryIdentity? identity = null)
+        => new(_dataPath, TimeSpan.Zero, retainedRuns, identity);
+
+    /// <summary>
+    /// What the git remote says about a checkout path, as a table: the paths of one repository's
+    /// worktrees all resolve to its slug, and a path the table does not know is not a checkout on
+    /// this box (null, "unattributed").
+    /// </summary>
+    private sealed class KnownCheckouts(params (string Path, string Slug)[] checkouts) : Repositories.IRepositoryIdentity
+    {
+        public string? SlugFor(string? path)
+            => checkouts.FirstOrDefault(c => c.Path == path) is { Slug: { } slug } ? slug : null;
+    }
 
     // ---- #646: a page open on an evicted run ------------------------------------------
 
@@ -172,15 +183,99 @@ public class RunRetentionTests : IDisposable
     }
 
     [Fact]
-    public void the_same_suite_in_two_repositories_is_two_jobs()
+    public void the_same_suite_in_two_paths_with_no_slug_is_two_suites()
     {
-        using var monitor = registry(retainedRuns: 1);
+        // Neither path is a checkout on this box, so neither resolves to a repository: the path is
+        // all the registry knows, and it keeps grouping by it rather than guessing the two are one.
+        using var monitor = registry(retainedRuns: 1, identity: new KnownCheckouts());
         var here = Guid.NewGuid();
-        var worktree = Guid.NewGuid();
+        var elsewhere = Guid.NewGuid();
         monitor.Record(run(here, "Demo", at(0), repo: "/repo"));
-        monitor.Record(run(worktree, "Demo", at(1), repo: "/repo-worktree"));
+        monitor.Record(run(elsewhere, "Demo", at(1), repo: "/other-box-repo"));
 
-        monitor.All().Select(r => r.RunId).ShouldBe([here, worktree], ignoreOrder: true);
+        monitor.All().Select(r => r.RunId).ShouldBe([here, elsewhere], ignoreOrder: true);
+    }
+
+    // ---- bobcat#783: the group is the repository, not the checkout --------------------
+
+    [Fact]
+    public void two_worktrees_of_one_repository_share_one_allowance_for_a_suite()
+    {
+        // 824 runs across 213 (path, suite) groups and 74 paths on one box: every worktree had its
+        // own ten slots, while the board's repository filter grouped the same runs by slug.
+        var checkouts = new KnownCheckouts(("/code/bobcat", "JasperFx/bobcat"), ("/code/bobcat-wt", "JasperFx/bobcat"));
+        using var monitor = registry(retainedRuns: 5, identity: checkouts);
+        var ids = Enumerable.Range(0, 8).Select(_ => Guid.NewGuid()).ToArray();
+        foreach (var (id, index) in ids.Select((id, i) => (id, i)))
+        {
+            // Alternating checkouts, and a branch per worktree: the branch is a property of the
+            // run, not part of the group.
+            var path = index % 2 == 0 ? "/code/bobcat" : "/code/bobcat-wt";
+            monitor.Record(
+            [
+                new RunStarted(id, "Demo", path, index % 2 == 0 ? "main" : "feature", "in-process", at(index), 1),
+                new ScenarioFinished(id, "Calc/adds", "CleanPass", 1, 20, null),
+                new RunFinished(id, 0, 1, 0, 0, 0, at(index).AddMinutes(1))
+            ]);
+        }
+
+        monitor.All().Select(r => r.RunId).ShouldBe(ids[3..], ignoreOrder: true);
+        monitor.All().Select(r => r.RepositorySlug).Distinct().ShouldBe(["JasperFx/bobcat"]);
+        foreach (var id in ids[..3]) File.Exists(monitor.EjectedFileFor(id)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void a_second_suite_of_the_same_repository_has_its_own_allowance()
+    {
+        var checkouts = new KnownCheckouts(("/code/bobcat", "JasperFx/bobcat"), ("/code/bobcat-wt", "JasperFx/bobcat"));
+        using var monitor = registry(retainedRuns: 1, identity: checkouts);
+        var samples = Guid.NewGuid();
+        var acceptance = Guid.NewGuid();
+        monitor.Record(run(samples, "Bobcat.Xunit.Samples", at(0), repo: "/code/bobcat"));
+        monitor.Record(run(acceptance, "Bobcat.Projected.Acceptance.Tests", at(1), repo: "/code/bobcat-wt"));
+
+        monitor.All().Select(r => r.RunId).ShouldBe([samples, acceptance], ignoreOrder: true);
+    }
+
+    [Fact]
+    public void a_run_with_no_slug_does_not_join_a_repository_that_shares_its_suite_name()
+    {
+        // A slug and a path are different kinds of key: a run from another machine stays in its own
+        // path group even when a local repository runs a suite of the same name.
+        var checkouts = new KnownCheckouts(("/code/bobcat", "JasperFx/bobcat"));
+        using var monitor = registry(retainedRuns: 1, identity: checkouts);
+        var local = Guid.NewGuid();
+        var remote = Guid.NewGuid();
+        monitor.Record(run(local, "Demo", at(0), repo: "/code/bobcat"));
+        monitor.Record(run(remote, "Demo", at(1), repo: "/ci/agent/bobcat"));
+
+        monitor.All().Select(r => r.RunId).ShouldBe([local, remote], ignoreOrder: true);
+        monitor.Find(remote)!.RepositorySlug.ShouldBeNull();
+    }
+
+    [Fact]
+    public void the_age_sweep_is_unchanged_by_the_grouping()
+    {
+        // The archive is bounded by age, per file, and never by any group: an old run of a suite
+        // the repository ran again yesterday is still ejected, and a fresh one in a crowded
+        // repository is still kept.
+        var checkouts = new KnownCheckouts(("/code/bobcat", "JasperFx/bobcat"), ("/code/bobcat-wt", "JasperFx/bobcat"));
+        var retention = TimeSpan.FromDays(14);
+        using var monitor = new MonitorRunRegistry(_dataPath, retention, retainedRuns: 0, identity: checkouts);
+        var stale = Guid.NewGuid();
+        var fresh = Guid.NewGuid();
+        monitor.Record(run(stale, "Demo", at(0), repo: "/code/bobcat"));
+        monitor.Record(run(fresh, "Demo", at(1), repo: "/code/bobcat-wt"));
+        File.SetLastWriteTimeUtc(monitor.ArchiveFileFor(stale), DateTime.UtcNow - retention - TimeSpan.FromDays(1));
+
+        // Ejected from the board, and — the move keeps the old mtime — retired from ejected/ in the
+        // same sweep, exactly as ArchiveRetentionTests pins it. Nothing about the group was consulted.
+        monitor.SweepAging().ShouldBe((1, 1));
+
+        monitor.All().ShouldHaveSingleItem().RunId.ShouldBe(fresh);
+        File.Exists(monitor.ArchiveFileFor(stale)).ShouldBeFalse();
+        File.Exists(monitor.EjectedFileFor(stale)).ShouldBeFalse();
+        File.Exists(monitor.ArchiveFileFor(fresh)).ShouldBeTrue();
     }
 
     [Fact]

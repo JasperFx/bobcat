@@ -1,7 +1,8 @@
 /**
- * How much of the run board to show (stoat#75). Retention on the server already keeps ten runs
- * per repository and suite; this only chooses how many of those a viewer sees at once, and it is
- * that viewer's choice — remembered in their browser, nowhere else.
+ * How much of the run board to show (stoat#75). Retention on the server already keeps the latest
+ * runs of each repository and suite (five by default, BOBCAT_MONITOR_RETENTION_RUNS); this only
+ * chooses how many runs a viewer sees at once, and it is that viewer's choice — remembered in their
+ * browser, nowhere else.
  */
 export const RUN_LIMIT_CHOICES = [5, 10, 25, 50, 0] as const
 export const DEFAULT_RUN_LIMIT = 10

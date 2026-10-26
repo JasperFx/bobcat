@@ -1,3 +1,4 @@
+using Bobcat.Monitoring;
 using Microsoft.Extensions.Configuration;
 
 namespace Bobcat.Supervisor.ProjectedWorker;
@@ -49,6 +50,8 @@ public class Basics
 
         // And the worker writes its connection strings if BOBCAT_CONNECTION_PROBE is set
         writeConnectionStrings();
+        // And what its publisher would do if BOBCAT_MONITOR_PROBE is set
+        writeMonitorDecision();
     }
 
     /// <summary>
@@ -67,6 +70,25 @@ public class Basics
         File.WriteAllLines(path, section.GetChildren()
             .OrderBy(x => x.Key, StringComparer.Ordinal)
             .Select(x => $"{x.Key}={configuration.GetConnectionString(x.Key)}"));
+    }
+
+    /// <summary>
+    /// Writes the publisher's own decision — whether <c>BOBCAT_MONITOR</c> turns it off, and which
+    /// consoles it would otherwise probe — to the file <c>BOBCAT_MONITOR_PROBE</c> names (bobcat#783).
+    /// Evaluated here, in the worker, because the probe is the thing a test cannot observe: it goes to
+    /// a port the test suite must never bind. Not a probe of its own either.
+    /// </summary>
+    private static void writeMonitorDecision()
+    {
+        var path = Environment.GetEnvironmentVariable("BOBCAT_MONITOR_PROBE");
+        if (path is null) return;
+
+        var urls = MonitorPublisher.ParseUrls(Environment.GetEnvironmentVariable(MonitorPublisher.UrlVariable));
+        File.WriteAllLines(path,
+        [
+            $"disabled={MonitorPublisher.Disabled}",
+            $"urls={string.Join(';', urls)}"
+        ]);
     }
 
     [Fact]
