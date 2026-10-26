@@ -4,29 +4,43 @@ using Spectre.Console;
 
 namespace Bobcat.Console.Specs;
 
+/// <summary>
+/// The flags <c>run</c>, <c>preview</c>, <c>pick</c> and <c>watch</c> share.
+/// </summary>
+/// <remarks>
+/// <b>No short flag means two things (bobcat#785).</b> JasperFx gives every flag its first letter as
+/// a short alias unless told otherwise, so <c>-f</c> was <c>--framework</c>, <c>--feature</c> and
+/// <c>--failed</c> at once, and whichever handler came first won. Every flag that collided is
+/// long-only (<c>FlagAlias(name, longAliasOnly: true)</c>); a short alias stays only where it is
+/// unique within its command. <c>Bobcat.Console.Tests</c> fails on a new collision.
+/// </remarks>
 public class SpecInput
 {
     [Description("The spec project: a .csproj, or a directory holding one. Found from the current directory when omitted")]
     public string Project { get; set; } = "";
 
     [Description("The target framework to run; the newest the project targets by default")]
-    [FlagAlias("framework", 'f')]
+    [FlagAlias("framework", true)]
     public string? FrameworkFlag { get; set; }
 
     [Description("The build configuration")]
-    [FlagAlias("configuration", 'c')]
+    [FlagAlias("configuration", true)]
     public string ConfigurationFlag { get; set; } = "Debug";
 
     [Description("Only the features whose title contains this (case-insensitive); repeatable")]
+    [FlagAlias("feature", true)]
     public IEnumerable<string> FeatureFlag { get; set; } = [];
 
     [Description("Only the scenarios whose title contains this (case-insensitive); repeatable")]
+    [FlagAlias("scenario", true)]
     public IEnumerable<string> ScenarioFlag { get; set; } = [];
 
     [Description("Only the specifications bound to this Event Model slice; repeatable (a repeated flag ORs, different flags AND)")]
+    [FlagAlias("slice", true)]
     public IEnumerable<string> SliceFlag { get; set; } = [];
 
     [Description("Only the specifications whose slice is in this chapter; repeatable")]
+    [FlagAlias("chapter", true)]
     public IEnumerable<string> ChapterFlag { get; set; } = [];
 
     [Description("Only the specifications whose slice is in this domain; repeatable")]
@@ -42,6 +56,7 @@ public class SpecInput
     public bool NoBuildFlag { get; set; }
 
     [Description("Write the run's JSON results file (and its schema) into this directory -- BOBCAT_RESULTS for the host")]
+    [FlagAlias("results", true)]
     public string? ResultsFlag { get; set; }
 
     [Description("Print the run's JSON results file on standard output instead of the rendered specifications; everything else goes to standard error")]
@@ -78,21 +93,26 @@ public class SpecInput
 public class SpecRunInput : SpecInput
 {
     [Description("Run only the specifications that failed or errored in this project's last run (obj/bobcat/last-run.json)")]
+    [FlagAlias("failed", true)]
     public bool FailedFlag { get; set; }
 
     [Description("Run the last run's selection again, with its framework, configuration, --results, --html, --json, --verbose and supervision flags")]
+    [FlagAlias("repeat", true)]
     public bool RepeatFlag { get; set; }
 
     [Description("Supervised: retry a failed specification up to N times. Only one with a Retry trait or a recovery hint is retried")]
+    [FlagAlias("retries", true)]
     public int? RetriesFlag { get; set; }
 
     [Description("Supervised: run on N worker processes, partitioned by test class")]
     public int? WorkersFlag { get; set; }
 
     [Description("Supervised: name a specification in flight longer than this (90s, 5m, 1h); 5m by default")]
+    [FlagAlias("stall", true)]
     public string? StallFlag { get; set; }
 
     [Description("Supervised: what a stall does -- report (the default), kill-and-retry, or abort")]
+    [FlagAlias("stall-action", true)]
     public string? StallActionFlag { get; set; }
 
     /// <summary>The supervision the flags ask for; null for a plain run.</summary>

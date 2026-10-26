@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tests of the `bobcat` tool's command line itself (bobcat#785): what flags each command declares,
+    and how a usage mistake is reported. The only test project that references the tool's assembly,
+    which is what lets ShortFlagTests read the registered commands rather than scrape `bobcat help`.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The tool, whose assembly is Bobcat.Cli (see Bobcat.Console.csproj). Referenced for its
+         types; UsageErrorTests and ResidentHostTests also launch it as an executable. -->
+    <ProjectReference Include="..\Bobcat.Console\Bobcat.Console.csproj" />
+
+    <!-- Build ordering only: the projected suite `bobcat resident` is pointed at by its folder and
+         by its .csproj in ResidentHostTests. -->
+    <ProjectReference Include="..\Bobcat.Supervisor.ProjectedWorker\Bobcat.Supervisor.ProjectedWorker.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

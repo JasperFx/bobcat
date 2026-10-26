@@ -38,7 +38,17 @@ bobcat resident ./artifacts/MySpecs --url http://localhost:5525 --id my-checkout
 
 # Commands from the first console; a commanded run published to both
 bobcat resident ./artifacts/MySpecs --url http://localhost:5525,http://localhost:5050
+
+# The build output folder or the .csproj name the same host; nothing is built
+bobcat resident src/MySpecs/bin/Debug/net10.0
+bobcat resident src/MySpecs/MySpecs.csproj --configuration Release
 ```
+
+The path is the suite's test host: its executable, the build output folder holding it, the `.csproj`,
+or the directory holding that `.csproj`. A project is resolved to the host MSBuild says it builds for
+`--framework` (the newest it targets by default) and `--configuration` (`Debug` by default), and one
+whose build is not there is refused with the path it looked at -- the runner never builds, because
+whatever relaunches it on a source change is what built the suite.
 
 `--list` prints what the runner would register, one identity per line. Against this repository's
 sample corpus, trimmed:

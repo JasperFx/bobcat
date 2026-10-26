@@ -53,7 +53,7 @@ public class RunFailedAndRepeatTests : IDisposable
             UseShellExecute = false
         };
 
-        foreach (var argument in (string[])["run", project, "--no-build", "-c", configuration, .. arguments])
+        foreach (var argument in (string[])["run", project, "--no-build", "--configuration", configuration, .. arguments])
         {
             start.ArgumentList.Add(argument);
         }
