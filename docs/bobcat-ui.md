@@ -70,8 +70,33 @@ The full publisher vocabulary is in [What a Run Publishes](monitor-design.md).
 
 ## The run board
 
-The home page, at `/runs`. **A card per run**, newest first, with its repository, branch and mode,
-its counts, and its age.
+The home page, at `/runs`. **A row per suite**, where a suite is the repository plus the suite name,
+so two worktrees of one repository are one suite and the branch stays a property of each run. A
+row shows the suite's latest result, a **five-run history strip** (oldest at the left, newest at the
+right -- each segment a link to its run, with the verdict, age and branch in its tooltip) and, when
+a [resident runner](#run-buttons) is attached for the suite, the runner's state and its `▶ Run all ·
+cold` button. Suites with a live run sort first, then the rest by their most recent run; a runner
+whose suite has not run yet still has a row, so there is something to press before anything has run.
+The page states what the UI keeps (`keeps 5 runs per suite · 14 days of archive`, read from
+`GET /api/retention`, so it says what *this* UI is configured with).
+
+**Expanding a row** shows the suite's retained runs as cards, newest first -- the first five, the
+rest on request -- each with its branch and mode, its counts, its age, how long it took, its
+exports and its Eject. **A live run shows its overall progress under the row** whether or not the
+row is expanded: tests done of the planned total (the run's own total; failing that the supervisor's,
+the specs a command selected, the runner's registered count, or the suite's last run), passed and
+failed so far, elapsed time, an estimate from the suite's previous runs' durations (the median, less
+what has elapsed; a suite with no history is extrapolated from its own pace), and **Go to running**.
+The bar is green while everything passes, red at the first failure, and amber while the only trouble
+so far is a retry.
+
+**A status strip on every page**, one line under the top navigation, the Event Model canvas
+included: the attached **runner** (its state, how long it has been up, whether it offers warm runs,
+when its code was built; several runners fold into one segment with a dropdown), the **build** -- shown
+only when a watched project does not compile, and then **the whole strip turns red**, with the
+compiler errors a click away -- the **live run** with a mini progress bar (several live runs are a
+dropdown, filtered by the board's repository filter), **watch** when `bobcat watch` has reported a
+build, and the **connection** as a dot.
 
 - **Steps stream in** for the scenario in flight: step *n* of *N* with elapsed time, row *k* of *M*
   for a table, and the interim message of a step that is polling.
@@ -94,10 +119,10 @@ its counts, and its age.
   the board and on its page, for the views that show them.
 - **Several repositories on one box** are told apart by a repository filter, and a supervised run
   across several worker processes is one card, not one per worker.
-- **A project that no longer compiles says so**, above the cards and on its runs' pages, with its
-  first compiler errors: `bobcat watch` reports each rebuild to the UI, and so does `stoat runner`
-  for a resident runner it rebuilds. Until the build is fixed, the runs below are of the code before
-  the change that broke it.
+- **A project that no longer compiles says so**, in the status strip on every page, with its
+  first compiler errors a click away: `bobcat watch` reports each rebuild to the UI, and so does
+  `stoat runner` for a resident runner it rebuilds. Until the build is fixed, the suite's runs are of
+  the code before the change that broke it.
 
 Each scenario has a page of its own at `/runs/{runId}/specs/{Feature}/{Scenario}` -- a URL you can
 paste into a pull request -- that renders the specification the test produced: each step with its
@@ -126,16 +151,18 @@ A runner registers what its suite specifies, and the buttons send it the identit
 (a fresh test host on the current code) or **warm** (a test host kept open between runs). With no
 runner attached, the button says how to start one.
 
-The board lists every attached runner above the run cards, before anything has run, with its state
-and a **Run all** button that runs its whole project. A runner's name opens its page, at
+The board gives every attached runner a row for its suite, before anything has run, with its state
+and a **Run all** button that runs its whole project; the status strip names the runner on every
+page. The row's `runner` link opens its page, at
 `/runners/{runnerId}`: every specification it can run, by feature, with the steps each one plans,
 and a run button for each feature and each specification. It is the UI's `bobcat preview`, and like
 it shows templates (`{amount}`) rather than values, because nothing has run. A run page's **Run again** runs every
 specification that run ran, whatever happened to them. Over the API, a command can name `"all": true`
 in place of `specs` or `feature`: the UI resolves it to every identity the runner registered.
 
-A run a button started says so on its card -- `Run 2 in feature Bank · warm · from bobcat-ui`, or
-`Run all` -- and while it runs, how many scenarios have finished of the specifications it selected.
+A run a button started says so on its card and on its live progress panel -- `Run 2 in feature Bank ·
+warm · from bobcat-ui`, or `Run all` -- and while it runs, how many scenarios have finished of the
+specifications it selected, which is also the planned total its bar is drawn against.
 The board keeps the latest finished runs of each suite (`BOBCAT_MONITOR_RETENTION_RUNS`, 5 by
 default), so pressing buttons can evict the run a page is open on. That page then says the run was
 evicted and where its archive is, rather than calling it unknown.

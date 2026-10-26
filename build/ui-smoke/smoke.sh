@@ -146,7 +146,7 @@ else
     else
       npx playwright install chromium
     fi
-    BOBCAT_UI_URL="$url" BOBCAT_UI_RUN_ID="$run_id" BOBCAT_RESULTS_PAGE="$results_page" npx playwright test
+    BOBCAT_UI_URL="$url" BOBCAT_UI_RUN_ID="$run_id" BOBCAT_UI_RUN_FIXTURE="$run_fixture" BOBCAT_RESULTS_PAGE="$results_page" npx playwright test
   ) || fail "the browser leg failed"
 fi
 

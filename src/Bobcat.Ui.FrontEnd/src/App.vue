@@ -2,9 +2,8 @@
 import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSignalR } from '@/composables/useSignalR'
-import { useConnectionStore } from '@/stores/connection-store'
+import StatusStrip from '@/components/StatusStrip.vue'
 
-const connectionStore = useConnectionStore()
 const route = useRoute()
 const { connect } = useSignalR()
 
@@ -27,9 +26,6 @@ const onRuns = computed(() => !onEventModel.value)
         <router-link to="/runs" class="bm-tab" :class="{ 'is-active': onRuns }">Runs</router-link>
         <router-link to="/event-model" class="bm-tab" :class="{ 'is-active': onEventModel }">Event Model</router-link>
       </nav>
-      <div class="bm-connection" :data-status="connectionStore.status">
-        {{ connectionStore.status }}
-      </div>
       <a
         class="bm-company"
         href="https://jasperfx.net"
@@ -40,6 +36,9 @@ const onRuns = computed(() => !onEventModel.value)
         <img src="/jasperfx-logo-128.png" alt="JasperFx" class="bm-company-logo" />
       </a>
     </header>
+    <!-- bobcat#786: one status line on every page — the runner, a broken build, the live run,
+         bobcat watch and the connection — in place of the header's "connected" text. -->
+    <StatusStrip />
     <main class="bm-main">
       <router-view />
     </main>
@@ -105,23 +104,8 @@ const onRuns = computed(() => !onEventModel.value)
   box-shadow: inset 0 -2px 0 var(--bc-accent);
 }
 
-.bm-connection {
-  margin-left: auto;
-  align-self: center;
-  font-size: 12px;
-  color: var(--bm-menu-text);
-}
-
-.bm-connection[data-status='connected'] {
-  color: var(--bm-state-passed);
-}
-
-.bm-connection[data-status='disconnected'],
-.bm-connection[data-status='error'] {
-  color: var(--bm-state-failed);
-}
-
 .bm-company {
+  margin-left: auto;
   display: flex;
   align-items: center;
 }

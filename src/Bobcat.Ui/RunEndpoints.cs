@@ -237,8 +237,21 @@ public record StepResult(string StepId, string Kind, string Text, string Status,
 /// </summary>
 public record EjectedRuns(int Count, Guid[] RunIds);
 
+/// <summary>
+/// What the board keeps (bobcat#786): the latest <see cref="Runs"/> finished runs of each suite and
+/// the archive for <see cref="Days"/> days, as this console is configured (<c>BOBCAT_MONITOR_RETENTION_RUNS</c>
+/// / <c>BOBCAT_MONITOR_RETENTION_DAYS</c>). Zero means that bound is off. The page states it, so a
+/// person reading a suite's five cards knows the sixth was evicted, not lost.
+/// </summary>
+public record RetentionPolicy(int Runs, double Days);
+
 public static class RunEndpoints
 {
+    /// <summary>The retention this console runs with (bobcat#786), for the board to state.</summary>
+    [WolverineGet("/api/retention")]
+    public static RetentionPolicy Retention(MonitorRunRegistry registry)
+        => new(Math.Max(0, registry.RetainedRuns), Math.Max(0, registry.Retention.TotalDays));
+
     /// <summary>
     /// Every known run, newest first. <paramref name="tag"/> filters to runs launched with a
     /// matching <c>BOBCAT_RUN_TAG</c> — the correlation hook for an external tool that wants

@@ -1,83 +1,35 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useRunsStore, visibleScenarios, type RunState } from '@/stores/runs-store'
+import { storeToRefs } from 'pinia'
+import { useRunsStore, type RunState } from '@/stores/runs-store'
+import { useBoardStore, UNATTRIBUTED } from '@/stores/board-store'
 import { useRunners } from '@/composables/useRunners'
-import { commandForRun, describeCommand, rebuiltSince } from '@/lib/runners'
-import LaneStrip from '@/components/LaneStrip.vue'
-import RunnersPanel from '@/components/RunnersPanel.vue'
-import BuildStatusBanner from '@/components/BuildStatusBanner.vue'
-import { formatAbsolute, formatDuration, formatRelative, useNow } from '@/composables/time'
-import { loadRunLimit, RUN_LIMIT_CHOICES, saveRunLimit, visibleRuns } from '@/lib/runBoard'
+import SuiteRow from '@/components/SuiteRow.vue'
+import { describeRetention, groupBySuite, loadExpandedSuites, saveExpandedSuites } from '@/lib/runBoard'
 
+/**
+ * The run board (bobcat#786): one row per suite — repository plus suite name — expanding to the
+ * suite's retained runs, live suites first and then by their most recent run. It replaced a flat
+ * list of cards in which one busy suite buried every other, and the global "Show N" with it: the
+ * number of rows is the number of suites on the box, and the server's retention bounds each one.
+ */
 const runs = useRunsStore()
-const now = useNow()
+const board = useBoardStore()
+const { repositoryFilter } = storeToRefs(board)
 const { runners } = useRunners()
 
-/**
- * What a commanded run was asked to run (bobcat#646), and while it is in flight with no declared
- * total, how far through its selection it is: the runner knows how many specifications it selected,
- * while the run itself publishes no total. A data-driven specification runs a scenario per row, so
- * this counts specifications selected beside scenarios finished rather than claiming a fraction.
- */
-/**
- * bobcat#652: the latest finished run of a suite whose runner has been rebuilt since — the board's
- * latest word on that suite is of code that has changed. Older cards are older anyway, so only the
- * latest says so.
- */
-function staleLatest(run: RunState): boolean {
-  if (!run.finished || !rebuiltSince(run, runners.value)) return false
-  return !runs.runsNewestFirst.some(
-    (other) => other.runId !== run.runId && other.suite === run.suite && other.repository === run.repository
-      && Date.parse(other.startedAt) > Date.parse(run.startedAt),
-  )
-}
+onMounted(() => void board.loadRetentionOnce())
 
-function commandLineOf(run: RunState): string | null {
-  const found = commandForRun(runners.value, run.runId)
-  if (!found) return null
-
-  const line = describeCommand(found.command, found.runner)
-  if (run.finished || run.orphaned || run.totalScenarios) return line
-
-  const done = visibleScenarios(run).filter((s) => s.status !== 'running' && s.status !== 'retry-scheduled').length
-  return `${line} · ${done} finished of ${found.command.specs.length} spec${found.command.specs.length === 1 ? '' : 's'} selected`
-}
-
-function progressPercent(run: RunState): number {
-  const p = runs.progressOf(run)
-  return p === null ? 0 : Math.round(p * 100)
-}
-
-type ExportFormat = 'ctrf' | 'junit' | 'ndjson'
-
-const EXPORTS: { format: ExportFormat; label: string }[] = [
-  { format: 'ctrf', label: 'Export CTRF' },
-  { format: 'junit', label: 'Export JUnit' },
-  { format: 'ndjson', label: 'Export NDJSON' },
-]
-
-function exportUrl(run: RunState, format: ExportFormat): string {
-  return `/api/runs/${run.runId}/export?format=${format}`
-}
-
-
-/** A run still being published to — never hidden by the limit, and the only one with a bar. */
+/** A run still being published to: shows its bar, is never ejectable, sorts its suite first. */
 function isLive(run: RunState): boolean {
   return !run.finished && !run.orphaned
 }
-
-/** How many finished runs this viewer wants on the board; 0 is all. Remembered per browser. */
-const limit = ref(loadRunLimit())
-watch(limit, saveRunLimit)
 
 /**
  * The repository filter (stoat#76): every repository on the board, by its canonical slug, plus
  * "unattributed" for runs from a path the server could not resolve. Empty is every repository.
  */
-const UNATTRIBUTED = '(unattributed)'
-const repositoryFilter = ref('')
-
 const repositoryChoices = computed(() => {
   const slugs = new Set<string>()
   let unattributed = false
@@ -85,6 +37,9 @@ const repositoryChoices = computed(() => {
     const slug = runs.repositoryOf(run)
     if (slug) slugs.add(slug)
     else if (slug === null) unattributed = true
+  }
+  for (const runner of runners.value ?? []) {
+    if (runner.repositorySlug) slugs.add(runner.repositorySlug)
   }
   return [...[...slugs].sort((a, b) => a.localeCompare(b)), ...(unattributed ? [UNATTRIBUTED] : [])]
 })
@@ -95,20 +50,34 @@ function matchesRepository(run: RunState): boolean {
   return repositoryFilter.value === UNATTRIBUTED ? slug === null : slug === repositoryFilter.value
 }
 
-const board = computed(() => visibleRuns(runs.runsNewestFirst.filter(matchesRepository), limit.value, isLive))
+/** Every suite, grouped; then the filter, which keeps a runner-only suite when its slug matches. */
+const suites = computed(() => {
+  const groups = groupBySuite(runs.runsNewestFirst, runners.value, (run) => runs.repositoryOf(run), isLive)
+  const filter = repositoryFilter.value
+  if (!filter) return groups
+  return groups.filter((group) =>
+    group.runs.length > 0
+      ? group.runs.some(matchesRepository)
+      : filter !== UNATTRIBUTED && group.runner?.repositorySlug === filter,
+  )
+})
 
-/** The repository's name alone on the card; the slug and the local path are the tooltip. */
-function repositoryName(run: RunState): string | null {
-  const slug = runs.repositoryOf(run)
-  return slug ? slug.split('/').pop() ?? slug : null
+/** The repository's short name for a row's pill; null when the path is all the board knows. */
+function repositoryNameOf(repository: string): string | null {
+  const known = Object.values(runs.slugByPath).includes(repository) || (runners.value ?? []).some((r) => r.repositorySlug === repository)
+  return known ? repository.split('/').pop() ?? repository : null
 }
 
-/** Branch and mode — and the local path, when no repository pill stands in for it. */
-function metaOf(run: RunState): string {
-  const where = [repositoryName(run) ? null : run.repository, run.branch ? `@ ${run.branch}` : null]
-    .filter((part) => part !== null)
-    .join(' ')
-  return [where, run.mode].filter((part) => part).join(' · ')
+const retention = computed(() => describeRetention(board.retention))
+
+// Which suites this viewer has open, remembered in their browser.
+const expanded = ref(loadExpandedSuites())
+function toggle(key: string) {
+  const next = new Set(expanded.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expanded.value = next
+  saveExpandedSuites(next)
 }
 
 // A run from a path the board has not seen yet: ask the server what repository it resolved to.
@@ -125,7 +94,7 @@ watch(
         const summaries = response.ok ? await response.json() : null
         if (Array.isArray(summaries)) runs.learnRepositories(summaries)
       } catch {
-        // The card shows the path until the next try.
+        // The row shows the path until the next try.
       }
     }, 1000)
   },
@@ -134,31 +103,6 @@ watch(
 onUnmounted(() => {
   if (learning !== null) clearTimeout(learning)
 })
-
-function limitLabel(choice: number): string {
-  return choice === 0 ? 'all' : String(choice)
-}
-
-/**
- * The card's age line (issue #196). A finished run is aged from when it finished and a live one
- * from when it started, and the label says which — the same card reading "6m ago" before and
- * after it finishes means two different things, and the reader cannot tell them apart.
- */
-function ageOf(run: RunState): string | null {
-  const relative = formatRelative(run.finished ? run.finishedAt : run.startedAt, now.value)
-  if (relative === null) return null
-  return run.finished ? relative : `started ${relative}`
-}
-
-function ageTitleOf(run: RunState): string {
-  const started = formatAbsolute(run.startedAt)
-  const finished = formatAbsolute(run.finishedAt)
-  return finished ? `started ${started}\nfinished ${finished}` : `started ${started}`
-}
-
-function durationOf(run: RunState): string | null {
-  return run.finished ? formatDuration(run.startedAt, run.finishedAt) : null
-}
 
 /**
  * A run is ejectable once nothing is publishing to it. A live run's next event recreates the
@@ -283,6 +227,7 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
     <div class="bm-board-header">
       <h2>Test suites</h2>
       <div class="bm-board-controls">
+        <span v-if="retention" class="bm-retention" data-testid="retention">{{ retention }}</span>
         <el-select
           v-if="repositoryChoices.length > 1"
           v-model="repositoryFilter"
@@ -294,108 +239,24 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
         >
           <el-option v-for="choice in repositoryChoices" :key="choice" :label="choice" :value="choice" />
         </el-select>
-        <label class="bm-limit">
-          Show
-          <el-select v-model="limit" size="small" class="bm-limit-select" aria-label="Runs to show">
-            <el-option v-for="choice in RUN_LIMIT_CHOICES" :key="choice" :label="limitLabel(choice)" :value="choice" />
-          </el-select>
-        </label>
-        <el-button
-          v-if="ejectableCount > 1"
-          size="small"
-          class="bm-eject-all"
-          @click="ejectMany(allScope())"
-        >
+        <el-button v-if="ejectableCount > 1" size="small" class="bm-eject-all" @click="ejectMany(allScope())">
           Eject all ({{ ejectableCount }})
         </el-button>
       </div>
     </div>
-    <BuildStatusBanner />
-    <RunnersPanel />
-    <el-empty v-if="runs.allRuns.length === 0" description="No runs yet — waiting for a publisher" />
-    <el-card v-for="run in board.shown" :key="run.runId" class="bm-run-card" :data-live="isLive(run)">
-      <div class="bm-run-row">
-        <router-link :to="{ name: 'run', params: { runId: run.runId } }" class="bm-run-title">
-          {{ run.suite }}
-        </router-link>
-        <span
-          v-if="repositoryName(run)"
-          class="bm-run-repo"
-          :title="`${runs.repositoryOf(run)} — ${run.repository}`"
-          @click="repositoryFilter = runs.repositoryOf(run) ?? ''"
-        >{{ repositoryName(run) }}</span>
-        <span class="bm-run-meta" :title="run.repository">{{ metaOf(run) }}</span>
-        <span v-if="commandLineOf(run)" class="bm-run-command" data-testid="run-command">{{ commandLineOf(run) }}</span>
-        <el-tag
-          v-if="staleLatest(run)"
-          size="small"
-          type="warning"
-          data-testid="before-rebuild"
-          :title="`The runner was rebuilt at ${rebuiltSince(run, runners)!.builtAt} and has not run this since`"
-        >
-          from before the last rebuild
-        </el-tag>
-        <span v-if="run.counts" class="bm-run-counts">
-          <span class="bm-passed">{{ run.counts.passed }} passed</span>
-          <span v-if="run.counts.passedOnRetry > 0" class="bm-retried">
-            {{ run.counts.passedOnRetry }} on retry
-          </span>
-          <span v-if="run.counts.failed > 0" class="bm-failed">{{ run.counts.failed }} failed</span>
-          <span v-if="run.counts.indeterminate > 0" class="bm-failed">
-            {{ run.counts.indeterminate }} indeterminate
-          </span>
-          <span v-if="(run.counts.skipped ?? 0) > 0" class="bm-skipped">
-            {{ run.counts.skipped }} skipped
-          </span>
-        </span>
-        <el-tag
-          v-if="run.orphaned"
-          type="warning"
-          size="small"
-          title="The publisher went away and the run never finished."
-        >
-          orphaned
-        </el-tag>
-        <span class="bm-run-age" :title="ageTitleOf(run)">
-          {{ ageOf(run) }}
-          <span v-if="durationOf(run)" class="bm-run-duration">· took {{ durationOf(run) }}</span>
-        </span>
-        <!-- Finished or orphaned (bobcat#784): nothing is publishing to either, so both can go. -->
-        <template v-if="ejectable(run)">
-          <el-button size="small" text class="bm-eject" @click="eject(run)">Eject</el-button>
-          <el-dropdown trigger="click" class="bm-run-menu">
-            <el-button size="small" text class="bm-run-menu-button" aria-label="More actions for this run">⋯</el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <!-- Exporting is rare (stoat#75), so it sits in this menu beside the bulk ejects
-                     rather than as three links on every card — still real links, the same URLs. -->
-                <el-dropdown-item v-for="item in EXPORTS" :key="item.format">
-                  <a :href="exportUrl(run, item.format)" download class="bm-export">{{ item.label }}</a>
-                </el-dropdown-item>
-                <el-dropdown-item divided @click="ejectMany(olderThanScope(run))">
-                  Eject all older
-                </el-dropdown-item>
-                <el-dropdown-item @click="ejectMany(allButScope(run))">
-                  Eject all but this
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </template>
-      </div>
-      <LaneStrip :run="run" />
-      <el-progress
-        v-if="isLive(run)"
-        class="bm-run-progress"
-        :stroke-width="4"
-        :percentage="progressPercent(run)"
-        :indeterminate="runs.progressOf(run) === null"
-      />
-    </el-card>
-    <p v-if="board.hidden > 0" class="bm-board-hidden">
-      {{ board.hidden }} older run{{ board.hidden === 1 ? '' : 's' }} not shown —
-      <el-button size="small" text class="bm-show-all" @click="limit = 0">show all</el-button>
-    </p>
+    <el-empty v-if="suites.length === 0" description="No runs yet — waiting for a publisher" />
+    <SuiteRow
+      v-for="group in suites"
+      :key="group.key"
+      :group="group"
+      :expanded="expanded.has(group.key)"
+      :repository-name="repositoryNameOf(group.repository)"
+      @toggle="toggle(group.key)"
+      @filter-repository="repositoryFilter = group.repository"
+      @eject="eject"
+      @eject-older="ejectMany(olderThanScope($event))"
+      @eject-others="ejectMany(allButScope($event))"
+    />
   </div>
 </template>
 
@@ -413,133 +274,12 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
   gap: 12px;
 }
 
-.bm-limit {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.bm-retention {
   font-size: 12px;
   color: var(--bm-menu-text);
-}
-
-.bm-limit-select {
-  width: 72px;
-}
-
-/* One line per run (stoat#75): the board is for scanning, so a card is a row, not a panel. */
-.bm-run-card {
-  margin-bottom: 6px;
-}
-
-.bm-run-card :deep(.el-card__body) {
-  padding: 8px 14px;
-}
-
-.bm-run-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.bm-run-title {
-  font-weight: 500;
-  color: var(--bm-primary);
-  text-decoration: none;
-  white-space: nowrap;
 }
 
 .bm-repository-filter {
   width: 200px;
-}
-
-.bm-run-repo {
-  flex: none;
-  padding: 0 7px;
-  border: 1px solid var(--bc-neutral-800);
-  border-radius: 999px;
-  font-size: 11px;
-  line-height: 18px;
-  color: var(--bc-neutral-300);
-  cursor: pointer;
-}
-
-.bm-run-repo:hover {
-  border-color: var(--bc-accent-600);
-}
-
-.bm-run-meta {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--bm-menu-text);
-}
-
-.bm-run-counts {
-  display: flex;
-  gap: 10px;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.bm-run-age {
-  font-size: 12px;
-  color: var(--bm-menu-text);
-  white-space: nowrap;
-}
-
-.bm-run-duration {
-  margin-left: 4px;
-}
-
-.bm-run-progress {
-  margin-top: 6px;
-}
-
-.bm-passed {
-  color: var(--bm-state-passed);
-}
-
-.bm-retried {
-  color: var(--bm-state-retrying);
-}
-
-.bm-failed {
-  color: var(--bm-state-failed);
-}
-
-.bm-run-command {
-  font-size: 12px;
-  color: var(--bm-menu-text);
-}
-
-.bm-skipped {
-  color: var(--bm-state-unreached);
-}
-
-.bm-eject,
-.bm-run-menu-button {
-  margin-left: 0;
-}
-
-.bm-run-menu-button {
-  font-size: 16px;
-  line-height: 1;
-}
-
-/* The whole menu row is the link, not just its words. */
-.bm-export {
-  display: block;
-  margin: 0 -16px;
-  padding: 0 16px;
-  color: inherit;
-  text-decoration: none;
-}
-
-.bm-board-hidden {
-  font-size: 12px;
-  color: var(--bm-menu-text);
 }
 </style>

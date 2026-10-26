@@ -6,7 +6,6 @@ import { useRunsStore, visibleScenarios } from '@/stores/runs-store'
 import SupervisorTopology from '@/components/SupervisorTopology.vue'
 import RunButton from '@/components/RunButton.vue'
 import MissingRun from '@/components/MissingRun.vue'
-import BuildStatusBanner from '@/components/BuildStatusBanner.vue'
 import { useRunners } from '@/composables/useRunners'
 import { ensureRunEvents } from '@/messages/hydrate'
 import { rebuiltSince } from '@/lib/runners'
@@ -74,8 +73,6 @@ function sliceOf(uid: string) {
         from before the last rebuild
       </el-tag>
     </div>
-    <BuildStatusBanner :suite="run.suite" />
-
     <SupervisorTopology :run="run" />
 
     <div
