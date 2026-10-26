@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter, type LocationQuery } from 'vue-router'
 import ScenarioProgress from '@/components/ScenarioProgress.vue'
 import SpecificationView from '@/components/SpecificationView.vue'
 import { useRunsStore, visibleScenarios, type ScenarioState } from '@/stores/runs-store'
@@ -20,13 +20,23 @@ import { commandForRun, describeCommand, rebuiltSince } from '@/lib/runners'
 import { commandLineOf, plannedHintOf } from '@/lib/liveProgress'
 import { sliceFor, useEventModelStore } from '@/stores/event-model-store'
 import { sliceHref, specHref } from '@/lib/specLinks'
-import { runCrumb, runsCrumb, suiteCrumb } from '@/lib/crumbs'
+import { runCrumb, runsCrumb, suiteCrumb, unzoomedRunCrumb, zoomCrumb } from '@/lib/crumbs'
 import {
+  allNodes,
   buildRunTree,
+  filterTree,
+  findNode,
+  flattenTree,
+  pathToScenario,
   runningScenario,
   scenarioAnchor,
+  startsCollapsed,
   startsExpanded,
   summarize,
+  TOC_STATUSES,
+  uidsUnder,
+  zoomTree,
+  type SuiteNode,
   type TocStatus,
 } from '@/lib/runTree'
 
@@ -34,12 +44,17 @@ import {
  * One run (bobcat#787): its identity in the header, the summary tiles and the overall bar, a
  * table-of-contents rail down the side, and the scenarios by feature — a passed one folded to a
  * line, a failed or running one open on its specification.
+ *
+ * bobcat#801, for suites of thousands: the tree goes as deep as the suite's namespaces, any node can
+ * be folded (or all of them at once) and zoomed into, and the zoom and the status filter live in the
+ * URL (`?in=` and `?status=`), so a reload, a shared link and the breadcrumbs all keep them.
  */
 const props = defineProps<{ runId: string }>()
 
 const runs = useRunsStore()
 const model = useEventModelStore()
 const route = useRoute()
+const router = useRouter()
 const run = computed(() => runs.runById(props.runId))
 const { runners } = useRunners()
 const now = useNow(1000)
@@ -124,7 +139,23 @@ const repositoryName = computed(() => {
   return slug ? (slug.split('/').pop() ?? slug) : null
 })
 
-const crumbs = computed(() => (run.value ? [runsCrumb(), suiteCrumb(run.value.suite), runCrumb(run.value, true, now.value)] : []))
+/**
+ * `Runs › Suite › run`, and on a zoomed page a crumb per level beneath it (bobcat#801): the run
+ * segment then leads back to the whole run, each level to itself, the last is where the reader is.
+ */
+const crumbs = computed(() => {
+  const r = run.value
+  if (!r) return []
+  const trail = [runsCrumb(), suiteCrumb(r.suite)]
+  const zoomed = zoom.value ? findNode(tree.value, zoom.value) : null
+  if (!zoomed) return [...trail, runCrumb(r, true, now.value)]
+  return [
+    ...trail,
+    unzoomedRunCrumb(r, filter.value, now.value),
+    ...zoomed.ancestors.map((node) => zoomCrumb(r.runId, node, false, filter.value)),
+    zoomCrumb(r.runId, zoomed.node, true, filter.value),
+  ]
+})
 
 /** A live run's bar is the board's (bobcat#786): the same computation, so the two never disagree. */
 const live = computed(() => !!run.value && !run.value.finished && !run.value.orphaned)
@@ -140,26 +171,143 @@ const previousRuns = computed(() => {
 // --- The tree, the tiles and the rail.
 
 const tree = computed(() => buildRunTree(scenarios.value, expected.value))
-const summary = computed(() => (run.value ? summarize(run.value, scenarios.value, expected.value) : null))
 const running = computed(() => runningScenario(scenarios.value))
 const byUid = computed(() => new Map(scenarios.value.map((s) => [s.uid, s])))
 
-const filter = ref<TocStatus | null>(null)
-const follow = ref(false)
+function queryString(value: LocationQuery[string] | undefined): string | null {
+  const first = Array.isArray(value) ? value[0] : value
+  return typeof first === 'string' && first.length > 0 ? first : null
+}
+
+function isStatus(value: string | null): value is TocStatus {
+  return value !== null && (TOC_STATUSES as readonly string[]).includes(value)
+}
 
 /**
- * The features as the page lists them, in the rail's order and narrowed by the rail's filter, each
- * node joined to its scenario — null for a specification the command named that has not reported.
+ * The status filter and the zoom (`?status=`, `?in=<anchor>`). The page owns both and reacts at
+ * once; the URL is written from them, so a reload, a shared link and the browser's Back keep them,
+ * and a link that carries them sets them on arrival.
+ */
+const filter = ref<TocStatus | null>(null)
+const follow = ref(false)
+/** The node the page is zoomed into, or null for the whole run. */
+const zoom = ref<string | null>(null)
+
+/**
+ * How many of this page's own URL writes are still in flight. While any is, a change to the URL is
+ * an echo of an earlier write and not the reader's: two quick changes (a filter, then a zoom) would
+ * otherwise see the first write land after the second was decided, and undo it.
+ */
+let writing = 0
+
+watch(
+  () => [queryString(route.query.status), queryString(route.query.in)] as const,
+  ([status, zoomed]) => {
+    if (writing > 0) return
+    const wanted = isStatus(status) ? status : null
+    if (filter.value !== wanted) filter.value = wanted
+    if (zoom.value !== zoomed) zoom.value = zoomed
+  },
+  { immediate: true },
+)
+
+watch(filter, (status) => {
+  if (writing === 0 && queryString(route.query.status) === status) return
+  void writeUrl('replace')
+})
+
+/**
+ * Write the filter and the zoom into the URL, from the page's own state rather than from the URL —
+ * which may not yet hold a write still in flight — keeping any other query the URL carries and
+ * dropping a hash already acted on. A zoom pushes, so Back zooms out; a filter replaces.
+ */
+function writeUrl(how: 'push' | 'replace'): Promise<unknown> {
+  const query: Record<string, string> = {}
+  for (const [key, value] of Object.entries(route.query)) {
+    const text = queryString(value)
+    if (text !== null && key !== 'status' && key !== 'in') query[key] = text
+  }
+  if (filter.value) query.status = filter.value
+  if (zoom.value) query.in = zoom.value
+  writing++
+  const location = { path: route.path, query }
+  return (how === 'push' ? router.push(location) : router.replace(location)).finally(() => writing--)
+}
+
+/** The tree the page shows: the whole run, or the node it is zoomed into. A stale `?in=` shows the whole run. */
+const scoped = computed(() => zoomTree(tree.value, zoom.value))
+
+/** The tiles count what the page shows: the run, or on a zoomed page that node's scenarios alone. */
+const summary = computed(() => {
+  const r = run.value
+  if (!r) return null
+  const zoomed = zoom.value ? findNode(tree.value, zoom.value) : null
+  if (!zoomed) return summarize(r, scenarios.value, expected.value)
+  const inside = uidsUnder(zoomed.node)
+  return summarize(
+    { counts: null, finished: r.finished, totalScenarios: null },
+    scenarios.value.filter((s) => inside.has(s.uid)),
+    expected.value.filter((uid) => inside.has(uid)),
+  )
+})
+
+// --- Folded or open, per node (bobcat#801): one state for the rail and the page.
+
+/** The reader's own folds and unfolds, over the default. */
+const folded = reactive(new Map<string, boolean>())
+
+/** How many scenarios the page shows, which decides whether a passed node starts folded. */
+const size = computed(() => TOC_STATUSES.reduce((sum, status) => sum + scoped.value.counts[status], 0))
+
+function isCollapsed(node: SuiteNode): boolean {
+  const own = folded.get(node.anchor)
+  if (own !== undefined) return own
+  // The only node at the top — the one the page is zoomed into, usually — starts open: zooming in
+  // is asking to see inside it, and a single folded line would show nothing at all.
+  const roots = scoped.value.features
+  if (roots.length === 1 && roots[0]!.anchor === node.anchor) return false
+  return startsCollapsed(node, size.value, filter.value !== null)
+}
+
+/** The anchors folded right now, for the rail. */
+const collapsed = computed(() => new Set(allNodes(scoped.value).filter(isCollapsed).map((node) => node.anchor)))
+
+function toggleNode(anchor: string): void {
+  const node = findNode(scoped.value, anchor)?.node
+  if (node) folded.set(anchor, !isCollapsed(node))
+}
+
+function collapseAll(): void {
+  for (const node of allNodes(scoped.value)) folded.set(node.anchor, true)
+}
+
+function expandAll(): void {
+  for (const node of allNodes(scoped.value)) folded.set(node.anchor, false)
+}
+
+function unfold(nodes: readonly SuiteNode[]): void {
+  for (const node of nodes) folded.set(node.anchor, false)
+}
+
+/** Zoom into a node, keeping the filter; null zooms out to the whole run. */
+function zoomTo(anchor: string | null): Promise<unknown> {
+  zoom.value = anchor
+  return writeUrl('push')
+}
+
+/**
+ * The page's sections: one per node the reader can see, parents before children, each with the
+ * scenarios directly under it — narrowed by the filter, none at all for a folded node — joined to
+ * their scenario, which is null for a specification the command named that has not reported.
  */
 const sections = computed(() =>
-  tree.value.features
-    .map((feature) => ({
-      ...feature,
-      items: feature.scenarios
-        .filter((node) => filter.value === null || node.status === filter.value)
-        .map((node) => ({ node, scenario: byUid.value.get(node.uid) ?? null })),
-    }))
-    .filter((feature) => feature.items.length > 0),
+  flattenTree(filterTree(scoped.value, filter.value).features, isCollapsed).map(({ node, depth, collapsed: folded }) => ({
+    ...node,
+    depth,
+    folded,
+    zoomable: node.anchor !== zoom.value,
+    items: folded ? [] : node.scenarios.map((item) => ({ node: item, scenario: byUid.value.get(item.uid) ?? null })),
+  })),
 )
 
 function toggleFilter(status: TocStatus): void {
@@ -178,12 +326,36 @@ async function jump(anchor: string, block: 'start' | 'nearest' = 'start'): Promi
   if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView({ block, behavior: 'smooth' })
 }
 
-/** "Go to running": the scenario in flight, shown whatever the filter hides. */
-function goToRunning(): void {
+/**
+ * Make an anchor reachable before jumping to it: zoom out when it lies outside the zoomed node, and
+ * unfold every node above it. A scenario's anchor unfolds the nodes it sits in; a node's, the ones
+ * above it.
+ */
+async function reveal(anchor: string): Promise<void> {
+  const uid = anchor.startsWith('spec:') ? anchor.slice('spec:'.length) : null
+  const above = uid !== null ? pathToScenario(tree.value, uid) : findNode(tree.value, anchor)?.ancestors ?? null
+  if (above === null) return
+  if (zoom.value) {
+    const zoomed = findNode(tree.value, zoom.value)
+    const inside = zoomed && (uid !== null ? uidsUnder(zoomed.node).has(uid) : !!findNode({ features: [zoomed.node] }, anchor))
+    if (!inside) await zoomTo(null)
+  }
+  unfold(above)
+}
+
+/** "Go to running": the scenario in flight, shown whatever the filter, a fold or a zoom hides. */
+async function goToRunning(): Promise<void> {
   const current = running.value
   if (!current) return
   if (filter.value !== null && filter.value !== 'running') filter.value = null
+  await reveal(scenarioAnchor(current.uid))
   void jump(scenarioAnchor(current.uid))
+}
+
+/** A jump from the rail, or a link into a section: unfold and unzoom whatever hides it, then go. */
+async function jumpTo(anchor: string): Promise<void> {
+  await reveal(anchor)
+  void jump(anchor)
 }
 
 // Follow: whenever the scenario in flight changes, or grows a step, keep it in view. Turning follow
@@ -191,7 +363,7 @@ function goToRunning(): void {
 watch(
   [() => follow.value, () => running.value?.uid ?? null, () => running.value?.steps.length ?? 0],
   ([following, uid]) => {
-    if (following && uid) void jump(scenarioAnchor(uid), 'start')
+    if (following && uid) void reveal(scenarioAnchor(uid)).then(() => jump(scenarioAnchor(uid), 'start'))
   },
 )
 
@@ -202,8 +374,8 @@ watch(
   () => [run.value?.eventsLoaded ?? false, route.hash] as const,
   ([loaded, hash]) => {
     if (!loaded || !hash) return
-    if (hash === '#running') goToRunning()
-    else void jump(decodeURIComponent(hash.slice(1)))
+    if (hash === '#running') void goToRunning()
+    else void jumpTo(decodeURIComponent(hash.slice(1)))
   },
   { immediate: true },
 )
@@ -361,9 +533,15 @@ function durationOf(scenario: ScenarioState): string | null {
           v-model:filter="filter"
           v-model:follow="follow"
           :suite="run.suite"
-          :tree="tree"
+          :tree="scoped"
+          :collapsed="collapsed"
+          :zoom="zoom"
           :running="running?.uid ?? null"
-          @jump="(anchor) => jump(anchor)"
+          @jump="(anchor) => jumpTo(anchor)"
+          @toggle="toggleNode"
+          @zoom="zoomTo"
+          @collapse-all="collapseAll"
+          @expand-all="expandAll"
           @go-to-running="goToRunning"
         />
       </aside>
@@ -373,9 +551,43 @@ function durationOf(scenario: ScenarioState): string | null {
           {{ run.eventsLoaded ? 'No scenario has reported yet.' : 'Loading the run…' }}
         </p>
 
-        <section v-for="feature in sections" :id="feature.anchor" :key="feature.anchor" class="bm-feature" :data-status="feature.status" data-testid="feature">
+        <p v-if="sections.length === 0 && filter && tree.features.length > 0" class="bm-run-empty" data-testid="nothing-filtered">
+          Nothing {{ filter === 'pending' ? 'without a result' : filter }} {{ zoom ? 'in this part of the run' : 'in this run' }}.
+        </p>
+
+        <section
+          v-for="feature in sections"
+          :id="feature.anchor"
+          :key="feature.anchor"
+          class="bm-feature"
+          :style="{ '--bm-depth': feature.depth }"
+          :data-status="feature.status"
+          :data-depth="feature.depth"
+          :data-folded="feature.folded ? 'true' : undefined"
+          data-testid="feature"
+        >
           <h3 class="bm-feature-heading">
-            {{ feature.name || '(no feature)' }}
+            <button
+              type="button"
+              class="bm-feature-fold"
+              :aria-expanded="!feature.folded"
+              :title="feature.folded ? `Unfold ${feature.name || '(no feature)'}` : `Fold ${feature.name || '(no feature)'}`"
+              data-testid="section-toggle"
+              @click="toggleNode(feature.anchor)"
+            >
+              {{ feature.folded ? '▸' : '▾' }}
+            </button>
+            <span class="bm-feature-name" :title="feature.anchor">{{ feature.name || '(no feature)' }}</span>
+            <button
+              v-if="feature.zoomable"
+              type="button"
+              class="bm-feature-zoom"
+              :title="`Show only ${feature.name || '(no feature)'}`"
+              data-testid="section-zoom"
+              @click="zoomTo(feature.anchor)"
+            >
+              ⤢
+            </button>
             <span class="bm-feature-counts">
               <span v-if="feature.counts.failed" class="bm-count-failed">{{ feature.counts.failed }} failed</span>
               <span v-if="feature.counts.running" class="bm-count-running">{{ feature.counts.running }} running</span>
@@ -567,7 +779,36 @@ button.bm-tile:hover,
 
 .bm-feature {
   margin-bottom: 18px;
+  margin-left: calc(var(--bm-depth, 0) * 16px);
   scroll-margin-top: 12px;
+}
+
+.bm-feature[data-folded='true'] {
+  margin-bottom: 6px;
+}
+
+.bm-feature-fold,
+.bm-feature-zoom {
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--bm-menu-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.bm-feature-fold:hover,
+.bm-feature-zoom:hover {
+  color: var(--bc-coat);
+}
+
+.bm-feature-zoom {
+  font-size: 13px;
+}
+
+.bm-feature-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .bm-feature-heading {

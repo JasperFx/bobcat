@@ -1,7 +1,7 @@
 import type { RouteLocationRaw } from 'vue-router'
 import type { RunState } from '@/stores/runs-store'
 import { formatAbsolute } from '@/composables/time'
-import { featureAnchor } from '@/lib/runTree'
+import { featureAnchor, type SuiteNode } from '@/lib/runTree'
 
 /**
  * The breadcrumb trail on every drill-down (bobcat#787): `Runs › Suite › run › Feature › Scenario`.
@@ -56,9 +56,38 @@ export function runCrumb(run: RunState, current: boolean, now: number = Date.now
 
 /** The feature's section on the run page. */
 export function featureCrumb(runId: string, feature: string, current: boolean): Crumb {
-  const crumb: Crumb = { label: feature || '(no feature)', testId: 'crumb-feature' }
-  if (!current) crumb.to = { path: `/runs/${runId}`, hash: `#${featureAnchor(feature)}` }
+  return placeCrumb(runId, featureAnchor(feature), feature || '(no feature)', current)
+}
+
+/**
+ * The section a scenario sits in, on the run page: its feature, or the namespace and class a
+ * forwarded test's name gives (bobcat#801). `anchor` is that node's, from `parentAnchorOf`.
+ */
+export function placeCrumb(runId: string, anchor: string, label: string, current: boolean): Crumb {
+  const crumb: Crumb = { label, testId: 'crumb-feature' }
+  if (!current) crumb.to = { path: `/runs/${runId}`, hash: `#${anchor}` }
   return crumb
+}
+
+/**
+ * One level of a zoomed run page (bobcat#801): `Runs › Suite › run › ServiceTests.Services ›
+ * AlertTests`. The run segment then leads back to the whole run, each zoom level above the current
+ * one leads to that level, and the status filter rides along on every one of them, so zooming out
+ * does not lose what the reader was looking for.
+ */
+export function zoomCrumb(runId: string, node: Pick<SuiteNode, 'anchor' | 'name'>, current: boolean, status: string | null): Crumb {
+  const crumb: Crumb = { label: node.name || '(no feature)', title: node.anchor, testId: 'crumb-zoom' }
+  if (!current) crumb.to = { path: `/runs/${runId}`, query: withStatus({ in: node.anchor }, status) }
+  return crumb
+}
+
+/** The run segment of a zoomed page: back to the whole run, keeping the filter. */
+export function unzoomedRunCrumb(run: RunState, status: string | null, now: number = Date.now()): Crumb {
+  return { ...runCrumb(run, true, now), to: { path: `/runs/${run.runId}`, query: withStatus({}, status) } }
+}
+
+function withStatus(query: Record<string, string>, status: string | null): Record<string, string> {
+  return status ? { ...query, status } : query
 }
 
 export function scenarioCrumb(title: string): Crumb {

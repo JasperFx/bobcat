@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { filterTree, TOC_STATUSES, type RunTree, type TocStatus } from '@/lib/runTree'
+import { filterTree, flattenTree, TOC_STATUSES, type RunTree, type TocStatus } from '@/lib/runTree'
 
 /**
  * The run page's table-of-contents rail (bobcat#787): the suite tree — suite › feature › scenario —
@@ -8,11 +8,20 @@ import { filterTree, TOC_STATUSES, type RunTree, type TocStatus } from '@/lib/ru
  * a node jumps to it on the page, "Go to running" jumps to the scenario in flight, and "follow"
  * keeps that one in view as the run advances. A toggle to the slice tree comes with the Specs
  * explorer, later.
+ *
+ * bobcat#801: a tree of any depth, each node foldable (▸/▾) and zoomable (⤢), with fold-all and
+ * unfold-all beside the other tools. The page owns the fold state and the zoom, so the rail and the
+ * page body always agree about what is open.
  */
 const props = defineProps<{
   suite: string
+  /** The tree as the page shows it: the whole run, or the node it is zoomed into. */
   tree: RunTree
   filter: TocStatus | null
+  /** The anchors of the nodes folded right now. */
+  collapsed: ReadonlySet<string>
+  /** The node the page is zoomed into, or null. */
+  zoom: string | null
   /** The uid of the scenario in flight, or null. */
   running: string | null
   follow: boolean
@@ -22,6 +31,10 @@ const emit = defineEmits<{
   (e: 'update:filter', value: TocStatus | null): void
   (e: 'update:follow', value: boolean): void
   (e: 'jump', anchor: string): void
+  (e: 'toggle', anchor: string): void
+  (e: 'zoom', anchor: string | null): void
+  (e: 'collapse-all'): void
+  (e: 'expand-all'): void
   (e: 'go-to-running'): void
 }>()
 
@@ -40,6 +53,12 @@ const GLYPHS: Record<TocStatus, string> = {
 }
 
 const shown = computed(() => filterTree(props.tree, props.filter))
+
+/** The nodes as lines, parents first, a folded node's descendants and scenarios left out. */
+const rows = computed(() => flattenTree(shown.value.features, (node) => props.collapsed.has(node.anchor)))
+
+/** Fold-all and unfold-all are offered only when there is more than one node to fold. */
+const foldable = computed(() => rows.value.length > 1 || props.collapsed.size > 0)
 
 /** Only the statuses the run has anything of are offered — a chip for nothing is a dead control. */
 const choices = computed(() => TOC_STATUSES.filter((status) => props.tree.counts[status] > 0))
@@ -85,6 +104,10 @@ function rollupOf(counts: RunTree['counts']): string {
         />
         follow
       </label>
+      <span v-if="foldable" class="bm-toc-fold-all">
+        <button type="button" class="bm-toc-icon" title="Fold every suite" aria-label="Fold every suite" data-testid="collapse-all" @click="emit('collapse-all')">⊟</button>
+        <button type="button" class="bm-toc-icon" title="Unfold every suite" aria-label="Unfold every suite" data-testid="expand-all" @click="emit('expand-all')">⊞</button>
+      </span>
     </div>
 
     <div class="bm-toc-filter" role="group" aria-label="Filter by status">
@@ -106,22 +129,56 @@ function rollupOf(counts: RunTree['counts']): string {
     <div class="bm-toc-suite" :data-status="tree.status" data-testid="toc-suite">
       <span class="bm-toc-glyph">{{ glyph(tree.status) }}</span>
       <span class="bm-toc-name">{{ suite }}</span>
+      <button v-if="zoom" type="button" class="bm-toc-unzoom" title="Show the whole run" data-testid="toc-unzoom" @click="emit('zoom', null)">whole run</button>
     </div>
 
     <ul class="bm-toc-features">
-      <li v-for="feature in shown.features" :key="feature.anchor" class="bm-toc-feature" :data-status="feature.status" data-testid="toc-feature">
-        <button type="button" class="bm-toc-node bm-toc-feature-node" :title="rollupOf(feature.counts)" @click="emit('jump', feature.anchor)">
-          <span class="bm-toc-glyph">{{ glyph(feature.status) }}</span>
-          <span class="bm-toc-name">{{ feature.name || '(no feature)' }}</span>
+      <li
+        v-for="row in rows"
+        :key="row.node.anchor"
+        class="bm-toc-feature"
+        :style="{ '--bm-depth': row.depth }"
+        :data-status="row.node.status"
+        :data-anchor="row.node.anchor"
+        :data-folded="row.collapsed ? 'true' : undefined"
+        data-testid="toc-feature"
+      >
+        <span class="bm-toc-twisty">
+          <button
+            type="button"
+            class="bm-toc-icon"
+            :aria-expanded="!row.collapsed"
+            :title="row.collapsed ? 'Unfold' : 'Fold'"
+            data-testid="toc-toggle"
+            @click="emit('toggle', row.node.anchor)"
+          >
+            {{ row.collapsed ? '▸' : '▾' }}
+          </button>
+        </span>
+        <button type="button" class="bm-toc-node bm-toc-feature-node" :title="rollupOf(row.node.counts)" @click="emit('jump', row.node.anchor)">
+          <span class="bm-toc-glyph">{{ glyph(row.node.status) }}</span>
+          <span class="bm-toc-name">{{ row.node.name || '(no feature)' }}</span>
           <span class="bm-toc-rollup" data-testid="toc-rollup">
-            <span v-for="status in TOC_STATUSES.filter((s) => feature.counts[s] > 0)" :key="status" class="bm-toc-count" :data-status="status">
-              {{ feature.counts[status] }}
+            <span v-for="status in TOC_STATUSES.filter((s) => row.node.counts[s] > 0)" :key="status" class="bm-toc-count" :data-status="status">
+              {{ row.node.counts[status] }}
             </span>
           </span>
         </button>
-        <ul class="bm-toc-scenarios">
+        <span v-if="row.node.anchor !== zoom" class="bm-toc-zoom">
+          <button
+            type="button"
+            class="bm-toc-icon"
+            :title="`Show only ${row.node.name || '(no feature)'}`"
+            :aria-label="`Show only ${row.node.name || '(no feature)'}`"
+            data-testid="toc-zoom"
+            @click="emit('zoom', row.node.anchor)"
+          >
+            ⤢
+          </button>
+        </span>
+        <ul v-if="!row.collapsed && row.node.scenarios.length > 0" class="bm-toc-scenarios">
           <li
-            v-for="scenario in feature.scenarios"
+            v-for="scenario in row.node.scenarios"
             :key="scenario.uid"
             :data-status="scenario.status"
             :data-running="scenario.uid === running ? 'true' : undefined"
@@ -218,7 +275,65 @@ function rollupOf(counts: RunTree['counts']): string {
 }
 
 .bm-toc-scenarios {
+  flex-basis: 100%;
   padding-left: 14px;
+}
+
+.bm-toc-feature {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  padding-left: calc(var(--bm-depth, 0) * 12px);
+}
+
+.bm-toc-feature > .bm-toc-node {
+  flex: 1;
+  min-width: 0;
+}
+
+.bm-toc-twisty,
+.bm-toc-zoom {
+  flex: none;
+}
+
+.bm-toc-icon {
+  padding: 0 3px;
+  border: 0;
+  background: transparent;
+  color: var(--bm-menu-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.bm-toc-icon:hover {
+  color: var(--bc-coat);
+}
+
+.bm-toc-zoom {
+  visibility: hidden;
+}
+
+.bm-toc-feature:hover > .bm-toc-zoom,
+.bm-toc-zoom:focus-within {
+  visibility: visible;
+}
+
+.bm-toc-fold-all {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+}
+
+.bm-toc-unzoom {
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid var(--bc-neutral-800);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--bm-link);
+  font: inherit;
+  font-weight: 400;
+  cursor: pointer;
 }
 
 .bm-toc-node {

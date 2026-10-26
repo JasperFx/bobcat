@@ -1,10 +1,14 @@
 import type { RunState, ScenarioState, ScenarioStatus } from '@/stores/runs-store'
 
 /**
- * The run page's table of contents (bobcat#787): the suite tree — suite › feature › scenario — with
- * a status on every node and rollup counts per feature, the summary tiles above it, and which
- * scenario "Go to running" goes to. Pure functions over the store's scenarios, so the page's tests
- * drive them without a mount.
+ * The run page's table of contents (bobcat#787): the suite tree with a status on every node and
+ * rollup counts per node, the summary tiles above it, and which scenario "Go to running" goes to.
+ * Pure functions over the store's scenarios, so the page's tests drive them without a mount.
+ *
+ * bobcat#801 made it a tree of any depth, for suites of thousands. A Bobcat specification's node is
+ * its feature. A supervised xUnit/TUnit test has no feature (issue #195) and arrives named
+ * `Namespace.Class.method`, so its nodes are its namespace and class: without that, a 2,944-test
+ * suite was one flat "(no feature)" bucket. A node a reader can zoom into, fold, and filter.
  */
 
 /**
@@ -46,20 +50,34 @@ export interface ScenarioNode {
   scenarioStatus: ScenarioStatus | null
 }
 
-export interface FeatureNode {
-  /** The feature's title; empty for a forwarded foreign test, which has none (issue #195). */
+/**
+ * One node of the suite tree: a Bobcat feature, or a namespace or class a forwarded test's dotted
+ * name implies. Counts and status roll up everything beneath it, children included.
+ */
+export interface SuiteNode {
+  /** The node's title: a feature's name, or the dotted segments it stands for (`Services.AlertTests`). */
   name: string
-  /** The element id the feature's section carries on the page, for a jump. */
+  /**
+   * The node's identity on the page and in the URL: the element id its section carries, the target
+   * of a jump, and what `?in=` names when the page is zoomed into it.
+   */
   anchor: string
   status: TocStatus
   counts: TocCounts
+  /** The scenarios directly under this node. */
   scenarios: ScenarioNode[]
+  /** The nodes beneath it, in the order the run first reached them. */
+  children: SuiteNode[]
 }
+
+/** A top-level node: still called a feature, which is what a Bobcat suite's top level is. */
+export type FeatureNode = SuiteNode
 
 export interface RunTree {
   status: TocStatus
   counts: TocCounts
-  features: FeatureNode[]
+  /** The top-level nodes. */
+  features: SuiteNode[]
 }
 
 export function emptyCounts(): TocCounts {
@@ -87,6 +105,37 @@ export function scenarioAnchor(uid: string): string {
   return `spec:${uid}`
 }
 
+/** The anchor of a node a dotted test name implies: `suite:Ns.Class`. */
+export function namespaceAnchor(segments: readonly string[]): string {
+  return `suite:${segments.join('.')}`
+}
+
+/**
+ * Where a scenario sits in the tree: the path of nodes above it, and its title under them.
+ *
+ * - A Bobcat specification sits under its feature.
+ * - A test with no feature (a supervised xUnit/TUnit test, issue #195) sits under the namespace and
+ *   class its dotted name gives: `ServiceTests.Services.AlertTests.raises_once(x: 1)` is
+ *   `raises_once(x: 1)` under ServiceTests › Services › AlertTests. The argument list is cut before
+ *   splitting, because a theory's arguments may hold dots of their own (as `splitDisplayName` does).
+ * - A bare name with neither sits under the nameless feature, as before.
+ */
+export interface Placement {
+  kind: 'feature' | 'namespace'
+  /** The node path from the top: one feature, or the namespace and class segments. */
+  path: string[]
+  title: string
+}
+
+export function placementOf(feature: string, title: string): Placement {
+  if (feature) return { kind: 'feature', path: [feature], title }
+  const paren = title.indexOf('(')
+  const head = paren >= 0 ? title.slice(0, paren) : title
+  const dot = head.lastIndexOf('.')
+  if (dot <= 0) return { kind: 'feature', path: [''], title }
+  return { kind: 'namespace', path: head.slice(0, dot).split('.'), title: title.slice(dot + 1) }
+}
+
 /** `Feature/Scenario` split the way the store splits a uid; a bare name has no feature. */
 function splitIdentity(identity: string): { feature: string; title: string } {
   const slash = identity.indexOf('/')
@@ -96,62 +145,204 @@ function splitIdentity(identity: string): { feature: string; title: string } {
 }
 
 /**
- * The tree. Features in the order the run first reached them and scenarios likewise: the page
- * lists them that way, and a rail that re-sorted would send a jump somewhere else than the
- * reader's eye expects.
+ * The anchor of the node a scenario sits directly under: the target of the spec page's crumb back
+ * into the run. Compaction (below) never moves a scenario, so this is the same whatever else the
+ * run holds.
+ */
+export function parentAnchorOf(scenario: Pick<ScenarioState, 'feature' | 'scenario'>): string {
+  const placement = placementOf(scenario.feature, scenario.scenario)
+  return placement.kind === 'feature' ? featureAnchor(placement.path[0]!) : namespaceAnchor(placement.path)
+}
+
+/** The label of that node, for the same crumb: the feature, or the dotted namespace and class. */
+export function parentLabelOf(scenario: Pick<ScenarioState, 'feature' | 'scenario'>): string {
+  const placement = placementOf(scenario.feature, scenario.scenario)
+  return placement.kind === 'feature' ? placement.path[0] || '(no feature)' : placement.path.join('.')
+}
+
+/**
+ * The tree. Nodes in the order the run first reached them and scenarios likewise: the page lists
+ * them that way, and a rail that re-sorted would send a jump somewhere else than the reader's eye
+ * expects.
  *
  * `expected` names the specifications the run was asked for — a commanded run's selection — so
  * one the run has not reached yet is on the rail already, as "no result yet", rather than
  * appearing from nowhere when it starts. A scenario the run published stands in for its entry.
+ *
+ * A chain of namespace nodes with nothing of their own folds into one (`ServiceTests.Services`),
+ * the way an editor's compact folders do: a level that only leads to one other level is a click
+ * that tells the reader nothing.
  */
 export function buildRunTree(scenarios: readonly ScenarioState[], expected: readonly string[] = []): RunTree {
-  const features = new Map<string, FeatureNode>()
+  const roots: SuiteNode[] = []
+  const byAnchor = new Map<string, SuiteNode>()
   const seen = new Set<string>()
 
-  const featureOf = (name: string): FeatureNode => {
-    let node = features.get(name)
-    if (!node) {
-      node = { name, anchor: featureAnchor(name), status: 'pending', counts: emptyCounts(), scenarios: [] }
-      features.set(name, node)
+  const nodeAt = (placement: Placement): SuiteNode => {
+    let siblings = roots
+    let node: SuiteNode | undefined
+    for (let depth = 0; depth < placement.path.length; depth++) {
+      const segments = placement.path.slice(0, depth + 1)
+      const anchor = placement.kind === 'feature' ? featureAnchor(segments[0]!) : namespaceAnchor(segments)
+      node = byAnchor.get(anchor)
+      if (!node) {
+        node = { name: segments[depth]!, anchor, status: 'pending', counts: emptyCounts(), scenarios: [], children: [] }
+        byAnchor.set(anchor, node)
+        siblings.push(node)
+      }
+      siblings = node.children
     }
-    return node
+    return node!
   }
 
   for (const scenario of scenarios) {
     seen.add(scenario.uid)
+    const placement = placementOf(scenario.feature, scenario.scenario)
     const status = tocStatusOf(scenario.status)
-    const node = featureOf(scenario.feature)
-    node.scenarios.push({ uid: scenario.uid, title: scenario.scenario, status, scenarioStatus: scenario.status })
-    node.counts[status]++
+    nodeAt(placement).scenarios.push({ uid: scenario.uid, title: placement.title, status, scenarioStatus: scenario.status })
   }
 
   for (const identity of expected) {
     if (seen.has(identity)) continue
     seen.add(identity)
     const { feature, title } = splitIdentity(identity)
-    const node = featureOf(feature)
-    node.scenarios.push({ uid: identity, title, status: 'pending', scenarioStatus: null })
-    node.counts.pending++
+    const placement = placementOf(feature, title)
+    nodeAt(placement).scenarios.push({ uid: identity, title: placement.title, status: 'pending', scenarioStatus: null })
   }
 
+  const features = roots.map(compact)
   const counts = emptyCounts()
-  for (const node of features.values()) {
-    node.status = rollup(node.counts)
+  for (const node of features) {
+    tally(node)
     for (const status of TOC_STATUSES) counts[status] += node.counts[status]
   }
 
-  return { status: rollup(counts), counts, features: [...features.values()] }
+  return { status: rollup(counts), counts, features }
 }
 
-/** The tree narrowed to one status; a feature with nothing left is dropped, its rollup kept. */
+/** Fold a namespace node with no scenarios and one child into that child, all the way down. */
+function compact(node: SuiteNode): SuiteNode {
+  let current = node
+  while (current.anchor.startsWith('suite:') && current.scenarios.length === 0 && current.children.length === 1) {
+    const only = current.children[0]!
+    current = { ...only, name: `${current.name}.${only.name}` }
+  }
+  return { ...current, children: current.children.map(compact) }
+}
+
+/** A node's counts and status from its own scenarios and everything beneath it. */
+function tally(node: SuiteNode): void {
+  const counts = emptyCounts()
+  for (const scenario of node.scenarios) counts[scenario.status]++
+  for (const child of node.children) {
+    tally(child)
+    for (const status of TOC_STATUSES) counts[status] += child.counts[status]
+  }
+  node.counts = counts
+  node.status = rollup(counts)
+}
+
+/**
+ * The tree narrowed to one status: a node keeps the scenarios of that status and the children with
+ * any left, and is dropped when nothing is left beneath it. Its rollup is kept — a node's counts
+ * are its whole story, not the filtered view's.
+ */
 export function filterTree(tree: RunTree, status: TocStatus | null): RunTree {
   if (status === null) return tree
-  return {
-    ...tree,
-    features: tree.features
-      .map((f) => ({ ...f, scenarios: f.scenarios.filter((s) => s.status === status) }))
-      .filter((f) => f.scenarios.length > 0),
+  const narrow = (node: SuiteNode): SuiteNode | null => {
+    const scenarios = node.scenarios.filter((s) => s.status === status)
+    const children = node.children.map(narrow).filter((child): child is SuiteNode => child !== null)
+    return scenarios.length > 0 || children.length > 0 ? { ...node, scenarios, children } : null
   }
+  return { ...tree, features: tree.features.map(narrow).filter((node): node is SuiteNode => node !== null) }
+}
+
+/** Every node of the tree, parents before their children. */
+export function allNodes(tree: Pick<RunTree, 'features'>): SuiteNode[] {
+  const nodes: SuiteNode[] = []
+  const walk = (node: SuiteNode) => {
+    nodes.push(node)
+    node.children.forEach(walk)
+  }
+  tree.features.forEach(walk)
+  return nodes
+}
+
+/** A node and the nodes above it, outermost first; null when the tree has no such node. */
+export function findNode(tree: Pick<RunTree, 'features'>, anchor: string): { node: SuiteNode; ancestors: SuiteNode[] } | null {
+  const search = (nodes: SuiteNode[], above: SuiteNode[]): { node: SuiteNode; ancestors: SuiteNode[] } | null => {
+    for (const node of nodes) {
+      if (node.anchor === anchor) return { node, ancestors: above }
+      const found = search(node.children, [...above, node])
+      if (found) return found
+    }
+    return null
+  }
+  return search(tree.features, [])
+}
+
+/** The nodes above the scenario with this uid, outermost first, and the one it sits in; null when absent. */
+export function pathToScenario(tree: Pick<RunTree, 'features'>, uid: string): SuiteNode[] | null {
+  const search = (nodes: SuiteNode[], above: SuiteNode[]): SuiteNode[] | null => {
+    for (const node of nodes) {
+      const path = [...above, node]
+      if (node.scenarios.some((s) => s.uid === uid)) return path
+      const found = search(node.children, path)
+      if (found) return found
+    }
+    return null
+  }
+  return search(tree.features, [])
+}
+
+/** Every scenario uid at or beneath a node. */
+export function uidsUnder(node: SuiteNode): Set<string> {
+  const uids = new Set<string>()
+  const walk = (n: SuiteNode) => {
+    for (const s of n.scenarios) uids.add(s.uid)
+    n.children.forEach(walk)
+  }
+  walk(node)
+  return uids
+}
+
+/** The page zoomed into one node (bobcat#801): that node is the whole tree, its counts the tree's. */
+export function zoomTree(tree: RunTree, anchor: string | null): RunTree {
+  if (!anchor) return tree
+  const found = findNode(tree, anchor)
+  if (!found) return tree
+  return { status: found.node.status, counts: found.node.counts, features: [found.node] }
+}
+
+/**
+ * The run size above which a passed node starts folded (bobcat#801). Below it the page is short
+ * enough to read whole, as it always was; above it, what passed is a line until asked for, the
+ * same rule a passed scenario already follows.
+ */
+export const FOLD_PASSED_ABOVE = 100
+
+export function startsCollapsed(node: Pick<SuiteNode, 'status'>, size: number, filtered: boolean): boolean {
+  // A filter is the reader asking to see those scenarios: nothing it shows starts hidden.
+  return !filtered && size > FOLD_PASSED_ABOVE && node.status === 'passed'
+}
+
+/** One line of the flattened tree, as the rail and the page draw it: a node, how deep, whether folded. */
+export interface TreeRow {
+  node: SuiteNode
+  depth: number
+  collapsed: boolean
+}
+
+/** The tree as rows, parents before children, a folded node's descendants left out. */
+export function flattenTree(features: readonly SuiteNode[], isCollapsed: (node: SuiteNode) => boolean): TreeRow[] {
+  const rows: TreeRow[] = []
+  const walk = (node: SuiteNode, depth: number) => {
+    const collapsed = isCollapsed(node)
+    rows.push({ node, depth, collapsed })
+    if (!collapsed) node.children.forEach((child) => walk(child, depth + 1))
+  }
+  features.forEach((node) => walk(node, 0))
+  return rows
 }
 
 /**

@@ -103,11 +103,19 @@ describe('buildRunTree', () => {
     expect(tree.counts.pending).toBe(2)
   })
 
-  it('keeps a forwarded foreign test, which has no feature, under a nameless feature', () => {
+  it('puts a forwarded foreign test, which has no feature, under the namespace and class its name gives (bobcat#801)', () => {
     const tree = buildRunTree([scenario('Ns.Class.method', 'passed', { forwarded: true, displayName: 'Ns.Class.method' })])
+    // One chain with nothing of its own folds into one node.
+    expect(tree.features[0]!.name).toBe('Ns.Class')
+    expect(tree.features[0]!.anchor).toBe('suite:Ns.Class')
+    expect(tree.features[0]!.scenarios[0]!.title).toBe('method')
+  })
+
+  it('keeps a bare name with no feature and no dots under the nameless feature', () => {
+    const tree = buildRunTree([scenario('lonely', 'passed', { forwarded: true, displayName: 'lonely' })])
     expect(tree.features[0]!.name).toBe('')
     expect(tree.features[0]!.anchor).toBe('feature:(none)')
-    expect(tree.features[0]!.scenarios[0]!.title).toBe('Ns.Class.method')
+    expect(tree.features[0]!.scenarios[0]!.title).toBe('lonely')
   })
 
   it('an empty run is a pending tree', () => {
