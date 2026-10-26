@@ -136,8 +136,28 @@ page by status, clicking a node scrolls to it, **Go to running** scrolls the run
 view, and **follow** keeps it there as the run advances. A passed scenario is folded to its line;
 a failed or running one is open on its specification, and any of them opens with a click.
 
+**Big suites** ([bobcat#801](https://github.com/JasperFx/bobcat/issues/801)):
+
+- **The tree goes as deep as the suite does.** A Bobcat specification sits under its feature. A
+  supervised xUnit or TUnit test has no feature, so it sits under the namespace and class its name
+  gives: `Tests.Services.AlertTests.raises_once` is `raises_once` under Tests › Services › AlertTests.
+  A level that only leads to one other level is shown as one node (`Tests.Services`), and every node
+  carries the counts of everything beneath it.
+- **Fold and unfold** any node with its ▸/▾, on the rail or on the page (they share one state), or
+  all of them at once with ⊟ / ⊞ beside **follow**. On a run of more than 100 scenarios a node that
+  passed starts folded, so what failed or is running is what you see on arrival. A status filter
+  shows everything it matches unfolded, and **Go to running** or a link into a section unfolds the
+  way to it.
+- **Zoom into** any node with ⤢: it becomes the whole page, its tiles and counts included. The trail
+  grows a crumb per level (`Runs › suite › run › Tests › Services`), so the run segment goes back to
+  the whole run and each level back to itself. **Go to running** zooms out when the running test is
+  outside the node.
+- **The zoom and the filter are in the URL**: `?in=suite:Tests.Services&status=failed` arrives
+  zoomed and filtered, and a crumb keeps the filter as it zooms out.
+
 Each scenario has a page of its own at `/runs/{runId}/specs/{Feature}/{Scenario}` -- a URL you can
-paste into a pull request, with the same trail back, `Runs › suite › run › feature › scenario` --
+paste into a pull request, with the same trail back, `Runs › suite › run › feature › scenario`, whose
+feature segment is the class for a supervised xUnit test --
 that renders the specification the test produced: each step with its
 verdict and duration, each named comparison judged on its own (`✗ count: expected '12', got '0'`),
 tables as grids, the scenario's own reports beneath the steps (what the system did, as grids -- a

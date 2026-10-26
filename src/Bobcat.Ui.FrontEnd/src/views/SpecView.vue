@@ -9,7 +9,8 @@ import { ensureRunEvents } from '@/messages/hydrate'
 import { useRunsStore } from '@/stores/runs-store'
 import { sliceFor, useEventModelStore } from '@/stores/event-model-store'
 import { sliceHref } from '@/lib/specLinks'
-import { featureCrumb, runCrumb, runsCrumb, scenarioCrumb, suiteCrumb, type Crumb } from '@/lib/crumbs'
+import { placeCrumb, runCrumb, runsCrumb, scenarioCrumb, suiteCrumb, type Crumb } from '@/lib/crumbs'
+import { parentAnchorOf, parentLabelOf } from '@/lib/runTree'
 
 /**
  * One specification from one run, on a page of its own (stoat#61) — the target a slice's
@@ -44,7 +45,7 @@ const crumbs = computed<Crumb[]>(() => {
   const trail = [runsCrumb(), suiteCrumb(r.suite), runCrumb(r, false)]
   const s = scenario.value
   if (!s) return trail
-  return [...trail, featureCrumb(r.runId, s.feature, false), scenarioCrumb(s.scenario)]
+  return [...trail, placeCrumb(r.runId, parentAnchorOf(s), parentLabelOf(s), false), scenarioCrumb(s.scenario)]
 })
 
 const verdictType = computed<'success' | 'danger' | 'warning' | 'info'>(() => {
