@@ -128,6 +128,23 @@ describe('specification → its page and its slice', () => {
     expect(target.query).toEqual({ focus: 'slice:CreditWallet', spec: UID, run: RUN })
   })
 
+  // bobcat#787: the way back is a trail, and its run segment says which run.
+  it('the spec page leads with breadcrumbs: Runs › suite › run (identity) › feature › scenario', async () => {
+    seed()
+    const wrapper = await mountAt(specHref(RUN, UID))
+
+    expect(router.resolve(wrapper.find('[data-testid="crumb-runs"]').attributes('href')!).path).toBe('/runs')
+    expect(wrapper.find('[data-testid="crumb-suite"]').text()).toBe('Wallets')
+    const run = wrapper.find('[data-testid="crumb-run"]')
+    expect(run.text()).toContain('main')
+    expect(router.resolve(run.attributes('href')!).path).toBe(`/runs/${RUN}`)
+    const feature = router.resolve(wrapper.find('[data-testid="crumb-feature"]').attributes('href')!)
+    expect(feature.path).toBe(`/runs/${RUN}`)
+    expect(decodeURIComponent(feature.hash)).toBe('#feature:Wallet')
+    expect(wrapper.find('[data-testid="crumb-scenario"]').text()).toBe('Crediting a wallet')
+    expect(wrapper.find('[data-testid="crumb-scenario"]').attributes('href')).toBeUndefined()
+  })
+
   it('a spec no slice binds has no slice link — design-time only is an answer, not an error', async () => {
     seed()
     useEventModelStore().descriptor = { name: 'Empty', slices: [] }

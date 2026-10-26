@@ -4,10 +4,12 @@ import ScenarioProgress from '@/components/ScenarioProgress.vue'
 import SpecificationView from '@/components/SpecificationView.vue'
 import RunButton from '@/components/RunButton.vue'
 import MissingRun from '@/components/MissingRun.vue'
+import Breadcrumbs from '@/components/Breadcrumbs.vue'
 import { ensureRunEvents } from '@/messages/hydrate'
 import { useRunsStore } from '@/stores/runs-store'
 import { sliceFor, useEventModelStore } from '@/stores/event-model-store'
 import { sliceHref } from '@/lib/specLinks'
+import { featureCrumb, runCrumb, runsCrumb, scenarioCrumb, suiteCrumb, type Crumb } from '@/lib/crumbs'
 
 /**
  * One specification from one run, on a page of its own (stoat#61) — the target a slice's
@@ -31,6 +33,20 @@ const run = computed(() => runs.runById(props.runId))
 const scenario = computed(() => run.value?.scenarios[props.uid])
 const slice = computed(() => sliceFor(model.descriptor, props.uid))
 
+/**
+ * bobcat#787: `Runs › Suite › run (time · tag · branch) › Feature › Scenario`. The run segment names
+ * the run, not just its suite, and the feature segment lands on that feature's section of the run
+ * page. A scenario the run does not have is still placed under its run.
+ */
+const crumbs = computed<Crumb[]>(() => {
+  const r = run.value
+  if (!r) return [runsCrumb()]
+  const trail = [runsCrumb(), suiteCrumb(r.suite), runCrumb(r, false)]
+  const s = scenario.value
+  if (!s) return trail
+  return [...trail, featureCrumb(r.runId, s.feature, false), scenarioCrumb(s.scenario)]
+})
+
 const verdictType = computed<'success' | 'danger' | 'warning' | 'info'>(() => {
   const status = scenario.value?.status
   if (status === 'passed') return 'success'
@@ -42,15 +58,7 @@ const verdictType = computed<'success' | 'danger' | 'warning' | 'info'>(() => {
 
 <template>
   <div>
-    <div class="bm-spec-crumbs">
-      <router-link :to="`/runs/${runId}`" data-testid="run-link">{{ run?.suite ?? 'run' }}</router-link>
-      <template v-if="slice">
-        ·
-        <router-link :to="sliceHref(slice.name, uid, runId)" data-testid="slice-link">
-          slice {{ slice.name }}
-        </router-link>
-      </template>
-    </div>
+    <Breadcrumbs :crumbs="crumbs" />
 
     <MissingRun v-if="!run" :run-id="runId" />
     <el-empty v-else-if="!scenario" description="This run has no such specification" data-testid="unknown-spec" />
@@ -61,6 +69,9 @@ const verdictType = computed<'success' | 'danger' | 'warning' | 'info'>(() => {
           {{ scenario.outcome ?? scenario.status }}
         </el-tag>
         <el-tag v-if="scenario.attempt > 1" size="small" type="warning">attempt {{ scenario.attempt }}</el-tag>
+        <router-link v-if="slice" :to="sliceHref(slice.name, uid, runId)" class="bm-slice-link" data-testid="slice-link">
+          slice {{ slice.name }}
+        </router-link>
       </h2>
       <!-- stoat#78: run it again, or its whole feature, on a resident runner. -->
       <div class="bm-spec-actions">
@@ -74,13 +85,9 @@ const verdictType = computed<'success' | 'danger' | 'warning' | 'info'>(() => {
 </template>
 
 <style scoped>
-.bm-spec-crumbs {
+.bm-slice-link {
   font-size: 12px;
-  color: var(--bm-menu-text);
-  margin-bottom: 8px;
-}
-
-.bm-spec-crumbs a {
+  font-weight: 400;
   color: var(--bm-link);
 }
 

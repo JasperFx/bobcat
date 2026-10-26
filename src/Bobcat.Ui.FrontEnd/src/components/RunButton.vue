@@ -6,17 +6,16 @@ import {
   commandProgress,
   describeTarget,
   findRunners,
-  loadMode,
   loadRunners,
   runnerForSuite,
   modeFor,
   runnerState,
-  saveMode,
   START_A_RUNNER,
   type RunnerView,
   type RunTarget,
 } from '@/lib/runners'
 import { useRunnersStore } from '@/stores/runners-store'
+import { useRunMode } from '@/composables/runMode'
 
 /**
  * One run button (stoat#78): a spec, a set of failed specs, a feature, or a slice's bound specs.
@@ -24,11 +23,22 @@ import { useRunnersStore } from '@/stores/runners-store'
  * branch and path, because running in the wrong worktree tests the wrong code — then follows the
  * command to the run it caused. No runner is said plainly, with the command that starts one,
  * rather than a dead button.
+ *
+ * The button says which mode it will send (bobcat#787) — `▶ Run again · warm` — from the viewer's
+ * remembered choice, which the dialog's Cold / Warm switch changes for every button at once. A
+ * runner that offers no warm host gets cold whatever is remembered, and the dialog says so.
  */
-const props = withDefaults(defineProps<{ target: RunTarget; label: string; text?: boolean; suite?: string | null }>(), {
-  text: false,
-  suite: null,
-})
+const props = withDefaults(
+  defineProps<{
+    target: RunTarget
+    label: string
+    text?: boolean
+    suite?: string | null
+    /** The modes the runner this button is for offers, when known: the chip then says what will be sent. */
+    modes?: string[] | null
+  }>(),
+  { text: false, suite: null, modes: null },
+)
 
 const open = ref(false)
 const runners = ref<RunnerView[] | null>(null)
@@ -36,7 +46,7 @@ const failedToLoad = ref(false)
 /** bobcat#652: the suite's own runner is attached, but no longer has what this button names. */
 const renamedAway = ref(false)
 const selectedId = ref<string | undefined>(undefined)
-const remembered = ref(loadMode())
+const { mode: remembered, choose } = useRunMode()
 const sending = ref(false)
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
@@ -81,9 +91,14 @@ async function press(): Promise<void> {
 }
 
 function chooseMode(next: string | number | boolean | undefined): void {
-  remembered.value = next === 'warm' ? 'warm' : 'cold'
-  saveMode(remembered.value)
+  choose(next === 'warm' ? 'warm' : 'cold')
 }
+
+/** The chip: the remembered mode, or — for a button beside a known runner — the one that runner gets. */
+const chip = computed(() => (props.modes ? modeFor({ modes: props.modes } as RunnerView, remembered.value) : remembered.value))
+
+/** Warm was asked for, and this runner cannot give it: the run goes cold, and the dialog says so. */
+const fellBackToCold = computed(() => remembered.value === 'warm' && selected.value !== null && !offersWarm.value)
 
 async function run(): Promise<void> {
   if (!selected.value) return
@@ -119,8 +134,8 @@ function where(runner: RunnerView): string {
 </script>
 
 <template>
-  <el-button size="small" :text="text" class="bm-run-button" data-testid="run-button" @click.stop="press">
-    ▶ {{ label }}
+  <el-button size="small" :text="text" class="bm-run-button" data-testid="run-button" :data-mode="chip" @click.stop="press">
+    ▶ {{ label }} <span class="bm-run-mode-chip" data-testid="run-button-mode">· {{ chip }}</span>
   </el-button>
 
   <el-dialog :model-value="open" :title="`Run ${what}`" width="560px" append-to-body @close="close">
@@ -153,6 +168,9 @@ function where(runner: RunnerView): string {
         </el-radio-group>
         <span class="bm-run-muted">Cold is a fresh run of the current code; warm reuses a booted host.</span>
       </div>
+      <div v-else-if="fellBackToCold" class="bm-run-mode bm-run-muted" data-testid="cold-only">
+        This runner offers no warm host, so this run is cold.
+      </div>
 
       <div v-if="asked" class="bm-run-progress" data-testid="run-progress" :data-failed="progress.failed">
         {{ progress.label }}
@@ -174,6 +192,12 @@ function where(runner: RunnerView): string {
 </template>
 
 <style scoped>
+.bm-run-mode-chip {
+  margin-left: 2px;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
 .bm-run-runners {
   display: flex;
   flex-direction: column;

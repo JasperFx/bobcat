@@ -78,6 +78,83 @@ test('the run board groups the suite\'s runs under one row and shows the live ru
   expect(errors).toEqual([])
 })
 
+// bobcat#787: a run page a reader can orient in. The recorded run above is all green, so this one is
+// published here the way a publisher would — three scenarios, one of them failed — to give the rail a
+// failure to jump to and the trail a run to come back to.
+const FAILING_RUN = '00000000-0000-4000-8000-000000000787'
+
+async function publishFailingRun(request: APIRequestContext): Promise<void> {
+  const at = (s: number) => `2026-10-26T10:42:${String(s).padStart(2, '0')}+00:00`
+  const scenario = (uid: string, outcome: string, s: number) => {
+    const slash = uid.indexOf('/')
+    const feature = uid.slice(0, slash)
+    const title = uid.slice(slash + 1)
+    const failed = outcome === 'Failed'
+    return [
+      { type: 'scenario_started', runId: FAILING_RUN, uid, feature, scenario: title, attempt: 1, at: at(s) },
+      { type: 'step_started', runId: FAILING_RUN, uid, stepId: 's1', kind: 'Then', text: 'the balance is 5', stepNumber: 1 },
+      {
+        type: 'step_finished', runId: FAILING_RUN, uid, stepId: 's1', status: failed ? 'Failed' : 'Passed', durationMs: 2,
+        errorMessage: failed ? "balance: expected '5', got '0'" : null,
+        cells: failed ? [{ name: 'balance', status: 'failed', expected: '5', actual: '0', note: null, rowIndex: -1, value: null, comparison: null }] : [],
+      },
+      { type: 'scenario_finished', runId: FAILING_RUN, uid, outcome, attempts: 1, durationMs: 4, errorMessage: null, at: at(s + 1) },
+    ]
+  }
+  const events = [
+    {
+      type: 'run_started', runId: FAILING_RUN, suite: 'Wallets.Specs', repository: '/code/wallets', branch: 'main',
+      mode: 'in-process', startedAt: at(0), totalScenarios: 3, tag: 'smoke-787', session: null, command: null,
+    },
+    ...scenario('Wallet/crediting a wallet', 'CleanPass', 1),
+    ...scenario('Wallet/debiting past zero', 'Failed', 3),
+    ...scenario('Orders/placing an order', 'CleanPass', 5),
+    { type: 'run_finished', runId: FAILING_RUN, exitCode: 1, passed: 2, failed: 1, passedOnRetry: 0, indeterminate: 0, finishedAt: at(7) },
+  ]
+  const response = await request.post('/api/ingest', { data: { events } })
+  expect(response.status()).toBe(202)
+  // Ingestion is queued; the run is on the board once the registry has folded it.
+  await expect
+    .poll(async () => ((await (await request.get('/api/runs')).json()) as { runId: string }[]).some((r) => r.runId === FAILING_RUN))
+    .toBe(true)
+}
+
+test('the run page’s rail jumps to a failed scenario, and the breadcrumbs lead back', async ({ page, request }) => {
+  const errors = collectErrors(page)
+  await publishFailingRun(request)
+
+  await page.goto(`/runs/${FAILING_RUN}`)
+  // The run's identity, its tiles, and the rail with a status on every node.
+  await expect(page.getByTestId('crumb-run')).toContainText('smoke-787')
+  await expect(page.getByTestId('tile-failed')).toContainText('1')
+  await expect(page.getByTestId('toc-scenario')).toHaveCount(3)
+  await expect(page.getByTestId('toc-feature').first()).toHaveAttribute('data-status', 'failed')
+
+  // A passed scenario is folded to its line; the failed one is open on its specification.
+  const credited = page.locator('[data-uid="Wallet/crediting a wallet"]')
+  const debited = page.locator('[data-uid="Wallet/debiting past zero"]')
+  await expect(credited.getByTestId('specification')).toHaveCount(0)
+  await expect(debited.getByTestId('cell')).toContainText("expected '5', got '0'")
+
+  // The rail's failed filter, then the node: the failed scenario scrolls into view.
+  await page.getByTestId('filter-failed').click()
+  await expect(page.getByTestId('toc-scenario')).toHaveCount(1)
+  await page.getByTestId('toc-scenario').getByRole('button').click()
+  await expect(debited).toBeInViewport()
+
+  // Into the spec page, and back up the trail: run, then the board.
+  await debited.getByTestId('spec-link').click()
+  await expect(page).toHaveURL(new RegExp(`/runs/${FAILING_RUN}/specs/`))
+  await expect(page.getByTestId('crumb-scenario')).toHaveText('debiting past zero')
+  await page.getByTestId('crumb-run').click()
+  await expect(page).toHaveURL(new RegExp(`/runs/${FAILING_RUN}$`))
+  await page.getByTestId('crumb-runs').click()
+  await expect(page).toHaveURL(/\/runs$/)
+  await expect(page.getByRole('heading', { name: 'Test suites' })).toBeVisible()
+
+  expect(errors).toEqual([])
+})
+
 test('the Event Model canvas renders the published model', async ({ page }) => {
   const errors = collectErrors(page)
 
