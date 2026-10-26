@@ -45,7 +45,11 @@ bobcat resident src/MySpecs/MySpecs.csproj --configuration Release
 ```
 
 The path is the suite's test host: its executable, the build output folder holding it, the `.csproj`,
-or the directory holding that `.csproj`. A project is resolved to the host MSBuild says it builds for
+or the directory holding that `.csproj`. A build output folder that also holds the application the
+specs test (a spec project referencing a web app has both executables) resolves to the test host: the
+one the folder's own project builds, else the only one carrying a test framework. Only a folder still
+ambiguous after that is refused, with the candidates named
+([bobcat#797](https://github.com/JasperFx/bobcat/issues/797)). A project is resolved to the host MSBuild says it builds for
 `--framework` (the newest it targets by default) and `--configuration` (`Debug` by default), and one
 whose build is not there is refused with the path it looked at -- the runner never builds, because
 whatever relaunches it on a source change is what built the suite.
