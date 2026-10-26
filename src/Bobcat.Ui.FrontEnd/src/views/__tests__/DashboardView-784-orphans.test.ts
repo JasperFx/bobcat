@@ -11,7 +11,12 @@ import DashboardView from '../DashboardView.vue'
  * changes hands: no bar, an Eject button.
  */
 const routerLinkStub = { template: '<a><slot /></a>', props: ['to'] }
-const stubs = { RouterLink: routerLinkStub, teleport: true, ElSelect: true, ElOption: true }
+// element-plus's select and dropdown recurse on a sibling's re-render under happy-dom (not in a
+// browser: the board's own tests and CommandedRunCard stub the select for the same reason, and the
+// card's menu appears mid-render here). The Eject button is a plain button, and is what this tests.
+const stubs = {
+  RouterLink: routerLinkStub, teleport: true, ElSelect: true, ElOption: true, ElDropdown: true, ElDropdownMenu: true, ElDropdownItem: true,
+}
 const RUN = '9a1f1a1e-0000-0000-0000-000000000784'
 
 describe('an orphaned run on the board', () => {
