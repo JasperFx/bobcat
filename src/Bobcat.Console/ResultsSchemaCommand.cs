@@ -9,9 +9,11 @@ public class ResultsSchemaInput
     public string? OutFlag { get; set; }
 
     [Description("Compare with this baseline schema file (named bobcat-results-<version>.schema.json) and fail on a breaking change unless the schema version moved")]
+    [FlagAlias("baseline", true)]
     public string? BaselineFlag { get; set; }
 
     [Description("What the baseline is, for the report (e.g. 'Bobcat 0.61.0 on nuget.org')")]
+    [FlagAlias("baseline-name", true)]
     public string? BaselineNameFlag { get; set; }
 }
 

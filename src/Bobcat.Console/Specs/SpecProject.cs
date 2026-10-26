@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Xml.Linq;
+using JasperFx.CommandLine;
 using Spectre.Console;
 
 namespace Bobcat.Console.Specs;
@@ -48,7 +49,7 @@ internal sealed class SpecProject
         {
             if (!frameworks.Contains(framework, StringComparer.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException(
+                throw new InvalidUsageException(
                     $"{Path.GetFileName(path)} targets {string.Join(", ", frameworks)}, not {framework}.");
             }
         }
@@ -87,13 +88,9 @@ internal sealed class SpecProject
             }
         }
 
-        var (_, targetPath) = await Shell.RunAsync("dotnet",
-            ["msbuild", ProjectPath, "-getProperty:TargetPath", $"-p:TargetFramework={Framework}", $"-p:Configuration={Configuration}"]);
+        var (host, exists) = await ExpectedHostAsync();
 
-        var dll = targetPath.Trim();
-        var host = OperatingSystem.IsWindows() ? Path.ChangeExtension(dll, ".exe") : Path.ChangeExtension(dll, null);
-
-        if (!File.Exists(host))
+        if (!exists)
         {
             AnsiConsole.MarkupLine(
                 $"[red]{Markup.Escape(Name)} built no test host at {Markup.Escape(host)}.[/] A spec project for the "
@@ -103,6 +100,23 @@ internal sealed class SpecProject
 
         HostPath = host;
         return true;
+    }
+
+    /// <summary>
+    /// The test host executable this project builds for its framework and configuration — MSBuild's
+    /// <c>TargetPath</c> with the executable's extension, never a guess at <c>bin/</c> layouts — and
+    /// whether it is there. Builds nothing: <c>bobcat resident path/to/Specs.csproj</c> reads it as
+    /// it stands (bobcat#785).
+    /// </summary>
+    public async Task<(string Host, bool Exists)> ExpectedHostAsync()
+    {
+        var (_, targetPath) = await Shell.RunAsync("dotnet",
+            ["msbuild", ProjectPath, "-getProperty:TargetPath", $"-p:TargetFramework={Framework}", $"-p:Configuration={Configuration}"]);
+
+        var dll = targetPath.Trim();
+        var host = OperatingSystem.IsWindows() ? Path.ChangeExtension(dll, ".exe") : Path.ChangeExtension(dll, null);
+
+        return (host, File.Exists(host));
     }
 
     /// <summary>The directories whose source a watch reacts to: this project's and every project it references.</summary>
@@ -148,11 +162,11 @@ internal sealed class SpecProject
                 return choose(candidatesUnder(full), $"under {full}");
             }
 
-            // `bobcat` with no command runs, so a mistyped command arrives here as a project path
-            throw new InvalidOperationException(
-                $"There is no project or directory at '{project}', and it is not a bobcat command. "
-                + "The commands are run (the default), preview, pick, watch, resident and import-event-model; "
-                + "`bobcat help` lists them.");
+            // `bobcat` with no command runs, so a mistyped command arrives here as a project path —
+            // and so does a value given to a flag that takes none (`--repeat 5`). A usage error, one
+            // line (bobcat#785); `bobcat help` lists the commands.
+            throw new InvalidUsageException(
+                $"There is no project or directory at '{project}', and it is not a bobcat command ('bobcat help' lists them).");
         }
 
         var cwd = System.IO.Directory.GetCurrentDirectory();
@@ -195,13 +209,13 @@ internal sealed class SpecProject
 
         if (candidates.Count == 0)
         {
-            throw new InvalidOperationException(
+            throw new InvalidUsageException(
                 $"Found no spec project {where}: no test project referencing Bobcat. Name one: bobcat run path/to/Specs.csproj");
         }
 
         if (!AnsiConsole.Profile.Capabilities.Interactive)
         {
-            throw new InvalidOperationException(
+            throw new InvalidUsageException(
                 $"Found {candidates.Count} spec projects {where}; name one:{Environment.NewLine}"
                 + string.Join(Environment.NewLine, candidates.Select(x => "  " + Path.GetRelativePath(System.IO.Directory.GetCurrentDirectory(), x))));
         }

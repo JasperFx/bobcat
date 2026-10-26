@@ -147,8 +147,8 @@ instead of leaving the last green run in view.
 
 | Flag | What it does |
 |---|---|
-| `-f, --framework <tfm>` | the target framework to run; the newest the project targets by default |
-| `-c, --configuration <name>` | the build configuration; `Debug` by default |
+| `--framework <tfm>` | the target framework to run; the newest the project targets by default |
+| `--configuration <name>` | the build configuration; `Debug` by default |
 | `--feature <text>` | only features whose title contains this, case-insensitive; repeatable (`run`, `watch`) |
 | `--scenario <text>` | only scenarios whose title contains this, case-insensitive; repeatable (`run`, `watch`) |
 | `--slice <name>` | only specifications bound to this Event Model slice; repeatable (`run`, `watch`) |
@@ -167,6 +167,13 @@ instead of leaving the last green run in view.
 | `--workers <N>` | supervised: run on N worker processes, partitioned by test class (`run`) |
 | `--stall <duration>` | supervised: name a specification in flight longer than this, `90s`/`5m`/`1h`; 5 minutes by default (`run`) |
 | `--stall-action <action>` | supervised: what a stall does, `report` (default), `kill-and-retry` or `abort` (`run`) |
+
+**No short flag means two things.** `-f` would have been `--framework`, `--feature` and `--failed`;
+`-r` `--repeat`, `--retries` and `--results`; `-s` `--stall`, `--stall-action`, `--scenario` and
+`--slice`; `-c` `--configuration` and `--chapter`. Every flag that collided is long-only, and a short
+alias exists only where it is unique within its command: `-w` (`--workers`), `-d` (`--domain`), `-p`
+(`--pattern`), `-t` (`--trait`), `-n` (`--no-build`), `-j` (`--json`), `-v` (`--verbose`), `-h`
+(`--html`). A test in the repository fails on a new collision.
 
 ### Rerunning what failed: `--failed` and `--repeat` {#failed-repeat}
 
@@ -776,7 +783,9 @@ from this checkout apart from a stale one pushed from another; one that predates
 ## `resident`
 
 ```bash
-bobcat resident ./artifacts/MySpecs
+bobcat resident ./artifacts/MySpecs                                  # the test host executable
+bobcat resident src/MySpecs/bin/Debug/net10.0                        # or its build output folder
+bobcat resident src/MySpecs/MySpecs.csproj --configuration Release   # or the project, as it is built
 ```
 
 A [resident runner](resident-runner.md) for a spec suite, whose `Main` belongs to its test framework.
@@ -784,8 +793,17 @@ It asks the host what it specifies, registers those identities with the console,
 by driving that host narrowed to the specifications the command named -- a fresh process per
 command (`cold`), or one host held open between commands (`warm`), as the console chooses.
 
+**What it is pointed at** is the spec project's test host: the executable itself, the build output
+folder holding it (the one executable with a `.runtimeconfig.json` beside it; several are refused by
+name), the `.csproj`, or the directory holding that `.csproj`. A project is resolved to the host
+MSBuild says it builds, for `--framework` (the newest it targets by default) and `--configuration`
+(`Debug` by default) -- **nothing is built**: a runner is relaunched by whatever rebuilt the suite,
+and a project whose build is not there is refused with the path it looked at.
+
 | Flag | What it does |
 |---|---|
+| `--framework <tfm>` | with a `.csproj`: the target framework whose build to run; the newest the project targets by default |
+| `--configuration <name>` | with a `.csproj`: the build configuration whose build to run; `Debug` by default |
 | `-u, --url <base>` | the console to register with; defaults to `BOBCAT_MONITOR_URL`, then to the port every publisher probes. It travels down to the child run, so a runner pointed at a second console does not publish to the default one. **Several, comma- or semicolon-separated:** the runner reads its commands from the first and a commanded run publishes to all of them ([bobcat#530](https://github.com/JasperFx/bobcat/issues/530)) |
 | `-i, --id <id>` | a stable runner id. Defaults to `BOBCAT_RUNNER_ID`, then to a fresh GUID |
 | `--list` | print what the host specifies and exit, registering with nothing |
@@ -819,6 +837,22 @@ bobcat help import-event-model     # usage for one
 The tool registers its commands explicitly rather than scanning, so nothing an assembly happens to
 carry can join this surface. A bare `bobcat` is `bobcat run`: it runs the spec project found from the
 current directory, and fails fast when there is none.
+
+**A usage mistake is one line on standard error and exit 1** -- an unknown flag, a value where none
+is expected, a flag given a value of the wrong type, a missing argument, a project or path that is
+not there -- naming the command and pointing at its help, never a stack trace or a page of usage:
+
+```
+$ bobcat run --fetaure Booking
+bobcat run: Unknown argument or flag for value --fetaure. See 'bobcat help run'.
+
+$ bobcat run --repeat 5
+bobcat run: There is no project or directory at '5', and it is not a bobcat command ('bobcat help' lists them). See 'bobcat help run'.
+```
+
+Standard output stays empty, so a `--json` pipe never gets an error message in place of its file.
+A mistyped command arrives as `run`'s project argument, because a bare `bobcat x` is `bobcat run x`;
+the line says so and points at `bobcat help` for the commands.
 
 `generate-ui-contracts` is for Bobcat contributors only: it regenerates the UI's TypeScript copies of
 the wire contracts (`./build.sh UiContracts` runs it).

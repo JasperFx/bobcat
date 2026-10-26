@@ -1,3 +1,4 @@
+using Bobcat.Console.Specs;
 using Bobcat.Monitoring;
 using Bobcat.Residency;
 using Bobcat.Supervisor;
@@ -7,8 +8,16 @@ namespace Bobcat.Console;
 
 public class ResidentInput
 {
-    [Description("The spec project's test host executable — the thing you would run to run the suite")]
+    [Description("The spec project's test host: its executable, its build output folder (bin/Debug/net10.0), or its .csproj")]
     public string HostPath { get; set; } = string.Empty;
+
+    [Description("With a .csproj: the target framework whose build to run; the newest the project targets by default")]
+    [FlagAlias("framework", true)]
+    public string? FrameworkFlag { get; set; }
+
+    [Description("With a .csproj: the build configuration whose build to run; Debug by default")]
+    [FlagAlias("configuration", true)]
+    public string ConfigurationFlag { get; set; } = "Debug";
 
     [Description("Base URL of the monitor to register with; several, comma-separated, publish a commanded run to each. Defaults to BOBCAT_MONITOR_URL, then to the port every publisher probes")]
     [FlagAlias("url", 'u')]
@@ -66,6 +75,10 @@ public class ResidentCommand : JasperFxAsyncCommand<ResidentInput>
 
     public override async Task<bool> Execute(ResidentInput input)
     {
+        // The executable, or the folder or .csproj that leads to it (bobcat#785). A path that leads
+        // nowhere is a usage error: one line, exit 1, no stack trace.
+        var host = await TestHostPath.ResolveAsync(input.HostPath, input.FrameworkFlag, input.ConfigurationFlag);
+
         WarmProjectedResidentSuite suite;
 
         try
@@ -73,7 +86,7 @@ public class ResidentCommand : JasperFxAsyncCommand<ResidentInput>
             // Warm-capable, which subsumes cold: a cold command is delegated to
             // OutOfProcessResidentSuite unchanged, so this is strictly additive.
             suite = await WarmProjectedResidentSuite.For(
-                input.HostPath,
+                host,
 
                 // The same origins the runner was pointed at, whole, so a commanded run lands on
                 // the console that asked for it rather than on whatever the child would resolve —
