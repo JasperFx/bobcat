@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import type { RunState } from '@/stores/runs-store'
 import type { RunnerView } from '@/lib/runners'
-import { runnerState } from '@/lib/runners'
+import { runnerState, START_A_RUNNER } from '@/lib/runners'
 import { commandLineOf, plannedHintOf } from '@/lib/liveProgress'
 import { useRunners } from '@/composables/useRunners'
 import { storeToRefs } from 'pinia'
@@ -78,6 +78,13 @@ const buildProblem = computed(() =>
 )
 const runnerTone = computed(() => (runner.value ? runnerState(runner.value) : null))
 
+/**
+ * bobcat#798: Run all only when the runner can take the command. A rebuilding runner can — a command
+ * sent to it is held until it is back — but one that is not connected, has exited or failed to build
+ * cannot, and a live button there was a press that went nowhere. That row says how to start one.
+ */
+const canRun = computed(() => !!runner.value && runner.value.specs > 0 && runnerTone.value?.tone !== 'bad')
+
 // How many cards the expansion shows before "and N older": the strip's length, by default.
 const showAll = ref(false)
 const cards = computed(() => (showAll.value ? props.group.runs : props.group.runs.slice(0, HISTORY_LENGTH)))
@@ -136,7 +143,15 @@ function previousTo(run: RunState): RunState[] {
         </router-link>
         {{ runnerTone!.label }}
       </span>
-      <RunButton v-if="runner && runner.specs > 0" :target="{ all: true, runnerId: runner.runnerId }" label="Run all" :modes="runner.modes" />
+      <RunButton v-if="canRun" :target="{ all: true, runnerId: runner!.runnerId }" label="Run all" :modes="runner!.modes" class="bm-suite-run" />
+      <span
+        v-else-if="runner && runner.specs > 0"
+        class="bm-suite-start"
+        :title="`This runner cannot take a command (${runnerTone!.label}). Start one: ${START_A_RUNNER}`"
+        data-testid="suite-start-runner"
+      >
+        start a runner: <code>{{ START_A_RUNNER }}</code>
+      </span>
     </div>
 
     <!-- The live run's bar sits under the row whatever the expansion: it is what someone is waiting on. -->
@@ -183,9 +198,24 @@ function previousTo(run: RunState): RunState[] {
 
 .bm-suite-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 4px 12px;
   min-width: 0;
+}
+
+/* bobcat#798: at narrow widths the row wraps rather than pushing its button past the border. */
+.bm-suite-run {
+  flex: none;
+}
+
+.bm-suite-start {
+  font-size: 12px;
+  color: var(--bm-menu-text);
+}
+
+.bm-suite-start code {
+  font-size: 11px;
 }
 
 .bm-suite-toggle {

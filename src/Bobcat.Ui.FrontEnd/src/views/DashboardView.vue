@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { storeToRefs } from 'pinia'
 import { useRunsStore, type RunState } from '@/stores/runs-store'
+import { useConnectionStore } from '@/stores/connection-store'
 import { useBoardStore, UNATTRIBUTED } from '@/stores/board-store'
 import { useRunners } from '@/composables/useRunners'
 import SuiteRow from '@/components/SuiteRow.vue'
@@ -16,6 +17,14 @@ import { describeRetention, groupBySuite, loadExpandedSuites, saveExpandedSuites
  */
 const runs = useRunsStore()
 const board = useBoardStore()
+const connection = useConnectionStore()
+
+/**
+ * bobcat#798: until the board's first summary has arrived, what the store holds is whatever live
+ * events got here first, and painting it showed a partial board — or "No runs yet", which was not
+ * true either. A connection that failed outright never brings a summary, so it does not wait on one.
+ */
+const loading = computed(() => !runs.boardLoaded && connection.status !== 'error')
 const { repositoryFilter } = storeToRefs(board)
 const { runners } = useRunners()
 
@@ -244,9 +253,12 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
         </el-button>
       </div>
     </div>
-    <el-empty v-if="suites.length === 0" description="No runs yet — waiting for a publisher" />
+    <div v-if="loading" class="bm-board-loading" data-testid="board-loading" aria-busy="true">
+      <el-skeleton :rows="3" animated />
+    </div>
+    <el-empty v-else-if="suites.length === 0" description="No runs yet — waiting for a publisher" />
     <SuiteRow
-      v-for="group in suites"
+      v-for="group in loading ? [] : suites"
       :key="group.key"
       :group="group"
       :expanded="expanded.has(group.key)"
@@ -261,6 +273,10 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
 </template>
 
 <style scoped>
+.bm-board-loading {
+  padding: 8px 10px;
+}
+
 .bm-board-header {
   display: flex;
   align-items: center;

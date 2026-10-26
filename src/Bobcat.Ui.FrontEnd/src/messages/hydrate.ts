@@ -20,18 +20,25 @@ export async function hydrateFromServer(fetchImpl: typeof fetch = fetch): Promis
 
 /** One request for the board, then the archives of the runs that need them, side by side. */
 async function hydrateBoard(fetchImpl: typeof fetch): Promise<void> {
+  const store = useRunsStore()
   let summaries: RunSummary[]
+  // A failed summary is as loaded as the board will get (bobcat#798): it must not leave the board
+  // waiting on a summary that is not coming.
   try {
     const response = await fetchImpl('/api/runs')
-    if (!response.ok) return
+    if (!response.ok) {
+      store.markBoardLoaded()
+      return
+    }
     summaries = (await response.json()) as RunSummary[]
   } catch {
+    store.markBoardLoaded()
     return // Hydration is best-effort; the live stream still works without it.
   }
 
-  const store = useRunsStore()
   store.pruneTo(summaries.map((s) => s.runId))
   store.applySummaries(summaries)
+  store.markBoardLoaded()
 
   const wanted = summaries.filter((s) => (!s.finished && !s.orphaned) || store.runById(s.runId)?.eventsLoaded)
   await Promise.all(wanted.map((s) => loadRunEvents(s.runId, fetchImpl)))

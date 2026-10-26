@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ElMessageBox } from 'element-plus'
 import { useRunsStore } from '@/stores/runs-store'
+import { useConnectionStore } from '@/stores/connection-store'
 import { useBoardStore } from '@/stores/board-store'
 import { resetRunners } from '@/composables/useRunners'
 import { useRunnersStore } from '@/stores/runners-store'
@@ -61,6 +62,8 @@ describe('DashboardView', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
+    // The board as it stands once its summary has arrived (bobcat#798 holds it back until then).
+    useRunsStore().markBoardLoaded()
     store = useRunsStore()
     resetRunners()
     localStorage.clear()
@@ -88,6 +91,34 @@ describe('DashboardView', () => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
     resetRunners()
+  })
+
+  describe('before the board summary arrives (bobcat#798)', () => {
+    it('shows a loading state, not the partial board live events have built, nor "No runs yet"', async () => {
+      store.boardLoaded = false
+      // A live event got here before the summary: the store holds a shell of a run.
+      store.handleRunHeartbeat({ runId: 'early', at: '2026-09-01T11:59:00Z' })
+      const page = render()
+      await flushPromises()
+
+      expect(page.find('[data-testid="board-loading"]').exists()).toBe(true)
+      expect(page.findAll('[data-testid="suite-row"]')).toHaveLength(0)
+      expect(page.text()).not.toContain('No runs yet')
+
+      store.markBoardLoaded()
+      await flushPromises()
+      expect(page.find('[data-testid="board-loading"]').exists()).toBe(false)
+      expect(page.findAll('[data-testid="suite-row"]')).toHaveLength(1)
+    })
+
+    it('does not wait on a summary a failed connection will never bring', async () => {
+      store.boardLoaded = false
+      useConnectionStore().setError('refused')
+      const page = render()
+      await flushPromises()
+      expect(page.find('[data-testid="board-loading"]').exists()).toBe(false)
+      expect(page.text()).toContain('No runs yet')
+    })
   })
 
   describe('grouped by suite (bobcat#786)', () => {
@@ -217,6 +248,22 @@ describe('DashboardView', () => {
       expect(rows[1]!.find('[data-testid="run-button"]').text()).toBe('▶ Run all · cold')
       expect(rows[1]!.find('[data-testid="suite-toggle"]').attributes('disabled')).toBeDefined()
       expect(rows[0]!.find('[data-testid="run-button"]').exists()).toBe(true)
+    })
+
+    it('offers Run all only to a runner that can take it, and otherwise says how to start one (bobcat#798)', async () => {
+      registered = [
+        runner({ runnerId: 'gone', suite: 'Gone.Specs', specs: 4, connected: false }),
+        runner({ runnerId: 'busy', suite: 'Busy.Specs', specs: 4, connected: false, status: 'rebuilding' }),
+      ]
+      const page = render()
+      await flushPromises()
+
+      const row = (suite: string) => page.findAll('[data-testid="suite-row"]').find((r) => r.find('[data-testid="suite-name"]').text().includes(suite))!
+      expect(row('Gone.Specs').find('[data-testid="run-button"]').exists()).toBe(false)
+      expect(row('Gone.Specs').find('[data-testid="suite-start-runner"]').text()).toContain('bobcat resident')
+      // A rebuilding runner holds a command until it is back, so its button stays.
+      expect(row('Busy.Specs').find('[data-testid="run-button"]').exists()).toBe(true)
+      expect(row('Busy.Specs').find('[data-testid="suite-start-runner"]').exists()).toBe(false)
     })
 
     it('states what the console keeps', async () => {

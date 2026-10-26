@@ -24,6 +24,8 @@ describe('an orphaned run on the board', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
+    // The board as it stands once its summary has arrived (bobcat#798 holds it back until then).
+    useRunsStore().markBoardLoaded()
     deleted = []
     vi.useFakeTimers()
     vi.setSystemTime(Date.parse('2026-10-26T12:00:00Z'))
