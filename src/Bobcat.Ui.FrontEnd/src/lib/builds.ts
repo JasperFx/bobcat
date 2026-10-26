@@ -66,3 +66,22 @@ export function buildProblems(builds: BuildStatusReported[] | null, runners: Run
 
   return [...problems.values()].sort((a, b) => Number(b.failed) - Number(a.failed) || a.suite.localeCompare(b.suite))
 }
+
+/** Backslashes and a trailing slash are not a different checkout. */
+function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
+  const norm = (p: string | null | undefined) => (p ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+  return norm(a) !== '' && norm(a) === norm(b)
+}
+
+/**
+ * The build problem for one suite (bobcat#795): the same suite name, reported from one of the
+ * checkouts the suite's runs, runner or group name. A build report names the checkout it was built in
+ * while the board groups by repository slug, so a suite is matched against every path it is known by.
+ */
+export function buildProblemFor(
+  problems: readonly BuildProblem[],
+  suite: string,
+  repositories: readonly (string | null | undefined)[],
+): BuildProblem | undefined {
+  return problems.find((problem) => problem.suite === suite && repositories.some((repository) => samePath(problem.repository, repository)))
+}

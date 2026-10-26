@@ -44,6 +44,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- bobcat#795: SpecProject.SuiteNameAsync is pinned by Bobcat.Console.Tests. -->
+    <InternalsVisibleTo Include="Bobcat.Console.Tests" />
     <ProjectReference Include="..\Bobcat.EventModel\Bobcat.EventModel.csproj" />
 
     <!-- `bobcat ui` and the agent query commands (bobcat#524). -->

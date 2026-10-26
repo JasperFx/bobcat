@@ -5,6 +5,9 @@ import type { RunnerView } from '@/lib/runners'
 import { runnerState } from '@/lib/runners'
 import { commandLineOf, plannedHintOf } from '@/lib/liveProgress'
 import { useRunners } from '@/composables/useRunners'
+import { storeToRefs } from 'pinia'
+import { useRunnersStore } from '@/stores/runners-store'
+import { buildProblemFor, buildProblems } from '@/lib/builds'
 import { HISTORY_LENGTH, verdictToneOf, type SuiteGroup } from '@/lib/runBoard'
 import HistoryStrip from '@/components/HistoryStrip.vue'
 import LiveRunProgress from '@/components/LiveRunProgress.vue'
@@ -63,6 +66,16 @@ const latestVerdict = computed(() => {
 })
 
 const runner = computed(() => props.group.runner)
+
+// bobcat#795: a broken build on this suite's own row, not only in the status strip.
+const { builds } = storeToRefs(useRunnersStore())
+const buildProblem = computed(() =>
+  buildProblemFor(buildProblems(builds.value, runners.value), props.group.suite, [
+    props.group.repository,
+    ...props.group.runs.map((run) => run.repository),
+    props.group.runner?.repository,
+  ]),
+)
 const runnerTone = computed(() => (runner.value ? runnerState(runner.value) : null))
 
 // How many cards the expansion shows before "and N older": the strip's length, by default.
@@ -107,6 +120,15 @@ function previousTo(run: RunState): RunState[] {
         {{ latestVerdict.text }}
       </span>
       <span v-else class="bm-suite-latest bm-suite-muted" data-testid="suite-latest">no runs yet</span>
+      <span
+        v-if="buildProblem"
+        class="bm-suite-build"
+        :data-failed="buildProblem.failed"
+        :title="buildProblem.detail ?? undefined"
+        data-testid="suite-build"
+      >
+        {{ buildProblem.failed ? 'build failed' : 'building…' }}
+      </span>
       <HistoryStrip :suite="group.suite" :runs="group.runs" />
       <span v-if="runner" class="bm-suite-runner" :data-tone="runnerTone!.tone" :title="runner.statusDetail ?? undefined" data-testid="suite-runner">
         <router-link :to="`/runners/${encodeURIComponent(runner.runnerId)}`" class="bm-suite-runner-link" data-testid="runner-link">
@@ -285,5 +307,17 @@ function previousTo(run: RunState): RunState[] {
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--bm-menu-text);
+}
+.bm-suite-build {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--el-color-warning);
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.bm-suite-build[data-failed='true'] {
+  color: var(--el-color-danger);
 }
 </style>
