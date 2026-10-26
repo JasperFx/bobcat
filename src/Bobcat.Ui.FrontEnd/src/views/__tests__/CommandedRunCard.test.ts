@@ -23,6 +23,8 @@ describe('a commanded run on the board', () => {
 
   beforeEach(() => {
     setActivePinia(createPinia())
+    // The board as it stands once its summary has arrived (bobcat#798 holds it back until then).
+    useRunsStore().markBoardLoaded()
     resetRunners()
     // As the board's own tests do: element-plus's select re-measures on every real tick in jsdom
     vi.useFakeTimers()

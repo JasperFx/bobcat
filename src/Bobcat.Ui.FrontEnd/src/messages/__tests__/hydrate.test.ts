@@ -192,6 +192,22 @@ describe('hydrateFromServer', () => {
     expect(useRunnersStore().runners).toEqual([])
   })
 
+  it('marks the board loaded once its summary is applied, and when the summary fails, so it never waits forever (bobcat#798)', async () => {
+    expect(useRunsStore().boardLoaded).toBe(false)
+    await hydrateFromServer(fakeServer(board(finishedSummary)).fetchImpl)
+    expect(useRunsStore().boardLoaded).toBe(true)
+
+    setActivePinia(createPinia())
+    await hydrateFromServer(fakeServer({}).fetchImpl) // /api/runs answers not-ok
+    expect(useRunsStore().boardLoaded).toBe(true)
+
+    setActivePinia(createPinia())
+    await hydrateFromServer((async () => {
+      throw new Error('down')
+    }) as unknown as typeof fetch)
+    expect(useRunsStore().boardLoaded).toBe(true)
+  })
+
   it('a torn archive line does not sink the rest of the replay', async () => {
     await loadRunEvents(RUN, fakeServer(archive(RUN, '{"type":"run_hea\n' + finishedRunNdjson)).fetchImpl)
 

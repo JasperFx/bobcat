@@ -62,6 +62,15 @@ const buildText = computed(() => {
 })
 const showingErrors = ref(false)
 
+// bobcat#798: the dialog said "The build is broken" over an empty body once the build was fixed.
+// The next push that leaves nothing broken closes it.
+watch(
+  () => broken.value.length,
+  (count) => {
+    if (count === 0) showingErrors.value = false
+  },
+)
+
 // ---------------------------------------------------------------- live run
 
 /** The live runs the board is filtered to: the strip and the board agree about what is "here". */

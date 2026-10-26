@@ -1088,6 +1088,17 @@ export const useRunsStore = defineStore('runs', () => {
    * Reconcile after hydration: drop local runs the server no longer knows (ejected from
    * another browser, or a registry restart that skipped them).
    */
+  /**
+   * bobcat#798: whether the board's summary (`GET /api/runs`) has been applied at least once, or
+   * failed. Until then the board is only what live events have dribbled in, which painted as a
+   * partial board — or as "No runs yet" — before the real one arrived.
+   */
+  const boardLoaded = ref(false)
+
+  function markBoardLoaded() {
+    boardLoaded.value = true
+  }
+
   function pruneTo(runIds: string[]) {
     const keep = new Set(runIds)
     for (const runId of Object.keys(runs.value)) {
@@ -1133,5 +1144,7 @@ export const useRunsStore = defineStore('runs', () => {
     removeRuns,
     markOrphaned,
     pruneTo,
+    boardLoaded,
+    markBoardLoaded,
   }
 })

@@ -122,6 +122,25 @@ describe('StatusStrip', () => {
     expect(strip.find('[data-testid="status-strip"]').attributes('data-broken')).toBe('false')
   })
 
+  it('closes the compiler-errors dialog when the next push says the build is fixed (bobcat#798)', async () => {
+    const strip = render()
+    await flushPromises()
+    relayToStore({
+      type: 'build_status_changed',
+      data: { builds: [{ suite: 'Bank.Tests', repository: '/code/bank', branch: 'main', state: 'build-failed', detail: 'Specs.cs(3,1): error CS1002', at: '2026-10-26T11:59:00Z' }] },
+    })
+    await flushPromises()
+    await strip.find('[data-testid="strip-build"] button').trigger('click')
+    await flushPromises()
+    const dialog = () => strip.findComponent({ name: 'ElDialog' })
+    expect(dialog().props('modelValue')).toBe(true)
+
+    // Fixed: watch reports the project built. The dialog no longer says "broken" over nothing.
+    relayToStore({ type: 'build_status_changed', data: { builds: [{ suite: 'Bank.Tests', repository: '/code/bank', branch: 'main', state: 'built', detail: null, at: '2026-10-26T12:00:30Z' }] } })
+    await flushPromises()
+    expect(dialog().props('modelValue')).toBe(false)
+  })
+
   it('shows a live run with a mini bar, and drops it when the run finishes', async () => {
     liveRun('live', 'Bank.Tests', '2026-10-26T11:58:00Z')
     const strip = render()
