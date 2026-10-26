@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import ScenarioProgress from '@/components/ScenarioProgress.vue'
 import SpecificationView from '@/components/SpecificationView.vue'
 import { useRunsStore, visibleScenarios } from '@/stores/runs-store'
@@ -8,6 +8,7 @@ import RunButton from '@/components/RunButton.vue'
 import MissingRun from '@/components/MissingRun.vue'
 import BuildStatusBanner from '@/components/BuildStatusBanner.vue'
 import { useRunners } from '@/composables/useRunners'
+import { ensureRunEvents } from '@/messages/hydrate'
 import { rebuiltSince } from '@/lib/runners'
 import { sliceFor, useEventModelStore } from '@/stores/event-model-store'
 import { sliceHref, specHref } from '@/lib/specLinks'
@@ -18,6 +19,10 @@ const runs = useRunsStore()
 const model = useEventModelStore()
 const run = computed(() => runs.runById(props.runId))
 const { runners } = useRunners()
+
+// bobcat#784: the board hydrates from a summary per run; this page is where a run's events are
+// wanted, so it asks for the archive — once, and not at all for a run first seen live.
+watch(() => props.runId, (runId) => void ensureRunEvents(runId), { immediate: true })
 
 /** bobcat#652: this run is of the code before the runner's last rebuild. */
 const stale = computed(() => (run.value ? rebuiltSince(run.value, runners.value) : undefined))

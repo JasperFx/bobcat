@@ -58,7 +58,7 @@ public static class BuildStatusEndpoints
     /// shrugs.
     /// </summary>
     [WolverinePost("/api/build-status")]
-    public static IResult Report(BuildStatusReported report, BuildStatusRegistry builds)
+    public static IResult Report(BuildStatusReported report, BuildStatusRegistry builds, SignalRBatchAccumulator accumulator)
     {
         if (string.IsNullOrWhiteSpace(report.Suite) || report.State is not (BuildStatusRegistry.Building or BuildStatusRegistry.BuildFailed or BuildStatusRegistry.Built))
         {
@@ -66,6 +66,9 @@ public static class BuildStatusEndpoints
         }
 
         builds.Record(report);
+        // Pushed as the whole list (bobcat#784), the shape GET serves, so the banner replaces what it
+        // has instead of polling for it.
+        accumulator.Notify(new Contracts.BuildStatusChanged(builds.All()));
         return Results.Accepted();
     }
 

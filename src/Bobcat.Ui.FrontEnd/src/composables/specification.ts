@@ -77,11 +77,16 @@ export interface Specification {
   scenarioFailure: string | null
 }
 
-/** What a specification is rendered from: a live scenario, or one read from a results file. */
+/**
+ * What a specification is rendered from: a live scenario, or one read from a results file. The
+ * reports (bobcat#408) are optional because a source may predate them; the viewer renders what it
+ * is given.
+ */
 export type SpecSource = Pick<
   ScenarioState,
   'status' | 'steps' | 'declaredSteps' | 'plannedSteps' | 'errorMessage'
->
+> &
+  Partial<Pick<ScenarioState, 'reports'>>
 
 function statusOfStep(step: StepState): LineStatus {
   if (step.status === 'running') return 'running'

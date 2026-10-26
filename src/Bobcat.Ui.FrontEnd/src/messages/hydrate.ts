@@ -1,48 +1,63 @@
 import { relayToStore } from './relayToStore'
-import { useRunsStore } from '@/stores/runs-store'
-
-interface RunSummaryDto {
-  runId: string
-  orphaned: boolean
-  repository: string
-  repositorySlug?: string | null
-}
+import { useRunnersStore } from '@/stores/runners-store'
+import { useRunsStore, type RunSummary } from '@/stores/runs-store'
 
 /**
  * Seed the SPA on page load and on every SignalR reconnect, so a fresh tab shows current state
- * immediately instead of waiting for the next live event. Best-effort.
+ * immediately instead of waiting for the next live event. Best-effort throughout.
+ *
+ * Three requests, however many runs the board carries (bobcat#784): the board summary, the
+ * runners, the build reports. A run's own events are loaded only for a run that is live — its
+ * card's progress needs them, and the live stream carries only what happens from now on — and for
+ * a run whose events were already loaded, since a reconnect may have missed some. Everything else
+ * waits for its page to open (`loadRunEvents`). This replaced a replay of every run's archive, one
+ * request after another: 824 runs on a shared box was 824 fetches and 71 MB before the counts
+ * stopped climbing.
  */
 export async function hydrateFromServer(fetchImpl: typeof fetch = fetch): Promise<void> {
-  await hydrateRuns(fetchImpl)
+  await Promise.all([hydrateBoard(fetchImpl), useRunnersStore().load(fetchImpl)])
 }
 
-/**
- * Seed the runs store from the server's registry.
- *
- * The mechanism is deliberately a REPLAY, not a snapshot DTO: the server's NDJSON archive is
- * the same event stream the live SignalR path delivers, so hydration reuses the store's own
- * fold via relayToStore — one reduction, two transports, nothing to keep in sync. Replay over
- * already-arrived live events is safe because the store's handlers upsert (see the stepId
- * guard in handleStepStarted).
- */
-async function hydrateRuns(fetchImpl: typeof fetch): Promise<void> {
-  let summaries: RunSummaryDto[]
+/** One request for the board, then the archives of the runs that need them, side by side. */
+async function hydrateBoard(fetchImpl: typeof fetch): Promise<void> {
+  let summaries: RunSummary[]
   try {
     const response = await fetchImpl('/api/runs')
     if (!response.ok) return
-    summaries = (await response.json()) as RunSummaryDto[]
+    summaries = (await response.json()) as RunSummary[]
   } catch {
     return // Hydration is best-effort; the live stream still works without it.
   }
 
   const store = useRunsStore()
   store.pruneTo(summaries.map((s) => s.runId))
-  store.learnRepositories(summaries)
+  store.applySummaries(summaries)
 
-  for (const summary of summaries) {
+  const wanted = summaries.filter((s) => (!s.finished && !s.orphaned) || store.runById(s.runId)?.eventsLoaded)
+  await Promise.all(wanted.map((s) => loadRunEvents(s.runId, fetchImpl)))
+}
+
+// One archive load in flight per run: a run page and the board asking at once share it.
+const inFlight = new Map<string, Promise<void>>()
+
+/**
+ * Replay one run's archive into the store — when its page opens, or because it is live
+ * (bobcat#784). The server's NDJSON is the same event stream the live SignalR path delivers, so
+ * the replay reuses the store's own fold via relayToStore: one reduction, two transports, nothing
+ * to keep in sync. Replay over already-arrived live events is safe because the store's handlers
+ * upsert (see the stepNumber guard in handleStepStarted). A run the summary called orphaned is
+ * marked so again afterwards: every replayed event reads as the publisher speaking, and it is not.
+ */
+export function loadRunEvents(runId: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const pending = inFlight.get(runId)
+  if (pending) return pending
+
+  const load = (async () => {
+    const store = useRunsStore()
+    const orphaned = store.runById(runId)?.orphaned ?? false
     try {
-      const response = await fetchImpl(`/api/runs/${summary.runId}/export?format=ndjson`)
-      if (!response.ok) continue
+      const response = await fetchImpl(`/api/runs/${runId}/export?format=ndjson`)
+      if (!response.ok) return
 
       const ndjson = await response.text()
       for (const line of ndjson.split('\n')) {
@@ -58,9 +73,24 @@ async function hydrateRuns(fetchImpl: typeof fetch): Promise<void> {
         }
       }
 
-      if (summary.orphaned) store.markOrphaned(summary.runId)
+      if (orphaned) store.markOrphaned(runId)
+      store.markEventsLoaded(runId)
     } catch {
-      // Skip this run, keep hydrating the others.
+      // The page shows what it has; the next open asks again.
+    } finally {
+      inFlight.delete(runId)
     }
-  }
+  })()
+
+  inFlight.set(runId, load)
+  return load
+}
+
+/**
+ * Load a run's events if the store does not have them (bobcat#784) — what a run page and a spec
+ * page do on opening. Resolves once the store has them, or at once when it already does.
+ */
+export function ensureRunEvents(runId: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const run = useRunsStore().runById(runId)
+  return run?.eventsLoaded ? Promise.resolve() : loadRunEvents(runId, fetchImpl)
 }

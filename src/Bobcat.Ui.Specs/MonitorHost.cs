@@ -82,6 +82,9 @@ public sealed class MonitorHost : IAsyncLifetime
         // evicted once a suite name has been used more than ten times.
         builder.Configuration["Monitor:RetentionDays"] = "0";
         builder.Configuration["Monitor:RetentionRuns"] = "0";
+        // Live orphan detection (bobcat#784) is on the clock too; OrphanDetectionTests drives it on a
+        // fake one. Here a run stays live until a restart orphans it, as every spec expects.
+        builder.Configuration["Monitor:OrphanSeconds"] = "0";
 
         BobcatUiHost.Configure(builder, idleShutdown: false);
 

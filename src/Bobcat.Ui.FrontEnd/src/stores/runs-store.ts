@@ -7,6 +7,7 @@ import type {
   RetryScheduled,
   RunFinished,
   RunHeartbeat,
+  RunOrphaned,
   RunProgress,
   RunStarted,
   ScenarioFinished,
@@ -272,6 +273,55 @@ export interface ScenarioState {
   forwarded: boolean
   /** The worker framework's display name for a forwarded test; null for a Bobcat scenario. */
   displayName: string | null
+  /**
+   * The scenario's own accounts of what its system did (bobcat#408): titled grids that arrive on
+   * the terminal `scenario_finished`, already filtered by the run's report visibility, so a passing
+   * scenario carries none unless the run was verbose. Rendered beneath the steps, as the results
+   * page renders them. Empty until the close, and from a publisher that sends none.
+   */
+  reports: ScenarioReportState[]
+}
+
+/** One scenario report (bobcat#408) as the viewer renders it: the shape `ReportGrid` takes. */
+export interface ScenarioReportState {
+  title: string
+  /** The publisher's shorter heading, when it sent one; the results file carries none. */
+  shortTitle?: string | null
+  columns: string[]
+  cells: StepCell[]
+  /** Rows the publisher dropped past its cap — shown as "…and N more", never silently. */
+  suppressedRows: number
+}
+
+/**
+ * One run as `GET /api/runs` summarises it (bobcat#784): everything the board needs without the
+ * run's events. The server's `RunSummary`, by hand — it is an HTTP response, not a hub message, so
+ * the contract generator does not mirror it. Every member an older console might omit is optional.
+ */
+export interface RunSummary {
+  runId: string
+  suite: string
+  repository: string
+  branch: string | null
+  mode: string
+  finished: boolean
+  orphaned: boolean
+  exitCode: number | null
+  scenarios: number
+  startedAt: string | null
+  finishedAt: string | null
+  tag?: string | null
+  repositorySlug?: string | null
+  session?: string | null
+  command?: string | null
+  totalScenarios?: number | null
+  scenariosFinished?: number
+  passed?: number | null
+  failed?: number | null
+  passedOnRetry?: number | null
+  indeterminate?: number | null
+  skipped?: number | null
+  lastEventAt?: string | null
 }
 
 // The supervisor's topology (issue #84): which worker process is doing what, what
@@ -366,13 +416,35 @@ export interface RunState {
   startedAt: string
   totalScenarios: number | null
   finished: boolean
-  /** Server-declared: rehydrated from an archive with no terminal event — will never finish. */
+  /**
+   * Server-declared (bobcat#784): the publisher is gone and the run will never finish — rehydrated
+   * from an archive with no terminal event, or silent past the console's orphan interval. Cleared
+   * by any later event for the run. An orphaned run can be ejected.
+   */
   orphaned: boolean
   exitCode: number | null
   counts: RunCounts | null
   finishedAt: string | null
-  /** Wall-clock of the latest event/heartbeat — the orphaned-run detector's input. */
+  /**
+   * When the console last heard from the run (bobcat#784): from the board summary, then the stamp
+   * of each live event. Informational here — the server decides orphans, and pushes them.
+   */
   lastEventAt: string
+  /**
+   * The opaque `BOBCAT_RUN_TAG` the run was launched with (bobcat#784): a ticket, a build number,
+   * a plan node. Never interpreted here; null when the publisher set none.
+   */
+  tag: string | null
+  /** The agent session that started the run (bobcat#389), or null. */
+  session: string | null
+  /** The console command that caused the run (bobcat#392), or null for a run nobody commanded. */
+  command: string | null
+  /**
+   * Whether this run's events are in `scenarios` (bobcat#784). The board hydrates from a summary
+   * per run and loads a run's archive only when its page opens or it is live; a run first seen by
+   * its own `run_started` has had every event. False means the run page must ask for the archive.
+   */
+  eventsLoaded: boolean
   scenarios: Record<string, ScenarioState>
   /** Supervisor lanes in lane order; empty for an in-process run. */
   lanes: LaneState[]
@@ -440,7 +512,21 @@ export const useRunsStore = defineStore('runs', () => {
     return Math.min(1, done / run.totalScenarios)
   }
 
+  /**
+   * The run an EVENT belongs to: created as a shell if nothing announced it, stamped with the
+   * event's time, and — because an event means a live publisher — orphaned no more, exactly the
+   * registry's rule on ingest. A replay of an orphaned run's archive goes through here too, and
+   * hydration re-marks the run from the summary once the replay is done.
+   */
   function ensureRun(runId: string, at?: string): RunState {
+    const run = shellFor(runId, at)
+    if (at) run.lastEventAt = at
+    run.orphaned = false
+    return run
+  }
+
+  /** The run's state, created empty if the board has not heard of it; nothing else is touched. */
+  function shellFor(runId: string, at?: string): RunState {
     let run = runs.value[runId]
     if (!run) {
       // Events arrived before (or without) run_started — synthesize a shell so
@@ -459,6 +545,10 @@ export const useRunsStore = defineStore('runs', () => {
         counts: null,
         finishedAt: null,
         lastEventAt: at ?? new Date().toISOString(),
+        tag: null,
+        session: null,
+        command: null,
+        eventsLoaded: false,
         scenarios: {},
         lanes: [],
         recycles: [],
@@ -468,7 +558,6 @@ export const useRunsStore = defineStore('runs', () => {
       }
       runs.value[runId] = run
     }
-    if (at) run.lastEventAt = at
     return run
   }
 
@@ -498,6 +587,7 @@ export const useRunsStore = defineStore('runs', () => {
         workerPublished: false,
         forwarded: false,
         displayName: null,
+        reports: [],
       }
       run.scenarios[uid] = scenario
     }
@@ -512,6 +602,53 @@ export const useRunsStore = defineStore('runs', () => {
     run.mode = e.mode
     run.startedAt = e.startedAt
     run.totalScenarios = e.totalScenarios
+    run.tag = e.tag ?? null
+    run.session = e.session ?? null
+    run.command = e.command ?? null
+    // A run whose start we saw has had every event since: live from here, or the archive's first
+    // line in a replay. Either way there is nothing to load for it.
+    run.eventsLoaded = true
+  }
+
+  /**
+   * Seed or refresh the board from the server's summaries (bobcat#784) — one request for the whole
+   * board, however many runs it carries, in place of replaying every run's archive. A summary never
+   * touches a run's scenarios or whether its events are loaded: it is the card, not the page.
+   */
+  function applySummaries(summaries: RunSummary[]) {
+    for (const s of summaries) {
+      const run = shellFor(s.runId, s.startedAt ?? undefined)
+      run.suite = s.suite
+      run.repository = s.repository
+      run.branch = s.branch
+      run.mode = s.mode
+      if (s.startedAt) run.startedAt = s.startedAt
+      run.totalScenarios = s.totalScenarios ?? run.totalScenarios
+      run.finished = s.finished
+      run.orphaned = s.orphaned
+      run.exitCode = s.exitCode
+      run.finishedAt = s.finishedAt
+      run.tag = s.tag ?? null
+      run.session = s.session ?? null
+      run.command = s.command ?? null
+      if (s.lastEventAt) run.lastEventAt = s.lastEventAt
+      if (s.finished && s.passed != null && s.failed != null) {
+        run.counts = {
+          passed: s.passed,
+          failed: s.failed,
+          passedOnRetry: s.passedOnRetry ?? 0,
+          indeterminate: s.indeterminate ?? 0,
+          skipped: s.skipped ?? null,
+        }
+      }
+    }
+    learnRepositories(summaries)
+  }
+
+  /** The run's archive has been replayed into the store, or there was nothing to replay. */
+  function markEventsLoaded(runId: string) {
+    const run = runs.value[runId]
+    if (run) run.eventsLoaded = true
   }
 
   function handleRunHeartbeat(e: RunHeartbeat) {
@@ -571,6 +708,17 @@ export const useRunsStore = defineStore('runs', () => {
     // Assign, never append — mirrors the C# fold: hydration replays the same event, and a
     // null (older publisher, nothing recorded) leaves whatever stands.
     if (e.touchedTypes) scenario.touchedTypes = e.touchedTypes
+    // The scenario's reports (bobcat#408), by the same rule: the whole list from the one event that
+    // carries it, so a replay lands the same grids rather than doubled ones.
+    if (e.reports) {
+      scenario.reports = e.reports.map((r) => ({
+        title: r.title,
+        shortTitle: r.shortTitle ?? null,
+        columns: [...r.columns],
+        cells: [...r.cells],
+        suppressedRows: r.suppressedRows ?? 0,
+      }))
+    }
     scenario.finishedAt = e.at ?? null
     // SpecLog lines (bobcat#547) arrive at the close, latched like reports, and are folded onto
     // the steps they were written in — assigned whole, mirroring the C# fold.
@@ -923,6 +1071,20 @@ export const useRunsStore = defineStore('runs', () => {
   }
 
   /**
+   * The console stopped hearing from the run's publisher (bobcat#784) and pushed the verdict. The
+   * card loses its progress bar and gains its Eject; the next event for the run, should the
+   * publisher only have been slow, un-orphans it as every event does.
+   */
+  function handleRunOrphaned(e: RunOrphaned) {
+    // A run the board has not heard of is left to the next summary; a shell here would be a card
+    // with no suite, no start and no events.
+    const run = runs.value[e.runId]
+    if (!run) return
+    if (e.lastEventAt) run.lastEventAt = e.lastEventAt
+    markOrphaned(e.runId)
+  }
+
+  /**
    * Reconcile after hydration: drop local runs the server no longer knows (ejected from
    * another browser, or a registry restart that skipped them).
    */
@@ -944,6 +1106,9 @@ export const useRunsStore = defineStore('runs', () => {
     runsNewestFirst,
     runById,
     progressOf,
+    applySummaries,
+    markEventsLoaded,
+    handleRunOrphaned,
     handleRunStarted,
     handleRunHeartbeat,
     handleRunFinished,

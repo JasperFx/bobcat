@@ -1,22 +1,22 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import {
   askRunner,
   commandProgress,
   describeTarget,
   findRunners,
   loadMode,
-  loadRunner,
   loadRunners,
   runnerForSuite,
   modeFor,
   runnerState,
   saveMode,
   START_A_RUNNER,
-  type RunnerCommandView,
   type RunnerView,
   type RunTarget,
 } from '@/lib/runners'
+import { useRunnersStore } from '@/stores/runners-store'
 
 /**
  * One run button (stoat#78): a spec, a set of failed specs, a feature, or a slice's bound specs.
@@ -41,7 +41,22 @@ const sending = ref(false)
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 const asked = ref<{ runnerId: string; commandId: string } | null>(null)
-const command = ref<RunnerCommandView | undefined>(undefined)
+
+// Following the command (bobcat#784): the console pushes the runner list on every change a command
+// makes — sent, accepted, rejected, and the run it caused once that run starts — so the command is
+// read off the latest push, from whichever runner holds it now (a restarted runner takes over its
+// predecessor's queue). Nothing polls.
+const runnersStore = useRunnersStore()
+const { runners: pushedRunners } = storeToRefs(runnersStore)
+const command = computed(() => {
+  const commandId = asked.value?.commandId
+  if (!commandId) return undefined
+  for (const runner of pushedRunners.value ?? []) {
+    const found = runner.commands.find((c) => c.commandId === commandId)
+    if (found) return found
+  }
+  return undefined
+})
 
 const selected = computed(() => runners.value?.find((r) => r.runnerId === selectedId.value) ?? null)
 const mode = computed(() => (selected.value ? modeFor(selected.value, remembered.value) : 'cold'))
@@ -55,7 +70,6 @@ async function press(): Promise<void> {
   error.value = null
   notice.value = null
   asked.value = null
-  command.value = undefined
   runners.value = null
   failedToLoad.value = false
 
@@ -84,7 +98,8 @@ async function run(): Promise<void> {
   }
 
   asked.value = { runnerId: selected.value.runnerId, commandId: result.commandId }
-  follow()
+  // A page that mounted no runner list yet has no snapshot for the pushes to update.
+  if (runnersStore.runners === null) void runnersStore.load()
 }
 
 async function forceNewRunner(): Promise<void> {
@@ -94,34 +109,9 @@ async function forceNewRunner(): Promise<void> {
   error.value = result.ok ? null : result.error
 }
 
-// Following the command. The registry is not pushed, so it is polled — briefly, and only while a
-// command this button sent is still on its way to a run.
-const FOLLOW_MS = 1000
-const FOLLOW_LIMIT_MS = 120_000
-let following: ReturnType<typeof setInterval> | null = null
-
-function follow(): void {
-  stopFollowing()
-  const started = Date.now()
-  following = setInterval(async () => {
-    if (!asked.value || Date.now() - started > FOLLOW_LIMIT_MS) return stopFollowing()
-    const runner = await loadRunner(asked.value.runnerId)
-    command.value = runner?.commands.find((c) => c.commandId === asked.value?.commandId)
-    if (commandProgress(command.value).done) stopFollowing()
-  }, FOLLOW_MS)
-}
-
-function stopFollowing(): void {
-  if (following !== null) clearInterval(following)
-  following = null
-}
-
 function close(): void {
   open.value = false
-  stopFollowing()
 }
-
-onUnmounted(stopFollowing)
 
 function where(runner: RunnerView): string {
   return [runner.repositorySlug ?? runner.repository, runner.branch ? `@ ${runner.branch}` : null].filter(Boolean).join(' ')

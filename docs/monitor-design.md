@@ -632,6 +632,43 @@ its events are read cannot tell an additive change from a breaking one.
 - A consumer that ignores `Reports` entirely is exactly as correct as it was before the field
   existed. Nothing else on `scenario_finished` changed.
 
+## The board is a summary, and the console pushes what it decides (bobcat#784, built 2026-10-26)
+
+Nothing on the ingest wire changed. What changed is how `bobcat ui` reads it back and what it tells
+a browser, which is kept here because the folds are half the contract.
+
+- **The board hydrates from `GET /api/runs` alone**, one request however many runs the console
+  holds, and loads a run's NDJSON (`/export?format=ndjson`) only for a run that is live or whose
+  page is open; a reconnect refreshes the summary and replays only the archives already loaded. It
+  used to replay every run's archive on every load and every reconnect — 824 runs on a shared box
+  was 824 sequential fetches and 71 MB before the counts stopped climbing. `RunSummary` gained
+  `lastEventAt` (additive) for it, and the client's run state now carries `tag`, `session` and
+  `command`, which `run_started` always sent and the store dropped.
+- **Live orphan detection.** `RunProjection.LastEventAt` is the CONSOLE's clock at a live event's
+  arrival (never the publisher's stamp — another box keeps another clock) and the event's own stamp
+  on archive replay (`MonitorEventTime`), so a rehydrated run reads as last heard from when its
+  publisher last spoke. `MonitorRunRegistry.SweepOrphans` orphans a live run silent past
+  `OrphanAfter` — `BOBCAT_MONITOR_ORPHAN_SECONDS` / `Monitor:OrphanSeconds`, 30 s by default, three
+  of the ten-second heartbeats both publishers send; zero turns it off — on a sweep
+  `OrphanSweepService` runs a third of the interval apart. An orphaned run is ejectable and evicted
+  like a finished one, and its next event un-orphans it, exactly as after a restart.
+- **The console's own notices** (`src/Bobcat.Ui/Contracts/ConsoleNotices.cs`) are pushed to the
+  browser over the same hub, inside the `batched_web_socket_payload` frame after the events, the
+  accumulator keeping only the latest of each type per flush: `run_orphaned` (`runId`,
+  `lastEventAt`), `runners_changed` (the whole list `GET /api/runners` serves) and
+  `build_status_changed` (the whole list `GET /api/build-status` serves). They are not
+  `MonitorEvent`s — no publisher sends them, nothing ingests or archives them — so they carry no
+  `[JsonDerivedType]`, `relayToStore.ts` switches on them by hand, and `TypeScriptContracts` mirrors
+  them as interfaces without routing them. A batched item's `data` is therefore declared `object`,
+  written through `BatchedDataConverter` so an event keeps its inner `type` discriminator. The runner
+  registry raises `Changed` from every mutation (registration, a stream opening or closing, a status,
+  a command queued, sent or answered), and the ingest endpoint publishes the list again when a
+  `run_started` names a command, since that link is the run registry's to know. With these, the
+  5-second polls of the runners and the build status are gone, and a runner's page follows pushes.
+- **`ScenarioFinished.Reports` is folded by the live store** (`ScenarioState.reports`, whole,
+  never appended) and `SpecificationView` renders them beneath the steps with the same `ReportGrid`
+  the HTML results page uses — one renderer for both, as the fold above asked.
+
 ## A scenario says what its steps cost (issue #466, built 2026-10-11)
 
 `ScenarioFinished` gained a **trailing, optional** `StepsMs`: what the scenario's top-level steps

@@ -1,14 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import RunButton from '@/components/RunButton.vue'
 import { loadRunner, loadRunnerSpecs, runnerState, type RunnerSpecView, type RunnerView } from '@/lib/runners'
+import { useRunnersStore } from '@/stores/runners-store'
 
 /**
  * One attached runner and every specification it can run, with the steps each one plans (bobcat#644)
  * — a suite previewed in the UI before anything has run, as `bobcat preview` does in a terminal.
  * Every feature and every specification has its run button, and the runner its Run all.
+ *
+ * The page stays current (bobcat#784): the console pushes the runner list on every change, and this
+ * page takes its runner from each push — connected, rebuilding, a command moving — and loads the
+ * specifications again when the runner has registered again, since a rebuild may have changed them.
+ * A runner id that a push no longer lists (a restarted runner's old id, kept as an alias on the
+ * server) is asked for by id, as the first load does.
  */
 const props = defineProps<{ runnerId: string }>()
+
+const store = useRunnersStore()
+const { runners } = storeToRefs(store)
 
 const runner = ref<RunnerView | null | undefined>(undefined)
 const specs = ref<RunnerSpecView[] | null>(null)
@@ -17,6 +28,15 @@ onMounted(async () => {
   const [found, listed] = await Promise.all([loadRunner(props.runnerId), loadRunnerSpecs(props.runnerId)])
   runner.value = found
   specs.value = listed ?? []
+})
+
+watch(runners, async (pushed) => {
+  if (pushed === null) return
+  const found = pushed.find((r) => r.runnerId === props.runnerId) ?? (await loadRunner(props.runnerId))
+  if (!found) return
+  const registeredAgain = runner.value?.registeredAt !== found.registeredAt
+  runner.value = found
+  if (registeredAgain) specs.value = (await loadRunnerSpecs(props.runnerId)) ?? specs.value
 })
 
 const features = computed(() => {

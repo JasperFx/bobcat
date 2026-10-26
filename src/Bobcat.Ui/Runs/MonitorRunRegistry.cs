@@ -44,11 +44,29 @@ public sealed class MonitorRunRegistry : IDisposable
     /// </summary>
     public const int DefaultRetainedRuns = 10;
 
+    /// <summary>
+    /// <c>BOBCAT_MONITOR_ORPHAN_SECONDS</c>: how long a live run may go silent before it is orphaned
+    /// (bobcat#784). Zero or negative turns live orphan detection off.
+    /// </summary>
+    public const string OrphanSecondsVariable = "BOBCAT_MONITOR_ORPHAN_SECONDS";
+
+    /// <summary>
+    /// How long a live run may go without an event before the console gives up on its publisher:
+    /// three of the publisher's heartbeats (<c>MarkerStepRun.HeartbeatInterval</c> and the
+    /// supervisor's are both ten seconds), so one dropped under backpressure costs nothing and a
+    /// dead publisher shows within half a minute. Small, because the cost of a false orphan is one
+    /// card flickering until its next event un-orphans it, and the cost of a late one is a progress
+    /// bar on a run that died.
+    /// </summary>
+    public static readonly TimeSpan DefaultOrphanAfter = TimeSpan.FromSeconds(30);
+
     private static readonly JsonSerializerOptions serializerOptions = new(JsonSerializerDefaults.Web);
 
     private readonly string _dataPath;
     private readonly TimeSpan _retention;
     private readonly int _retainedRuns;
+    private readonly TimeSpan _orphanAfter;
+    private readonly TimeProvider _time;
     private readonly Dictionary<Guid, Entry> _entries = new();
     private readonly Lock _gate = new();
 
@@ -67,9 +85,10 @@ public sealed class MonitorRunRegistry : IDisposable
 
     public MonitorRunRegistry(
         string? dataPath = null, TimeSpan? retention = null, int? retainedRuns = null,
-        Repositories.IRepositoryIdentity? identity = null)
+        Repositories.IRepositoryIdentity? identity = null, TimeSpan? orphanAfter = null, TimeProvider? time = null)
     {
         _identity = identity ?? new Repositories.GitRepositoryIdentity();
+        _time = time ?? TimeProvider.System;
         _dataPath = dataPath
                     ?? Environment.GetEnvironmentVariable(DataPathVariable)
                     ?? Path.Combine(
@@ -84,6 +103,11 @@ public sealed class MonitorRunRegistry : IDisposable
         _retainedRuns = retainedRuns
                         ?? retainedRunsFromEnvironment()
                         ?? DefaultRetainedRuns;
+
+        // Same knob shape: zero or negative means a silent run stays live until a restart orphans it.
+        _orphanAfter = orphanAfter
+                       ?? orphanAfterFromEnvironment()
+                       ?? DefaultOrphanAfter;
 
         Directory.CreateDirectory(_dataPath);
         // Age before rehydrating, so a long-dead archive is never loaded just to be swept.
@@ -102,6 +126,11 @@ public sealed class MonitorRunRegistry : IDisposable
     private static int? retainedRunsFromEnvironment()
         => int.TryParse(Environment.GetEnvironmentVariable(RetainedRunsVariable), out var runs)
             ? runs
+            : null;
+
+    private static TimeSpan? orphanAfterFromEnvironment()
+        => double.TryParse(Environment.GetEnvironmentVariable(OrphanSecondsVariable), out var seconds)
+            ? TimeSpan.FromSeconds(seconds)
             : null;
 
     /// <summary>
@@ -127,7 +156,10 @@ public sealed class MonitorRunRegistry : IDisposable
                 {
                     var @event = JsonSerializer.Deserialize<MonitorEvent>(line, serializerOptions);
                     if (@event == null) continue;
-                    projection.Apply(@event);
+                    // The event's own stamp, not the restart's clock (bobcat#784): a replayed run
+                    // was last heard from when its publisher last spoke. An event with no stamp
+                    // of its own (a step) leaves the previous one standing.
+                    projection.Apply(@event, MonitorEventTime.Of(@event) ?? projection.LastEventAt);
                     attribute(projection, @event);
                     replayed++;
                 }
@@ -311,13 +343,16 @@ public sealed class MonitorRunRegistry : IDisposable
         lock (_gate)
         {
             var touched = new HashSet<Guid>();
+            // One reading of the clock for the batch: what the orphan sweep compares against is
+            // when THIS console heard the run, never the publisher's own stamp (RunProjection.LastEventAt).
+            var now = _time.GetUtcNow();
 
             foreach (var @event in events)
             {
                 var entry = ensureEntry(@event.RunId);
-                entry.Projection.Apply(@event);
+                entry.Projection.Apply(@event, now);
                 attribute(entry.Projection, @event);
-                // A live event means a live publisher — a rehydrated run is orphaned no more.
+                // A live event means a live publisher — a rehydrated or silent run is orphaned no more.
                 entry.Projection.Orphaned = false;
 
                 entry.Writer ??= openWriter(@event.RunId);
@@ -354,6 +389,40 @@ public sealed class MonitorRunRegistry : IDisposable
     /// throw; an exception here would surface on the ingestion path.
     /// </remarks>
     public event Action? Changed;
+
+    /// <summary>
+    /// How long a live run may go silent before <see cref="SweepOrphans"/> orphans it. Zero or
+    /// negative means never: only a restart orphans a run then.
+    /// </summary>
+    public TimeSpan OrphanAfter => _orphanAfter;
+
+    /// <summary>
+    /// Orphan every live run nothing has been heard from for <see cref="OrphanAfter"/> (bobcat#784):
+    /// its publisher died while the console was up, and without this the card kept a progress bar,
+    /// could not be ejected and was never evicted. Returns what was orphaned by this sweep, with when
+    /// each was last heard from; a run already orphaned, or finished, is never in it. The next event
+    /// for an orphaned run un-orphans it exactly as it does after a restart. <see cref="Changed"/> is
+    /// raised when anything was orphaned, since the runs' states changed without a batch.
+    /// </summary>
+    public IReadOnlyList<(Guid RunId, DateTimeOffset LastEventAt)> SweepOrphans()
+    {
+        if (_orphanAfter <= TimeSpan.Zero) return [];
+
+        var orphaned = new List<(Guid, DateTimeOffset)>();
+        lock (_gate)
+        {
+            var cutoff = _time.GetUtcNow() - _orphanAfter;
+            foreach (var projection in _entries.Values.Select(e => e.Projection))
+            {
+                if (projection.Finished || projection.Orphaned || projection.LastEventAt > cutoff) continue;
+                projection.Orphaned = true;
+                orphaned.Add((projection.RunId, projection.LastEventAt));
+            }
+        }
+
+        if (orphaned.Count > 0) Changed?.Invoke();
+        return orphaned;
+    }
 
     public IReadOnlyList<RunProjection> All()
     {

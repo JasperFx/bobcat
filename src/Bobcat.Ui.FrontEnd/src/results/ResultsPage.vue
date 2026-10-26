@@ -2,7 +2,6 @@
 import { computed, ref } from 'vue'
 import AttachmentList from '@/components/AttachmentList.vue'
 import SpecificationView from '@/components/SpecificationView.vue'
-import ReportGrid from './ReportGrid.vue'
 import {
   failsTheRun,
   featuresOf,
@@ -180,15 +179,6 @@ function describe(cell: { expected: string | null; actual: string | null; value:
             <li v-for="(line, i) in scenario.logs" :key="i">{{ line }}</li>
             <li v-if="scenario.suppressedLogs">…and {{ scenario.suppressedLogs }} more</li>
           </ul>
-
-          <ReportGrid
-            v-for="(report, i) in scenario.reports"
-            :key="i"
-            :title="report.title"
-            :columns="report.columns"
-            :cells="report.cells"
-            :suppressed-rows="report.suppressedRows"
-          />
 
           <AttachmentList
             v-if="scenario.attachments.length || scenario.suppressedAttachments"

@@ -1,6 +1,13 @@
 import { useEventModelStore } from '@/stores/event-model-store'
+import { useRunnersStore } from '@/stores/runners-store'
 import { useRunsStore } from '@/stores/runs-store'
-import type { BatchedWebSocketPayload, MonitorEnvelope } from './monitor-events'
+import type {
+  BatchedWebSocketPayload,
+  BuildStatusChanged,
+  MonitorEnvelope,
+  RunOrphaned,
+  RunnersChanged,
+} from './monitor-events'
 import { routeMonitorEvent } from './relayRoutes'
 
 /**
@@ -11,7 +18,9 @@ import { routeMonitorEvent } from './relayRoutes'
  * Hand-written. Every MonitorEvent is routed by `routeMonitorEvent`, which is GENERATED from the
  * C# records into relayRoutes.ts (gitignored, bobcat#604), so a new event needs no edit here —
  * only a `handle{Type}` on the runs store, which vue-tsc insists on. The cases below are the
- * envelopes that are not MonitorEvents, so no generator knows about them.
+ * envelopes that are not MonitorEvents, so no generator knows about them: the batched frame, and
+ * the console's own notices (ConsoleNotices.cs, bobcat#784), which no publisher sends and no
+ * archive holds — the console decided each one and pushes it so the page never polls.
  */
 export function relayToStore(message: unknown): void {
   const envelope = (typeof message === 'string' ? JSON.parse(message) : message) as MonitorEnvelope
@@ -33,6 +42,17 @@ export function relayToStore(message: unknown): void {
     // disagree.
     case 'event_model_changed':
       void useEventModelStore().refresh()
+      return
+    // The console stopped hearing from a run's publisher (bobcat#784).
+    case 'run_orphaned':
+      useRunsStore().handleRunOrphaned(envelope.data as RunOrphaned)
+      return
+    // The runner list and the build reports arrive whole, and replace what the page has.
+    case 'runners_changed':
+      useRunnersStore().handleRunnersChanged(envelope.data as RunnersChanged)
+      return
+    case 'build_status_changed':
+      useRunnersStore().handleBuildStatusChanged(envelope.data as BuildStatusChanged)
       return
   }
 

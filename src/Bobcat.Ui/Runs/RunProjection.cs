@@ -46,11 +46,20 @@ public class RunProjection
     /// <summary>Tests the framework skipped (bobcat#655); null from a publisher that does not say.</summary>
     public int? Skipped { get; private set; }
 
+    /// <summary>
+    /// When the console last heard from this run — the orphan detector's input (bobcat#784). On
+    /// live ingest it is the CONSOLE's clock at arrival, never the publisher's stamp, because the
+    /// detector compares it against the console's clock and a publisher on another box may keep a
+    /// different one. On archive replay it is the event's own stamp (<see cref="MonitorEventTime"/>),
+    /// so a rehydrated run reads as last heard from when its publisher last spoke, not when the
+    /// console restarted.
+    /// </summary>
     public DateTimeOffset LastEventAt { get; private set; }
 
     /// <summary>
-    /// Rehydrated from an archive with no terminal RunFinished — the publisher is gone and
-    /// the run will never complete. Cleared by the registry if the run publishes again.
+    /// The publisher is gone and the run will never complete: rehydrated from an archive with no
+    /// terminal RunFinished, or (bobcat#784) silent for longer than the registry's
+    /// <c>OrphanAfter</c>. Cleared by the registry if the run publishes again.
     /// </summary>
     public bool Orphaned { get; internal set; }
 
@@ -115,9 +124,16 @@ public class RunProjection
             .Select(s => s!)
             .ToList();
 
-    public void Apply(MonitorEvent @event)
+    /// <summary>Fold an event heard right now, on this clock.</summary>
+    public void Apply(MonitorEvent @event) => Apply(@event, DateTimeOffset.UtcNow);
+
+    /// <summary>
+    /// Fold an event, stamping <see cref="LastEventAt"/> with <paramref name="heardAt"/>: the
+    /// console's clock for a live event, the event's own stamp on replay.
+    /// </summary>
+    public void Apply(MonitorEvent @event, DateTimeOffset heardAt)
     {
-        LastEventAt = DateTimeOffset.UtcNow;
+        LastEventAt = heardAt;
 
         switch (@event)
         {

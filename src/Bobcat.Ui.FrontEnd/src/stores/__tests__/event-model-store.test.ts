@@ -59,6 +59,7 @@ function scenario(overrides: Partial<ScenarioState> & { uid: string }): Scenario
     workerPublished: true,
     forwarded: false,
     displayName: null,
+    reports: [],
     ...overrides,
   }
 }
