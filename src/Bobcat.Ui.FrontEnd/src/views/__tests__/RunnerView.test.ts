@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import RunnerView from '../RunnerView.vue'
 import type { RunnerSpecView, RunnerView as Runner } from '@/lib/runners'
 
@@ -19,6 +20,7 @@ describe('RunnerView', () => {
   let specs: RunnerSpecView[]
 
   beforeEach(() => {
+    setActivePinia(createPinia())
     specs = [
       { identity: 'Accounts/an account is opened', feature: 'Accounts', scenario: 'an account is opened', steps: ['Given a customer', 'When they open an account'] },
       { identity: 'Accounts/a deposit', feature: 'Accounts', scenario: 'a deposit', steps: ['When {amount} is deposited'] },

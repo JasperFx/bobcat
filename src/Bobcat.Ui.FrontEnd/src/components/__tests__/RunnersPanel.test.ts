@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import RunnersPanel from '../RunnersPanel.vue'
 import { resetRunners } from '@/composables/useRunners'
 import type { RunnerView } from '@/lib/runners'
@@ -33,6 +34,8 @@ describe('RunnersPanel', () => {
     posts = []
     asked = []
     localStorage.clear()
+    // The panel reads the runners store (bobcat#784), which the console keeps current by push.
+    setActivePinia(createPinia())
     resetRunners()
     vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
       asked.push(url)

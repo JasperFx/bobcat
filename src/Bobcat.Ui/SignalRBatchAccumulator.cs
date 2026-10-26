@@ -25,6 +25,10 @@ public class SignalRBatchAccumulator : BackgroundService
     private readonly ILogger<SignalRBatchAccumulator> _logger;
     private readonly ConcurrentQueue<MonitorEvent> _queue = new();
 
+    // The console's own notices (ConsoleNotices.cs, bobcat#784), latest per type: each one is a
+    // whole snapshot, so a second in the same window supersedes the first rather than following it.
+    private readonly ConcurrentDictionary<string, WebSocketMessage> _notices = new(StringComparer.Ordinal);
+
     public TimeSpan FlushInterval { get; set; } = TimeSpan.FromMilliseconds(100);
 
     public SignalRBatchAccumulator(IServiceProvider services, ILogger<SignalRBatchAccumulator> logger)
@@ -39,18 +43,33 @@ public class SignalRBatchAccumulator : BackgroundService
     }
 
     /// <summary>
+    /// Queue a console notice (<c>RunOrphaned</c>, <c>RunnersChanged</c>, <c>BuildStatusChanged</c>)
+    /// for the next flush, in the same frame as the events. Only the latest of each type ships: a
+    /// notice is a snapshot, and the page would apply two in a row to the same effect as the last.
+    /// </summary>
+    public void Notify(WebSocketMessage notice)
+    {
+        _notices[notice.GetType().ToMessageTypeName()] = notice;
+    }
+
+    /// <summary>
     /// Drain the queue once into a single envelope; null when nothing is pending (saves a
-    /// no-op SignalR send). Public so tests can drive the accumulator deterministically
-    /// without spinning the background timer.
+    /// no-op SignalR send). Events ship first, in arrival order, then the pending notices. Public so
+    /// tests can drive the accumulator deterministically without spinning the background timer.
     /// </summary>
     public BatchedWebSocketPayload? DrainOnce()
     {
-        if (_queue.IsEmpty) return null;
+        if (_queue.IsEmpty && _notices.IsEmpty) return null;
 
-        var items = new List<BatchedWebSocketItem>(capacity: _queue.Count);
+        var items = new List<BatchedWebSocketItem>(capacity: _queue.Count + _notices.Count);
         while (_queue.TryDequeue(out var @event))
         {
             items.Add(new BatchedWebSocketItem(@event.GetType().ToMessageTypeName(), @event));
+        }
+
+        foreach (var type in _notices.Keys.OrderBy(k => k, StringComparer.Ordinal))
+        {
+            if (_notices.TryRemove(type, out var notice)) items.Add(new BatchedWebSocketItem(type, notice));
         }
 
         return items.Count > 0 ? new BatchedWebSocketPayload(items.ToArray()) : null;

@@ -52,6 +52,7 @@ function scenario(overrides: Partial<ScenarioState> = {}): ScenarioState {
     workerPublished: true,
     forwarded: false,
     displayName: null,
+    reports: [],
     ...overrides,
   }
 }

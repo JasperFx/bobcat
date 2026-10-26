@@ -41,11 +41,16 @@ public static class ConsoleComposition
         var identity = new Repositories.GitRepositoryIdentity();
         services.AddSingleton<Repositories.IRepositoryIdentity>(identity);
 
+        // Monitor:OrphanSeconds (bobcat#784) is how long a live run may go silent before the board
+        // calls it orphaned; zero turns live detection off, as it is in the end-to-end specs.
+        var orphanSeconds = configuration.GetValue<double?>("Monitor:OrphanSeconds");
+
         services.AddSingleton(new MonitorRunRegistry(
             configuration["Monitor:DataPath"],
             retentionDays is { } days ? TimeSpan.FromDays(days) : null,
             configuration.GetValue<int?>("Monitor:RetentionRuns"),
-            identity));
+            identity,
+            orphanSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : null));
 
         // The current Event Model descriptor (issue #108) — one document per source beside the run
         // archives, pushed over PUT /api/event-model/{source}, merged on GET.
@@ -56,10 +61,16 @@ public static class ConsoleComposition
         services.AddSingleton<SignalRBatchAccumulator>();
         services.AddHostedService(sp => sp.GetRequiredService<SignalRBatchAccumulator>());
         services.AddHostedService<ArchiveRetentionService>();
+        // Orphans a run whose publisher died while the console was up, and pushes it (bobcat#784).
+        services.AddHostedService<OrphanSweepService>();
 
         // The resident runners and their command queues (stoat#77, back from Stoat with the board):
         // in memory, because a runner re-registers on every start.
         services.AddSingleton(_ => new RunnerRegistry());
+        // Pushes the runner list to the browser on every change (bobcat#784): the endpoints read it
+        // to publish on a commanded run's start, and as a hosted service it follows the registry.
+        services.AddSingleton<RunnerNotices>();
+        services.AddHostedService(sp => sp.GetRequiredService<RunnerNotices>());
         services.AddSingleton<Builds.BuildStatusRegistry>();
 
         services.AddSingleton<ConsoleActivity>();

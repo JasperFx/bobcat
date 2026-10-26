@@ -6,6 +6,7 @@ using Namotion.Reflection;
 using NJsonSchema;
 using NJsonSchema.CodeGeneration.TypeScript;
 using NJsonSchema.Generation;
+using Wolverine.Util;
 
 namespace Bobcat.Ui.Contracts;
 
@@ -66,6 +67,21 @@ public static class TypeScriptContracts
             .GetCustomAttributes<JsonDerivedTypeAttribute>(inherit: false)
             .Select(a => (a.DerivedType, (string)a.TypeDiscriminator!))
             .ToList();
+
+    /// <summary>
+    /// The console's own notices (<c>ConsoleNotices.cs</c>, <see cref="EventModelChanged"/>; bobcat#784)
+    /// with their wire names — Wolverine's snake_case naming for a <see cref="Wolverine.WebSocketMessage"/>,
+    /// which is what the hub sends as the envelope <c>type</c>. Not monitor events: no publisher sends
+    /// them and relayToStore.ts routes them by hand, so they are mirrored as interfaces here and
+    /// deliberately left out of the generated routes.
+    /// </summary>
+    public static IReadOnlyList<(Type Type, string WireName)> NoticeTypes { get; } =
+    [
+        (typeof(EventModelChanged), typeof(EventModelChanged).ToMessageTypeName()),
+        (typeof(RunOrphaned), typeof(RunOrphaned).ToMessageTypeName()),
+        (typeof(RunnersChanged), typeof(RunnersChanged).ToMessageTypeName()),
+        (typeof(BuildStatusChanged), typeof(BuildStatusChanged).ToMessageTypeName())
+    ];
 
     /// <summary>The full contents of monitor-events.ts.</summary>
     public static string GenerateMonitorEvents()
@@ -313,6 +329,14 @@ public static class TypeScriptContracts
         }
 
         builder.AppendLine();
+        builder.AppendLine("/** Every envelope `type` the console itself pushes (bobcat#784) — never ingested, never archived; relayToStore routes these by hand. */");
+        builder.AppendLine("export type ConsoleNoticeType =");
+        foreach (var (_, wireName) in NoticeTypes)
+        {
+            builder.AppendLine($"  | '{wireName}'");
+        }
+
+        builder.AppendLine();
         return builder.ToString();
     }
 
@@ -341,13 +365,14 @@ public static class TypeScriptContracts
         };
 
         // One schema document rooted at MonitorEvent, which reaches every derived event through
-        // the polymorphism attributes, plus the batching envelope registered into the same
-        // resolver so its `data: MonitorEvent` reference binds to the same interface.
+        // the polymorphism attributes, plus the batching envelope and the console's own notices
+        // (bobcat#784) registered into the same resolver, so a shape two of them share is one interface.
         var root = new JsonSchema();
         var resolver = new JsonSchemaResolver(root, schemaSettings);
         var generator = new JsonSchemaGenerator(schemaSettings);
         generator.Generate(root, typeof(MonitorEvent).ToContextualType(), resolver);
         generator.Generate(typeof(BatchedWebSocketPayload), resolver);
+        foreach (var (type, _) in NoticeTypes) generator.Generate(type, resolver);
 
         var code = new TypeScriptGenerator(root, generatorSettings).GenerateFile();
         return toHouseStyle(code);
@@ -368,7 +393,7 @@ public static class TypeScriptContracts
             lines.RemoveAt(0);
         }
 
-        var wireNames = EventTypes.ToDictionary(e => e.Type.Name, e => e.WireName);
+        var wireNames = EventTypes.Concat(NoticeTypes).ToDictionary(e => e.Type.Name, e => e.WireName);
         var optional = optionalMembers();
         string? currentType = null;
 
@@ -424,7 +449,7 @@ public static class TypeScriptContracts
     private static Dictionary<string, HashSet<string>> optionalMembers()
     {
         var result = new Dictionary<string, HashSet<string>>();
-        foreach (var (type, _) in EventTypes)
+        foreach (var (type, _) in EventTypes.Concat(NoticeTypes))
         {
             var members = type.GetConstructors()
                 .SelectMany(c => c.GetParameters())

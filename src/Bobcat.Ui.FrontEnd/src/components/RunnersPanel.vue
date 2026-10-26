@@ -7,11 +7,9 @@ import { runnerState, START_A_RUNNER, type RunnerView } from '@/lib/runners'
  * The attached runners, on the board before anything has run (bobcat#645): each with a button that
  * runs its whole project. Without it a person who opened `bobcat ui` and started `bobcat resident`
  * had nothing to press until a `dotnet test` or `bobcat run` had made a run page to press it on.
- * The registry is not pushed, so it is polled.
+ * The console pushes the list on every change (bobcat#784); nothing here polls.
  */
-const props = withDefaults(defineProps<{ pollMs?: number }>(), { pollMs: 5000 })
-
-const { runners } = useRunners(props.pollMs)
+const { runners } = useRunners()
 
 function where(runner: RunnerView): string {
   return [runner.repositorySlug ?? runner.repository, runner.branch ? `@ ${runner.branch}` : null].filter(Boolean).join(' ')

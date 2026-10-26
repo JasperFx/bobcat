@@ -163,6 +163,13 @@ public static class RunnerEndpoints
     /// once that run's <c>run_started</c> names it (JasperFx/bobcat#392).</summary>
     [WolverineGet("/api/runners")]
     public static IReadOnlyList<RunnerView> All(RunnerRegistry runners, MonitorRunRegistry runs)
+        => AllRunners(runners, runs);
+
+    /// <summary>
+    /// The runner list as <c>GET /api/runners</c> serves it — and as <see cref="RunnerNotices"/>
+    /// pushes it (bobcat#784), so the two can never show a runner differently.
+    /// </summary>
+    public static IReadOnlyList<RunnerView> AllRunners(RunnerRegistry runners, MonitorRunRegistry runs)
         => runners.All(runLookup(runs));
 
     /// <summary>

@@ -78,8 +78,9 @@ function getConnection(): HubConnection {
       const store = useConnectionStore()
       store.setConnected()
       store.markSynced()
-      // A reconnected socket may have missed events — replay the registry's archives over
-      // whatever we have (the store's upserts make this safe).
+      // A reconnected socket may have missed events — refresh the board summary, the runners
+      // and the builds, and replay only the archives the page had already loaded (bobcat#784;
+      // the store's upserts make the replay safe).
       void hydrateFromServer().catch(() => {})
     })
 

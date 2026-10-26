@@ -2,6 +2,8 @@ using System.Text.Json;
 using Bobcat.Monitoring;
 using Bobcat.Ui.Builds;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 
 namespace Bobcat.Ui.Tests;
@@ -54,10 +56,11 @@ public class BuildStatusTests
     public void a_report_without_a_suite_or_with_an_unknown_state_is_refused()
     {
         var builds = new BuildStatusRegistry();
+        var accumulator = new SignalRBatchAccumulator(new ServiceCollection().BuildServiceProvider(), NullLogger<SignalRBatchAccumulator>.Instance);
 
-        (BuildStatusEndpoints.Report(report("exploded", 1), builds) as IStatusCodeHttpResult)!.StatusCode.ShouldBe(400);
-        (BuildStatusEndpoints.Report(report("built", 1, suite: " "), builds) as IStatusCodeHttpResult)!.StatusCode.ShouldBe(400);
-        (BuildStatusEndpoints.Report(report("built", 1), builds) as IStatusCodeHttpResult)!.StatusCode.ShouldBe(202);
+        (BuildStatusEndpoints.Report(report("exploded", 1), builds, accumulator) as IStatusCodeHttpResult)!.StatusCode.ShouldBe(400);
+        (BuildStatusEndpoints.Report(report("built", 1, suite: " "), builds, accumulator) as IStatusCodeHttpResult)!.StatusCode.ShouldBe(400);
+        (BuildStatusEndpoints.Report(report("built", 1), builds, accumulator) as IStatusCodeHttpResult)!.StatusCode.ShouldBe(202);
         builds.All().ShouldHaveSingleItem();
     }
 }

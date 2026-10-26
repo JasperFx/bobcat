@@ -360,7 +360,8 @@ const ejectableCount = computed(() => runs.allRuns.filter((run) => ejectable(run
           {{ ageOf(run) }}
           <span v-if="durationOf(run)" class="bm-run-duration">· took {{ durationOf(run) }}</span>
         </span>
-        <template v-if="run.finished">
+        <!-- Finished or orphaned (bobcat#784): nothing is publishing to either, so both can go. -->
+        <template v-if="ejectable(run)">
           <el-button size="small" text class="bm-eject" @click="eject(run)">Eject</el-button>
           <el-dropdown trigger="click" class="bm-run-menu">
             <el-button size="small" text class="bm-run-menu-button" aria-label="More actions for this run">⋯</el-button>

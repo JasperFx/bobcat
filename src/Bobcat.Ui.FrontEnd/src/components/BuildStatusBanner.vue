@@ -1,30 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRunners } from '@/composables/useRunners'
-import { buildProblems, loadBuildStatus, type BuildStatusReported } from '@/lib/builds'
+import { computed, onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useRunnersStore } from '@/stores/runners-store'
+import { buildProblems } from '@/lib/builds'
 
 /**
  * Says a project does not compile, with its first compiler errors in view (bobcat#651), wherever the
- * page shows that project's runs: the board, or one suite's run page when `suite` is given.
+ * page shows that project's runs: the board, or one suite's run page when `suite` is given. Both
+ * sources — `bobcat watch`'s reports and the runners' own status — come from the runners store,
+ * which the console keeps current by push (bobcat#784); nothing here polls.
  */
-const props = withDefaults(defineProps<{ suite?: string | null; pollMs?: number }>(), { suite: null, pollMs: 5000 })
+const props = withDefaults(defineProps<{ suite?: string | null }>(), { suite: null })
 
-const builds = ref<BuildStatusReported[] | null>(null)
-const { runners } = useRunners()
-let timer: ReturnType<typeof setInterval> | null = null
-
-async function refresh(): Promise<void> {
-  const found = await loadBuildStatus()
-  if (found !== null) builds.value = found
-}
+const store = useRunnersStore()
+const { builds, runners } = storeToRefs(store)
 
 onMounted(() => {
-  void refresh()
-  timer = setInterval(() => void refresh(), props.pollMs)
-})
-
-onUnmounted(() => {
-  if (timer !== null) clearInterval(timer)
+  if (store.builds === null || store.runners === null) void store.load()
 })
 
 const problems = computed(() =>

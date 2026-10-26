@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import ReportGrid from '@/components/ReportGrid.vue'
 import SpecLine from '@/components/SpecLine.vue'
 import { specificationFor, type SpecSource } from '@/composables/specification'
 
@@ -9,17 +10,20 @@ import { specificationFor, type SpecSource } from '@/composables/specification'
  * one viewer to improve rather than three drifting apart.
  *
  * Layout, top to bottom: the declared narrative (a marker-comment test's sentences, each with the
- * lines that ran under it), the lines under no sentence — for every other lane, all of them — and
- * then the exceptions, each once, in a panel of its own (stoat#60). Inline, one exception pushes
- * the rest of the specification off the screen; at the bottom, the reader first sees WHICH step
- * broke, and chooses when to read why.
+ * lines that ran under it), the lines under no sentence — for every other lane, all of them —
+ * the scenario's reports (bobcat#408: its own accounts of what the system did, as grids, beneath
+ * the steps where the console renderer puts them), and then the exceptions, each once, in a panel
+ * of its own (stoat#60). Inline, one exception pushes the rest of the specification off the
+ * screen; at the bottom, the reader first sees WHICH step broke, and chooses when to read why.
  *
  * The HTML results page (bobcat#541) renders an archived run through this component too, from a
- * scenario read out of the results file, so an archived page and the live board agree.
+ * scenario read out of the results file, so an archived page and the live board agree — the
+ * reports included, since bobcat#784 folded them into the live store.
  */
 const props = defineProps<{ scenario: SpecSource }>()
 
 const spec = computed(() => specificationFor(props.scenario))
+const reports = computed(() => props.scenario.reports ?? [])
 </script>
 
 <template>
@@ -54,6 +58,16 @@ const spec = computed(() => specificationFor(props.scenario))
     <div v-if="spec.scenarioFailure" class="bm-scenario-failure" data-testid="scenario-failure">
       {{ spec.scenarioFailure }}
     </div>
+
+    <!-- bobcat#408 — the scenario's reports, as the results page shows them. -->
+    <ReportGrid
+      v-for="(report, i) in reports"
+      :key="`report-${i}`"
+      :title="report.title"
+      :columns="report.columns"
+      :cells="report.cells"
+      :suppressed-rows="report.suppressedRows"
+    />
 
     <!-- stoat#60 — each exception once, at the bottom, titled with the sentence that threw. -->
     <details

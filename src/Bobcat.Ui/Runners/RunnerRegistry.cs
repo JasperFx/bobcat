@@ -129,6 +129,17 @@ public sealed class RunnerRegistry
 
     private static TaskCompletionSource newSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    /// <summary>
+    /// Raised after anything a <see cref="RunnerView"/> shows has changed (bobcat#784): a
+    /// registration, a stream opening or closing, a status report, a command queued, sent or
+    /// answered. Always raised outside the gate, so a subscriber may read the registry back. A bare
+    /// <c>Action</c> for the same reason <c>MonitorRunRegistry.Changed</c> is: the subscriber
+    /// (<see cref="RunnerNotices"/>) reads the whole list, so the event carries nothing.
+    /// </summary>
+    public event Action? Changed;
+
+    private void changed() => Changed?.Invoke();
+
     public bool Exists(string runnerId)
     {
         lock (_gate) return find(runnerId) is not null;
@@ -174,6 +185,8 @@ public sealed class RunnerRegistry
             supersede(runner);
             wake(runner);
         }
+
+        changed();
     }
 
     private void supersede(Runner successor)
@@ -216,18 +229,21 @@ public sealed class RunnerRegistry
             runner.Status = state;
             runner.StatusDetail = detail;
             runner.LastSeenAt = _time.GetUtcNow();
-            return true;
         }
+
+        changed();
+        return true;
     }
 
     /// <summary>Queue a command; it is sent as soon as the runner has nothing else in flight.</summary>
     public Guid Enqueue(string runnerId, string kind, IReadOnlyList<string> specs, string mode, string requestedBy)
     {
+        Command command;
         lock (_gate)
         {
             var runner = find(runnerId) ?? throw new InvalidOperationException($"no runner '{runnerId}'");
 
-            var command = new Command
+            command = new Command
             {
                 Id = Guid.NewGuid(),
                 Sequence = ++_sequence,
@@ -244,8 +260,10 @@ public sealed class RunnerRegistry
             foreach (var old in settled.Take(Math.Max(0, settled.Count - RecentCommands))) runner.Commands.Remove(old);
 
             wake(runner);
-            return command.Id;
         }
+
+        changed();
+        return command.Id;
     }
 
     /// <summary>
@@ -273,16 +291,19 @@ public sealed class RunnerRegistry
                 command.NotBefore = now + _busyRetry;
                 command.Sequence = ++_sequence;
                 wake(runner);
-                return true;
             }
-
-            command.State = accepted ? "accepted" : "rejected";
-            command.Reason = accepted ? null : reason;
-            command.AcknowledgedAt = now;
-            command.NotBefore = null;
-            wake(runner);
-            return true;
+            else
+            {
+                command.State = accepted ? "accepted" : "rejected";
+                command.Reason = accepted ? null : reason;
+                command.AcknowledgedAt = now;
+                command.NotBefore = null;
+                wake(runner);
+            }
         }
+
+        changed();
+        return true;
     }
 
     /// <summary>
@@ -321,12 +342,15 @@ public sealed class RunnerRegistry
             sent = lastEventId is { } last && runner.Commands.FirstOrDefault(x => x.Id == last) is { } known ? known.Sequence : 0;
         }
 
+        // A stream opening is the runner connecting — the state the picker leads with.
+        changed();
+
         try
         {
             while (!ct.IsCancellationRequested)
             {
                 object? due = null;
-                Task changed;
+                Task woken;
                 var wait = keepAlive;
                 lock (_gate)
                 {
@@ -348,18 +372,20 @@ public sealed class RunnerRegistry
                         wait = soonest;
                     }
 
-                    changed = runner.Changed.Task;
+                    woken = runner.Changed.Task;
                 }
 
                 if (due is not null)
                 {
+                    // queued → sent: a command's state a page follows.
+                    changed();
                     yield return due;
                     continue;
                 }
 
-                var finished = await Task.WhenAny(changed, Task.Delay(wait, _time, ct)).ConfigureAwait(false);
+                var finished = await Task.WhenAny(woken, Task.Delay(wait, _time, ct)).ConfigureAwait(false);
                 if (ct.IsCancellationRequested) yield break;
-                if (finished != changed && wait == keepAlive) yield return null;
+                if (finished != woken && wait == keepAlive) yield return null;
             }
         }
         finally
@@ -368,6 +394,9 @@ public sealed class RunnerRegistry
             {
                 if (find(id) is { } runner) runner.Streams--;
             }
+
+            // And a stream closing is the runner disconnecting.
+            changed();
         }
     }
 

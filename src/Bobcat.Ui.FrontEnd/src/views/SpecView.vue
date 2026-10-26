@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import ScenarioProgress from '@/components/ScenarioProgress.vue'
 import SpecificationView from '@/components/SpecificationView.vue'
 import RunButton from '@/components/RunButton.vue'
 import MissingRun from '@/components/MissingRun.vue'
+import { ensureRunEvents } from '@/messages/hydrate'
 import { useRunsStore } from '@/stores/runs-store'
 import { sliceFor, useEventModelStore } from '@/stores/event-model-store'
 import { sliceHref } from '@/lib/specLinks'
@@ -22,6 +23,9 @@ onMounted(() => {
   // The slice link needs the model; a page reached by a hard navigation has not loaded it yet.
   if (model.status === 'idle') void model.load()
 })
+
+// bobcat#784: the run's events are loaded when a page wants them, and this page does.
+watch(() => props.runId, (runId) => void ensureRunEvents(runId), { immediate: true })
 
 const run = computed(() => runs.runById(props.runId))
 const scenario = computed(() => run.value?.scenarios[props.uid])

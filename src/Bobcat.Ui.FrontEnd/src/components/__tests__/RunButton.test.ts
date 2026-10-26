@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { relayToStore } from '@/messages/relayToStore'
 import RunButton from '../RunButton.vue'
 import type { RunnerView } from '@/lib/runners'
 
@@ -32,6 +34,7 @@ describe('RunButton', () => {
   let followed: RunnerView | null
 
   beforeEach(() => {
+    setActivePinia(createPinia())
     posts = []
     candidates = []
     followed = null
@@ -91,8 +94,7 @@ describe('RunButton', () => {
     wrapper.unmount()
   })
 
-  it('sends cold to the chosen runner and follows the command to its run', async () => {
-    vi.useFakeTimers()
+  it('sends cold to the chosen runner and follows the command to its run from the pushed runner list', async () => {
     candidates = [runner()]
     const wrapper = render()
     await wrapper.find('[data-testid="run-button"]').trigger('click')
@@ -101,9 +103,15 @@ describe('RunButton', () => {
     await wrapper.find('[data-testid="run-send"]').trigger('click')
     await flushPromises()
     expect(posts).toEqual([{ url: '/api/runners/r1/commands', body: { specs: ['F/a'], mode: 'cold', by: 'bobcat-ui' } }])
+    expect(wrapper.find('[data-testid="run-progress"]').text()).toContain('queued')
 
-    followed = runner({ commands: [{ commandId: 'c1', kind: 'run', specs: ['F/a'], mode: 'cold', state: 'accepted', reason: null, requestedBy: 'stoat-ui', requestedAt: '', acknowledgedAt: '', runId: 'run-9' }] })
-    await vi.advanceTimersByTimeAsync(1100)
+    // bobcat#784: the console pushes the runner list as the command moves; nothing is polled.
+    const command = { commandId: 'c1', kind: 'run', specs: ['F/a'], mode: 'cold', state: 'sent', reason: null, requestedBy: 'stoat-ui', requestedAt: '', acknowledgedAt: null, runId: null }
+    relayToStore({ type: 'runners_changed', data: { runners: [runner({ commands: [command] })] } })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="run-progress"]').text()).toContain('sent')
+
+    relayToStore({ type: 'runners_changed', data: { runners: [runner({ commands: [{ ...command, state: 'accepted', acknowledgedAt: '', runId: 'run-9' }] })] } })
     await flushPromises()
 
     expect(wrapper.find('[data-testid="run-progress"]').text()).toContain('running')

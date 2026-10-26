@@ -26,7 +26,8 @@ public static class IngestionEndpoint
     /// fire-and-forget for the publisher, and nothing downstream of the queue can fail the POST.
     /// </summary>
     [WolverinePost("/api/ingest")]
-    public static IResult Ingest(IngestBatch batch, MonitorRunRegistry registry, SignalRBatchAccumulator accumulator)
+    public static IResult Ingest(
+        IngestBatch batch, MonitorRunRegistry registry, SignalRBatchAccumulator accumulator, Runners.RunnerNotices runnerNotices)
     {
         // A body with no "events" binds as a null array, and a null entry in it as a null event.
         // Either used to reach the registry and answer 500 — found by walking every route with an
@@ -38,6 +39,11 @@ public static class IngestionEndpoint
         // matters: the registry must never lag behind what a browser has already been shown.
         registry.Record(events);
         accumulator.Enqueue(events);
+
+        // A run starting under a command id is the moment that command gains its run link, which is
+        // the runner list's business (bobcat#784) — the only run event the runner view depends on.
+        if (events.Any(e => e is RunStarted { Command: not null })) runnerNotices.Publish();
+
         return Results.Accepted();
     }
 }

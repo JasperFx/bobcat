@@ -76,11 +76,11 @@ public class TypeScriptContractTests
         var routes = TypeScriptContracts.GenerateRelayRoutes();
 
         routes.ShouldNotContain("batched_web_socket_payload");
-        routes.ShouldNotContain("event_model_changed");
+        foreach (var (_, wireName) in TypeScriptContracts.NoticeTypes) routes.ShouldNotContain(wireName);
     }
 
     [Fact]
-    public void the_hand_written_relay_delegates_to_the_generated_routes()
+    public void the_hand_written_relay_delegates_to_the_generated_routes_and_switches_on_every_notice()
     {
         var frontEnd = TypeScriptContracts.FindFrontEndSourceDirectory();
         frontEnd.ShouldNotBeNull("the test must run from inside the repository to find src/Bobcat.Ui.FrontEnd/src");
@@ -88,6 +88,37 @@ public class TypeScriptContractTests
 
         relay.ShouldContain("import { routeMonitorEvent } from './relayRoutes'");
         relay.ShouldContain("routeMonitorEvent(useRunsStore(), envelope)");
+
+        // The console's notices (bobcat#784) are routed by hand, by the wire name Wolverine gives each.
+        foreach (var (_, wireName) in TypeScriptContracts.NoticeTypes) relay.ShouldContain($"case '{wireName}':");
+    }
+
+    /// <summary>
+    /// The console's own notices (bobcat#784) are mirrored beside the events, each with its wire name
+    /// and with the shapes it carries — the runner list's view, the build report — so the page types
+    /// a push by the record the server sends.
+    /// </summary>
+    [Fact]
+    public void every_console_notice_is_mirrored_with_its_wire_name_and_what_it_carries()
+    {
+        var generated = TypeScriptContracts.GenerateMonitorEvents();
+
+        TypeScriptContracts.NoticeTypes.Select(n => n.WireName)
+            .ShouldBe(["event_model_changed", "run_orphaned", "runners_changed", "build_status_changed"]);
+        foreach (var (type, wireName) in TypeScriptContracts.NoticeTypes)
+        {
+            generated.ShouldContain($"/** Envelope type: '{wireName}' */\nexport interface {type.Name} {{");
+            generated.ShouldContain($"  | '{wireName}'");
+        }
+
+        generated.ShouldContain("export type ConsoleNoticeType =");
+        generated.ShouldContain("export interface RunOrphaned {\n  runId: string\n  lastEventAt: string\n}");
+        generated.ShouldContain("export interface RunnersChanged {\n  runners: RunnerView[]\n}");
+        generated.ShouldContain("export interface RunnerView {");
+        generated.ShouldContain("export interface RunnerCommandView {");
+        generated.ShouldContain("export interface BuildStatusChanged {\n  builds: BuildStatusReported[]\n}");
+        // A batched item carries an event or a notice, so its data is untyped until unwrapped.
+        generated.ShouldContain("export interface BatchedWebSocketItem {\n  type: string\n  data: any\n}");
     }
 
     [Fact]

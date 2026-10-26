@@ -84,7 +84,14 @@ its counts, and its age.
   scenarios of its own still gets per-test progress, forwarded by the supervisor in the framework's
   own words -- Passed, Failed, Skipped and so on.
 - **Orphans render as orphans.** A run whose process died without finishing is marked orphaned
-  rather than "running" forever.
+  rather than "running" forever: a run the UI hears nothing from for 30 seconds (three of the
+  publisher's heartbeats; `BOBCAT_MONITOR_ORPHAN_SECONDS` changes it, zero turns it off) loses its
+  progress bar, gains an Eject button, and is evicted like a finished run. Its next event, should the
+  publisher only have been slow, makes it live again. A restarted UI orphans any run whose archive has
+  no finish, as before.
+- **The tag, session and command a run was launched with travel with it.** `BOBCAT_RUN_TAG`, the
+  agent session that started the run and the console command that caused it are on the run's state in
+  the board and on its page, for the views that show them.
 - **Several repositories on one box** are told apart by a repository filter, and a supervised run
   across several worker processes is one card, not one per worker.
 - **A project that no longer compiles says so**, above the cards and on its runs' pages, with its
@@ -95,7 +102,13 @@ its counts, and its age.
 Each scenario has a page of its own at `/runs/{runId}/specs/{Feature}/{Scenario}` -- a URL you can
 paste into a pull request -- that renders the specification the test produced: each step with its
 verdict and duration, each named comparison judged on its own (`✗ count: expected '12', got '0'`),
-tables as grids, and an exception in a panel at the foot of the page with Bobcat's filtered frames.
+tables as grids, the scenario's own reports beneath the steps (what the system did, as grids -- a
+failing scenario's, or every scenario's on a `--verbose` run), and an exception in a panel at the
+foot of the page with Bobcat's filtered frames.
+
+The board loads in one request however many runs it holds: a summary per run, with its events
+fetched only when its page is opened or while it is live. The attached runners and the build reports
+are pushed to the page as they change, so nothing on it polls.
 
 ![A failed specification](/images/bobcat-ui-spec.png)
 
@@ -210,12 +223,14 @@ Two settings bound two different things:
 |---|---|---|
 | `BOBCAT_MONITOR_RETENTION_RUNS` | 10 | the **board**, counted per repository and suite. A run evicted from the board is *ejected*: its file moves to `ejected/` and stays there |
 | `BOBCAT_MONITOR_RETENTION_DAYS` | 14 | the **archive**, by age. The only thing that ever deletes a file |
+| `BOBCAT_MONITOR_ORPHAN_SECONDS` | 30 | how long a **live run** may go silent before it is orphaned -- and so ejectable, and evicted like a finished run |
 
-Zero or a negative number turns either one off. The **Eject** button on a card does by hand what the
-board limit does automatically, and **a live run is never ejected**.
+Zero or a negative number turns any of them off. The **Eject** button on a card does by hand what the
+board limit does automatically, and **a live run is never ejected**: orphaned first, then ejectable.
 
-The same four settings also read as configuration keys, `Monitor:DataPath`, `Monitor:RetentionRuns`,
-`Monitor:RetentionDays` and `Monitor:IdleMinutes`, which win over the variables when both are set.
+The same settings also read as configuration keys, `Monitor:DataPath`, `Monitor:RetentionRuns`,
+`Monitor:RetentionDays`, `Monitor:OrphanSeconds` and `Monitor:IdleMinutes`, which win over the
+variables when both are set.
 For the global tool the environment is the practical way to set them, so the variables above are the
 spellings to use.
 

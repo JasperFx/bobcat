@@ -53,6 +53,13 @@ public record RunSummary(
 
     /// <summary>Skipped tests (bobcat#655): neither passed nor failed. Null when the publisher did not say.</summary>
     public int? Skipped { get; init; }
+
+    /// <summary>
+    /// When this console last heard from the run (bobcat#784): the console's clock at the last event's
+    /// arrival, or the last event's own stamp for a run replayed from its archive. What live orphan
+    /// detection reads. Additive.
+    /// </summary>
+    public DateTimeOffset? LastEventAt { get; init; }
 }
 
 /// <summary>
@@ -331,7 +338,8 @@ public static class RunEndpoints
             Failed = r.Failed,
             PassedOnRetry = r.PassedOnRetry,
             Indeterminate = r.Indeterminate,
-            Skipped = r.Skipped
+            Skipped = r.Skipped,
+            LastEventAt = r.LastEventAt == default ? null : r.LastEventAt
         };
 
     /// <summary>
