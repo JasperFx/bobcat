@@ -136,7 +136,7 @@ in place of `specs` or `feature`: the UI resolves it to every identity the runne
 
 A run a button started says so on its card -- `Run 2 in feature Bank · warm · from bobcat-ui`, or
 `Run all` -- and while it runs, how many scenarios have finished of the specifications it selected.
-The board keeps the latest finished runs of each suite (`BOBCAT_MONITOR_RETENTION_RUNS`, 10 by
+The board keeps the latest finished runs of each suite (`BOBCAT_MONITOR_RETENTION_RUNS`, 5 by
 default), so pressing buttons can evict the run a page is open on. That page then says the run was
 evicted and where its archive is, rather than calling it unknown.
 
@@ -221,12 +221,19 @@ Two settings bound two different things:
 
 | Variable | Default | What it bounds |
 |---|---|---|
-| `BOBCAT_MONITOR_RETENTION_RUNS` | 10 | the **board**, counted per repository and suite. A run evicted from the board is *ejected*: its file moves to `ejected/` and stays there |
+| `BOBCAT_MONITOR_RETENTION_RUNS` | 5 | the **board**, counted per repository and suite. A run evicted from the board is *ejected*: its file moves to `ejected/` and stays there |
 | `BOBCAT_MONITOR_RETENTION_DAYS` | 14 | the **archive**, by age. The only thing that ever deletes a file |
 | `BOBCAT_MONITOR_ORPHAN_SECONDS` | 30 | how long a **live run** may go silent before it is orphaned -- and so ejectable, and evicted like a finished run |
 
 Zero or a negative number turns any of them off. The **Eject** button on a card does by hand what the
 board limit does automatically, and **a live run is never ejected**: orphaned first, then ejectable.
+
+The board's count is per suite, where a suite is the repository plus the suite name: the repository
+is the `owner/name` read from the checkout's git remote, the same identity the board's repository
+filter groups by. Every branch and every worktree of a repository therefore counts against one
+allowance -- five finished runs of `Bobcat.Xunit.Samples` across all of a repository's checkouts, not
+five per checkout -- and the branch stays a property of the run shown on its card. A run whose path
+is not a checkout on this machine (one published from another box) is grouped by that path.
 
 The same settings also read as configuration keys, `Monitor:DataPath`, `Monitor:RetentionRuns`,
 `Monitor:RetentionDays`, `Monitor:OrphanSeconds` and `Monitor:IdleMinutes`, which win over the
