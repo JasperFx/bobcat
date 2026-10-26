@@ -807,6 +807,7 @@ and a project whose build is not there is refused with the path it looked at.
 | `-u, --url <base>` | the console to register with; defaults to `BOBCAT_MONITOR_URL`, then to the port every publisher probes. It travels down to the child run, so a runner pointed at a second console does not publish to the default one. **Several, comma- or semicolon-separated:** the runner reads its commands from the first and a commanded run publishes to all of them ([bobcat#530](https://github.com/JasperFx/bobcat/issues/530)) |
 | `-i, --id <id>` | a stable runner id. Defaults to `BOBCAT_RUNNER_ID`, then to a fresh GUID |
 | `--list` | print what the host specifies and exit, registering with nothing |
+| `--supervised` | a parent relaunches this runner: exit `75` on a `restart` instead of restarting in place. Also `BOBCAT_SUPERVISED=1`. No short form |
 
 ```
 $ bobcat resident ./src/Bobcat.Xunit.Samples/bin/Debug/net10.0/Bobcat.Xunit.Samples --list
@@ -824,8 +825,12 @@ button press -- a host that is not built, a suite that lists no specifications (
 with no runner adapter referenced), or a framework whose filter spelling Bobcat will not guess at.
 A runner that registered and then refused every command would look broken rather than unsupported.
 
-It exits **75** after a `restart` command and **0** on an orderly stop, so a parent can tell
-"relaunch me" from "I'm done".
+**A `restart` restarts it, whoever launched it** ([bobcat#796](https://github.com/JasperFx/bobcat/issues/796)).
+Run on its own, as above, it reloads the suite (picking up a rebuilt host's specifications) and
+registers again under the same runner id, in the same process. A parent that relaunches runners
+itself, such as `stoat runner` or a container supervisor, passes `--supervised` (or sets
+`BOBCAT_SUPERVISED=1`), and the runner then exits **75** after a `restart` and **0** on an orderly stop,
+so that parent can tell "relaunch me" from "I'm done".
 
 ## Commands
 
