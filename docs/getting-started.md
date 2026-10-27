@@ -28,7 +28,7 @@ A spec project is an xUnit v3 test project on Microsoft.Testing.Platform with th
   <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
 
   <!-- the same version for all three Bobcat packages -->
-  <BobcatVersion>1.0.0-rc.2</BobcatVersion>
+  <BobcatVersion>1.0.0</BobcatVersion>
 </PropertyGroup>
 
 <ItemGroup>
