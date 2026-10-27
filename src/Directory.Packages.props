@@ -26,8 +26,8 @@
 
   <ItemGroup>
     <!-- The tools only (Bobcat.EventModel, Bobcat.Console, Bobcat.Ui) and the tests that drive them: see the header. -->
-    <PackageVersion Include="JasperFx" Version="2.95.1" />
-    <PackageVersion Include="JasperFx.Events" Version="2.95.1" />
+    <PackageVersion Include="JasperFx" Version="2.96.0" />
+    <PackageVersion Include="JasperFx.Events" Version="2.96.0" />
     <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.54.0" />
 
     <!-- Core's own references, received transitively through JasperFx before bobcat#744. -->
