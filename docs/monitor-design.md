@@ -710,6 +710,13 @@ consumer that predates it. They are in the captured `scenario_started` and `scen
   Never the bytes. Latched like reports. `SuppressedAttachments` counts those past the per-scenario
   cap, so "…and N more" can be said rather than truncating silently.
 
+Three more since bobcat#810, so a viewer can draw a specification the way the console does:
+**`DeclaredStepInfo.Line`** and **`PlannedStepInfo.Line`**, the comment's and the call site's source
+line, which put a helper called before the first marker comment before it rather than after the whole
+narrative; and **`StepStarted.ParentStepId`**, the step that was open when this one started (a
+`[Given]` helper's own steps name the helper), null for a step called straight from the test body.
+Without them a viewer falls back to the old reading: the narrative first, every other step flat after it.
+
 And one on the bracket: **`RunFinished.Skipped`** (bobcat#655), tests the framework skipped, counted
 in neither `Passed` nor `Failed`. Null from the in-process bracket, which never sees a skipped test
 open a scenario; the supervisor, which does see the skip, sends the count.

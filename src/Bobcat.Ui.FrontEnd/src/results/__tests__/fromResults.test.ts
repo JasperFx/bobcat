@@ -25,6 +25,37 @@ function scenario(id: string, base: string | null = '') {
 }
 
 describe('a scenario read from a results file', () => {
+  it('nests a helper\'s own steps under it and keeps the file\'s order around the comments (bobcat#810)', () => {
+    const view = scenarioOf(
+      {
+        id: 'Daemon/dead letters',
+        feature: 'Daemon',
+        title: 'dead letters',
+        succeeded: true,
+        steps: [
+          { stepId: 'publish', keyword: 'Given', text: 'the names are published', status: 'success', depth: 0 },
+          { stepId: 'running', keyword: 'When', text: 'the projection daemon is running', status: 'success', depth: 1 },
+          { keyword: 'When', text: 'the daemon stops', narrative: true, status: 'success', depth: 0 },
+          { keyword: 'Then', text: 'each skipped event is a dead letter', narrative: true, status: 'success', depth: 0 },
+          { stepId: 'skipped', keyword: 'And', text: 'namedDocumentsSkipped should be [4]', status: 'success', depth: 1 },
+        ],
+      } as NonNullable<BobcatResults['scenarios']>[number],
+      null,
+    )
+    const spec = specificationFor(view)
+
+    expect(spec.items.map((item) => (item.kind === 'row' ? item.row.text : item.line.kind === 'step' ? item.line.step.text : ''))).toEqual([
+      'the names are published',
+      'the daemon stops',
+      'each skipped event is a dead letter',
+    ])
+    const helper = spec.items[0]!
+    expect(helper.kind === 'line' && helper.line.children.map((c) => (c.kind === 'step' ? c.step.text : ''))).toEqual([
+      'the projection daemon is running',
+    ])
+    expect(spec.rows[1]!.lines).toHaveLength(1)
+  })
+
   it('turns marker comments into the declared narrative, with what ran inside each', () => {
     const spec = specificationFor(scenario('Calculator, narrated/the run throws before the next action'))
 

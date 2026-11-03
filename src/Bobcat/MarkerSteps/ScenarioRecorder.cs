@@ -284,13 +284,13 @@ public static class ScenarioRecorder
                 // The narrative travels with the announcement rather than as steps: a declared
                 // step has not run, and StepStarted is the event that says something did.
                 DeclaredSteps: Declared.Count > 0
-                    ? Declared.Select(x => new DeclaredStepInfo(x.Keyword, x.Text)).ToList()
+                    ? Declared.Select(x => new DeclaredStepInfo(x.Keyword, x.Text, x.Line)).ToList()
                     : null,
                 // The plan, for the same reason: a watcher can only grey the steps a scenario never
                 // reached if it was told what the scenario meant to do.
                 PlannedSteps: Planned.Count > 0
                     ? Planned.Select(x => new PlannedStepInfo(
-                        x.Keyword, x.Template, x.Grammar, x.DeclaredStepNumber)).ToList()
+                        x.Keyword, x.Template, x.Grammar, x.DeclaredStepNumber, x.Line)).ToList()
                     : null,
                 ParentSpecId: ParentUid));
         }
@@ -748,6 +748,8 @@ public static class ScenarioRecorder
             // Per step, like the engine lane's: the first cell of a new step always posts.
             _lastCellsPostedAtMs = long.MinValue;
 
+            var previous = OpenStep;
+
             // Published as it opens, not at the end: a watcher showing a run in flight needs to
             // see the step that is currently taking the time, which is exactly the step that has
             // not finished yet.
@@ -760,9 +762,9 @@ public static class ScenarioRecorder
                 PlannedStepNumber: plannedNumber,
                 Values: valueSpans.Count > 0
                     ? valueSpans.Select(x => new StepValueSpan(x.Start, x.Length)).ToList()
-                    : null));
+                    : null,
+                ParentStepId: previous?.StepId));
 
-            var previous = OpenStep;
             if (previous is not null)
             {
                 step.Depth = previous.Depth + 1;

@@ -169,6 +169,7 @@ function stepOf(step: ResultsStep, base: string | null): StepState {
     progress: null,
     declaredStepNumber: null,
     plannedStepNumber: null,
+    parentStepId: null,
     // The file carries no value spans, so a sentence renders as prose throughout.
     values: [],
     cells,
@@ -195,30 +196,43 @@ export function scenarioOf(scenario: ResultsScenario, base: string | null): Resu
   const plannedSteps: PlannedStepInfo[] = []
   const steps: StepState[] = []
   let declared: number | null = null
+  // The step last seen at each depth: a step's parent is the one a level up (bobcat#810). A marker
+  // comment holds its level open with no step, so what ran directly under it has no parent.
+  const open: (string | null)[] = []
 
-  for (const step of scenario.steps ?? []) {
+  // The file lists steps in the order the test wrote them, so its position is the source line the
+  // live wire carries (bobcat#810).
+  ;(scenario.steps ?? []).forEach((step, position) => {
+    const depth = step.depth ?? 0
     if (step.narrative) {
-      declaredSteps.push({ keyword: step.keyword ?? step.kind ?? '', text: step.text ?? '' })
+      declaredSteps.push({ keyword: step.keyword ?? step.kind ?? '', text: step.text ?? '', line: position + 1 })
       declared = declaredSteps.length
-      continue
+      open.length = 0
+      open[0] = null
+      return
     }
 
-    if (!step.depth) declared = null
+    if (!depth) declared = null
 
     plannedSteps.push({
       keyword: step.keyword ?? step.kind ?? '',
       template: step.text ?? '',
       grammar: '',
       declaredStepNumber: declared,
+      line: position + 1,
     })
 
-    if (step.notRun) continue
+    if (step.notRun) return
 
     const state = stepOf(step, base)
+    if (!state.stepId) state.stepId = `step-${position + 1}`
     state.declaredStepNumber = declared
     state.plannedStepNumber = plannedSteps.length
+    state.parentStepId = depth > 0 ? (open[depth - 1] ?? null) : null
+    open.length = depth
+    open[depth] = state.stepId
     steps.push(state)
-  }
+  })
 
   const feature = scenario.feature ?? ''
   const title = scenario.title ?? ''

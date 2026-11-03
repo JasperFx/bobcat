@@ -171,6 +171,25 @@ public class ContractRoundTripTests
     }
 
     [Fact]
+    public void source_lines_and_a_steps_parent_round_trip()
+    {
+        // bobcat#810: what the UI orders and nests a specification by, as the console does.
+        var started = roundTrip(new Client.ScenarioStarted(
+                runId, "F/s", "F", "s", 1, DateTimeOffset.UtcNow,
+                DeclaredSteps: [new Client.DeclaredStepInfo("When", "the daemon stops", Line: 40)],
+                PlannedSteps: [new Client.PlannedStepInfo("Given", "the names are published", "Steps.Publish", Line: 31)]))
+            .ShouldBeOfType<Wire.ScenarioStarted>();
+
+        started.DeclaredSteps!.Single().Line.ShouldBe(40);
+        started.PlannedSteps!.Single().Line.ShouldBe(31);
+
+        roundTrip(new Client.StepStarted(runId, "F/s", "s2", "When", "the daemon is running", ParentStepId: "s1"))
+            .ShouldBeOfType<Wire.StepStarted>().ParentStepId.ShouldBe("s1");
+        roundTrip(new Client.StepStarted(runId, "F/s", "s1", "Given", "the names are published"))
+            .ShouldBeOfType<Wire.StepStarted>().ParentStepId.ShouldBeNull();
+    }
+
+    [Fact]
     public void a_step_under_no_declared_region_round_trips_as_null()
     {
         roundTrip(new Client.StepStarted(runId, "F/s", "step-1", "Given", "a calculator"))

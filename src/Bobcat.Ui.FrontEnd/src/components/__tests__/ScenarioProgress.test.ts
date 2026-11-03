@@ -19,6 +19,7 @@ function step(overrides: Partial<StepState> & { stepId: string }): StepState {
     progress: null,
     declaredStepNumber: null,
     plannedStepNumber: null,
+    parentStepId: null,
     values: [],
     cells: [],
     columns: [],

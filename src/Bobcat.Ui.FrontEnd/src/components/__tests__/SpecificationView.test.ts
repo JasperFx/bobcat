@@ -20,6 +20,7 @@ function step(overrides: Partial<StepState> & { stepId: string }): StepState {
     progress: null,
     declaredStepNumber: null,
     plannedStepNumber: null,
+    parentStepId: null,
     values: [],
     cells: [],
     columns: [],
@@ -200,8 +201,8 @@ describe('SpecificationView — the plan, input values and keywords (stoat#59)',
     const wrapper = render(
       scenario({
         plannedSteps: [
-          { keyword: 'Given', template: 'Start with {value}', grammar: 'G.Start', declaredStepNumber: null },
-          { keyword: 'Then', template: 'The value should be {value}', grammar: 'G.Value', declaredStepNumber: null },
+          { keyword: 'Given', template: 'Start with {value}', grammar: 'G.Start', declaredStepNumber: null, line: null },
+          { keyword: 'Then', template: 'The value should be {value}', grammar: 'G.Value', declaredStepNumber: null, line: null },
         ],
         steps: [step({ stepId: 'start', kind: 'Given', text: 'Start with 3', plannedStepNumber: 1 })],
       }),
@@ -251,7 +252,7 @@ describe('SpecificationView — the declared narrative', () => {
   it('keeps a space between a declared keyword and its sentence', () => {
     // Vue condenses a trailing space inside <strong>, which once rendered "Giventhe events are…".
     const wrapper = render(
-      scenario({ declaredSteps: [{ keyword: 'Given', text: 'the events are published' }] }),
+      scenario({ declaredSteps: [{ keyword: 'Given', text: 'the events are published', line: null }] }),
     )
     expect(wrapper.find('[data-declared="1"]').text()).toMatch(/^Given the events are published/)
   })
@@ -327,5 +328,39 @@ describe('SpecificationView — a slow step filling in (stoat#62)', () => {
 
     expect(wrapper.find('[data-testid="interim-cells"]').text()).toBe('so far')
     expect(wrapper.findAll('[data-testid="cell"]').map((c) => c.text())).toEqual(['✓ first: 1'])
+  })
+
+  it('shows a helper before the marker comment it was called before, its own steps nested under it (bobcat#810)', () => {
+    const wrapper = mount(SpecificationView, {
+      props: {
+        scenario: scenario({
+          status: 'passed',
+          declaredSteps: [
+            { keyword: 'When', text: 'the daemon stops', line: 40 },
+            { keyword: 'Then', text: 'each skipped event is a dead letter', line: 44 },
+          ],
+          plannedSteps: [
+            { keyword: 'Given', template: 'the names are published', grammar: 'G.Publish', declaredStepNumber: null, line: 31 },
+            { keyword: '', template: 'namedDocumentsSkipped', grammar: 'Should.Be', declaredStepNumber: 2, line: 46 },
+          ],
+          steps: [
+            step({ stepId: 's1', kind: 'Given', text: 'the names are published', plannedStepNumber: 1 }),
+            step({ stepId: 's2', kind: 'When', text: 'the projection daemon is running', parentStepId: 's1' }),
+            step({ stepId: 's3', kind: 'And', text: 'namedDocumentsSkipped should be [4]', plannedStepNumber: 2, declaredStepNumber: 2 }),
+          ],
+        }),
+      },
+    })
+
+    const text = wrapper.find('[data-testid="declared-narrative"]').text()
+    const order = ['the names are published', 'the projection daemon is running', 'the daemon stops', 'each skipped event', 'namedDocumentsSkipped']
+    const at = order.map((phrase) => text.indexOf(phrase))
+    expect(at.every((i) => i >= 0)).toBe(true)
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+
+    // The helper's own step renders inside the helper's line, not as a sibling of it.
+    const nested = wrapper.find('[data-testid="nested-lines"]')
+    expect(nested.text()).toContain('the projection daemon is running')
+    expect(nested.element.parentElement?.textContent).toContain('the names are published')
   })
 })

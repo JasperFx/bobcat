@@ -157,6 +157,11 @@ export interface StepState {
    */
   plannedStepNumber: number | null
   /**
+   * The step this one ran inside (bobcat#810) — a `[Given]` helper's own steps name it — or null for
+   * a step called straight from the test body, and from a publisher that predates it.
+   */
+  parentStepId: string | null
+  /**
    * Where the INPUT values sit in `text` (stoat#59). Carried, never recomputed: searching the
    * sentence for a value marks the wrong characters when the value also occurs in the prose.
    */
@@ -768,6 +773,7 @@ export const useRunsStore = defineStore('runs', () => {
       progress: null,
       declaredStepNumber: e.declaredStepNumber ?? null,
       plannedStepNumber: e.plannedStepNumber ?? null,
+      parentStepId: e.parentStepId ?? null,
       values: e.values ?? [],
       ...emptyReport(),
     }
@@ -861,6 +867,7 @@ export const useRunsStore = defineStore('runs', () => {
         progress: null,
         declaredStepNumber: null,
         plannedStepNumber: null,
+        parentStepId: null,
         values: [],
         ...emptyReport(),
       }

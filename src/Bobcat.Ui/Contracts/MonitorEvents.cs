@@ -132,14 +132,16 @@ public record ScenarioStarted(
 /// the step text with its placeholders UNRESOLVED: at plan time no argument has been evaluated, and
 /// filling them in would describe a run that did not happen. Grammar is the bound step method as
 /// <c>Type.Method</c>; DeclaredStepNumber is the 1-based marker comment the call sits under, or null.
+/// Line is the call site's source line (bobcat#810), null from an older publisher.
 /// </summary>
-public record PlannedStepInfo(string Keyword, string Template, string Grammar, int? DeclaredStepNumber = null);
+public record PlannedStepInfo(string Keyword, string Template, string Grammar, int? DeclaredStepNumber = null, int? Line = null);
 
 /// <summary>
 /// One declared step on the wire (issue #304): a marker comment's keyword and sentence, with no
-/// status, duration or id — what ran attaches to it through StepStarted.DeclaredStepNumber.
+/// status, duration or id — what ran attaches to it through StepStarted.DeclaredStepNumber. Line is the
+/// comment's source line (bobcat#810), null from an older publisher.
 /// </summary>
-public record DeclaredStepInfo(string Keyword, string Text);
+public record DeclaredStepInfo(string Keyword, string Text, int? Line = null);
 
 /// <summary>
 /// Outcome mirrors RunOutcome: CleanPass / PassOnRetry / Failed / Aborted. Uid is the spec
@@ -261,7 +263,10 @@ public record StepStarted(
     // Where the INPUT values sit in Text (stoat#59). Travels rather than being recomputed: searching
     // the sentence for a value marks the wrong characters whenever it also occurs in the prose —
     // "3 of them cost 3" would italicise the first 3. Null when nothing was substituted.
-    IReadOnlyList<StepValueSpan>? Values = null) : MonitorEvent(RunId);
+    IReadOnlyList<StepValueSpan>? Values = null,
+    // The step this one ran inside (bobcat#810), null for one called straight from the test body and
+    // from an older publisher.
+    string? ParentStepId = null) : MonitorEvent(RunId);
 
 /// <summary>Where one substituted input value sits in a step's rendered sentence (stoat#59).</summary>
 public record StepValueSpan(int Start, int Length);

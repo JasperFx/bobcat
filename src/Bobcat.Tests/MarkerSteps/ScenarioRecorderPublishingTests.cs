@@ -165,6 +165,38 @@ public class ScenarioRecorderPublishingTests : IDisposable
     }
 
     [Fact]
+    public void a_step_called_inside_another_names_it_as_its_parent()
+    {
+        // bobcat#810: the console nests a [Given] helper's own steps under it, and the UI can only do
+        // the same if the wire says which step was open.
+        using var recording = ScenarioRecorder.Begin("Async daemon", "the daemon catches up", _sink, _runId);
+
+        using (ScenarioRecorder.Step("Given", "the names are published"))
+        {
+            ScenarioRecorder.Step("When", "the projection daemon is running").Dispose();
+        }
+        ScenarioRecorder.Step("Then", "each skipped event is a dead letter").Dispose();
+
+        _sink.Events.OfType<StepStarted>().Select(x => (x.StepId, x.ParentStepId))
+            .ShouldBe([("s1", null), ("s2", "s1"), ("s3", null)]);
+    }
+
+    [Fact]
+    public void the_narrative_carries_each_comments_source_line()
+    {
+        // bobcat#810: where a comment sits among the planned call sites, so a helper called before the
+        // first one is shown before it.
+        DeclaredSteps.Register(Uid,
+            new DeclaredStep("When", "the daemon stops", 40),
+            new DeclaredStep("Then", "each skipped event is a dead letter", 44));
+
+        using var recording = ScenarioRecorder.Begin("Async daemon", "the daemon catches up", _sink, _runId);
+
+        _sink.Events.OfType<ScenarioStarted>().ShouldHaveSingleItem().DeclaredSteps.ShouldNotBeNull()
+            .Select(x => x.Line).ShouldBe([40, 44]);
+    }
+
+    [Fact]
     public void a_step_under_no_declared_region_attributes_to_nothing()
     {
         DeclaredSteps.Register(Uid, new DeclaredStep("Given", "the events are published", 11));

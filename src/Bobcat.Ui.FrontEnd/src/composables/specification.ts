@@ -1,4 +1,4 @@
-import type { PlannedStepInfo, StepCell, StepValueSpan } from '@/messages/monitor-events'
+import type { DeclaredStepInfo, PlannedStepInfo, StepCell, StepValueSpan } from '@/messages/monitor-events'
 import type { ScenarioState, StepState } from '@/stores/runs-store'
 import { narrativeFor, type NarrativeStatus } from './narrative'
 
@@ -28,7 +28,14 @@ import { narrativeFor, type NarrativeStatus } from './narrative'
 export type LineStatus = 'running' | 'passed' | 'failed' | 'errored' | 'not-run' | 'pending'
 
 export type SpecLine =
-  | { kind: 'step'; key: string; status: LineStatus; step: StepState }
+  | {
+      kind: 'step'
+      key: string
+      status: LineStatus
+      step: StepState
+      /** The steps this one ran inside it (bobcat#810): a `[Given]` helper's own steps, nested under it. */
+      children: SpecLine[]
+    }
   | {
       kind: 'planned'
       key: string
@@ -36,7 +43,11 @@ export type SpecLine =
       /** 1-based position in the plan. */
       number: number
       planned: PlannedStepInfo
+      children: SpecLine[]
     }
+
+/** One entry of the specification, top to bottom: a declared sentence, or a line under none. */
+export type SpecItem = { kind: 'row'; row: SpecRow } | { kind: 'line'; line: SpecLine }
 
 export interface SpecRow {
   /** 1-based position in the declared narrative. */
@@ -68,6 +79,12 @@ export interface Specification {
   rows: SpecRow[]
   /** Lines under no declared sentence — for every lane but marker comments, all of them. */
   outside: SpecLine[]
+  /**
+   * The rows and the outside lines together, in the order the test wrote them (bobcat#810): a helper
+   * called before the first marker comment comes before it, as the console shows it. Without source
+   * lines (an older publisher) the rows come first and the outside lines after them.
+   */
+  items: SpecItem[]
   exceptions: ExceptionPanel[]
   /**
    * Why the scenario failed when no line accounts for it — an assertion library that threw
@@ -112,6 +129,7 @@ export function linesOf(scenario: SpecSource): SpecLine[] {
     key: `step-${index}`,
     status: statusOfStep(step),
     step,
+    children: [],
   })
 
   if (planned.length === 0) return scenario.steps.map(stepLine)
@@ -132,6 +150,7 @@ export function linesOf(scenario: SpecSource): SpecLine[] {
         status: unreachedStatus,
         number: next,
         planned: planned[next - 1]!,
+        children: [],
       })
     }
   }
@@ -153,6 +172,66 @@ export function linesOf(scenario: SpecSource): SpecLine[] {
 
 function declaredNumberOf(line: SpecLine): number | null {
   return line.kind === 'step' ? line.step.declaredStepNumber : line.planned.declaredStepNumber
+}
+
+/**
+ * The flat lines as a tree (bobcat#810): a step that ran inside another goes under it, the way the
+ * console nests a helper's own steps. The parent is the nearest earlier step with that id — a
+ * publisher that predates `stepId` being unique per occurrence repeats ids, and the one that was
+ * open is the latest. A step whose parent is not there stays at the top.
+ */
+function nest(lines: SpecLine[]): SpecLine[] {
+  const top: SpecLine[] = []
+  const latest = new Map<string, SpecLine>()
+  for (const line of lines) {
+    const parentId = line.kind === 'step' ? line.step.parentStepId : null
+    const parent = parentId ? latest.get(parentId) : undefined
+    if (parent) parent.children.push(line)
+    else top.push(line)
+    if (line.kind === 'step') latest.set(line.step.stepId, line)
+  }
+  return top
+}
+
+/** Every line, the nested ones included, in order. */
+function flatten(lines: SpecLine[]): SpecLine[] {
+  return lines.flatMap((line) => [line, ...flatten(line.children)])
+}
+
+function lineOfLine(line: SpecLine, planned: PlannedStepInfo[]): number | null {
+  const position = line.kind === 'planned' ? line.number : line.step.plannedStepNumber
+  return position != null ? (planned[position - 1]?.line ?? null) : null
+}
+
+/**
+ * The rows and the outside lines in source order (bobcat#810). A row sits at its comment's line and
+ * an outside line at its call site's; a line with no call site (a step with no plan behind it) keeps
+ * its place beside the line before it. When any row has no line — an older publisher — nothing can be
+ * placed, and the rows come first as they always did.
+ */
+function itemsOf(rows: SpecRow[], outside: SpecLine[], declared: DeclaredStepInfo[], planned: PlannedStepInfo[]): SpecItem[] {
+  const rowItems: SpecItem[] = rows.map((row) => ({ kind: 'row', row }))
+  const lineItems: SpecItem[] = outside.map((line) => ({ kind: 'line', line }))
+  const rowLines = declared.map((d) => d.line ?? null)
+  if (rows.length === 0 || outside.length === 0 || rowLines.some((l) => l === null)) return [...rowItems, ...lineItems]
+
+  // A line with no source line of its own borrows its neighbour's, so it stays beside it.
+  const known = outside.map((line) => lineOfLine(line, planned))
+  const placed = known.map((own, i) => {
+    if (own !== null) return own
+    for (let j = i - 1; j >= 0; j--) if (known[j] !== null) return known[j]!
+    for (let j = i + 1; j < known.length; j++) if (known[j] !== null) return known[j]!
+    return Number.POSITIVE_INFINITY
+  })
+
+  const items: SpecItem[] = []
+  let r = 0
+  outside.forEach((line, i) => {
+    while (r < rows.length && rowLines[rows[r]!.number - 1]! < placed[i]!) items.push(rowItems[r++]!)
+    items.push(lineItems[i]!)
+  })
+  while (r < rows.length) items.push(rowItems[r++]!)
+  return items
 }
 
 /** The type without its namespace: `System.DivideByZeroException` → `DivideByZeroException`. */
@@ -193,7 +272,10 @@ function exceptionsOf(lines: SpecLine[]): ExceptionPanel[] {
 }
 
 export function specificationFor(scenario: SpecSource): Specification {
-  const lines = linesOf(scenario)
+  // A nested step belongs to the step it ran inside, wherever its own number points; only the top
+  // lines are placed under a declared sentence or outside them.
+  const top = nest(linesOf(scenario))
+  const lines = flatten(top)
   const narrative = narrativeFor(scenario)
 
   const rows: SpecRow[] = narrative.rows.map((row) => ({
@@ -202,10 +284,10 @@ export function specificationFor(scenario: SpecSource): Specification {
     text: row.text,
     status: row.status,
     observedMs: row.observedMs,
-    lines: lines.filter((line) => declaredNumberOf(line) === row.number),
+    lines: top.filter((line) => declaredNumberOf(line) === row.number),
   }))
 
-  const outside = lines.filter((line) => {
+  const outside = top.filter((line) => {
     const declared = declaredNumberOf(line)
     return declared === null || declared < 1 || declared > rows.length
   })
@@ -218,6 +300,7 @@ export function specificationFor(scenario: SpecSource): Specification {
   return {
     rows,
     outside,
+    items: itemsOf(rows, outside, scenario.declaredSteps, scenario.plannedSteps),
     exceptions: exceptionsOf(lines),
     scenarioFailure: failedScenario && !explained ? scenario.errorMessage : null,
   }
