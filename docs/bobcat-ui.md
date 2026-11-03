@@ -102,7 +102,8 @@ the page shows a loading placeholder rather than a partial board or a premature 
 
 **A status strip on every page**, one line under the top navigation, the Event Model canvas
 included: the attached **runner** (its state, how long it has been up, whether it offers warm runs,
-when its code was built; several runners fold into one segment with a dropdown), the **build** -- shown
+when its code was built -- or, for a runner that is not connected, when it was last seen instead of an
+uptime; several runners fold into one segment with a dropdown), the **build** -- shown
 only when a watched project does not compile, and then **the whole strip turns red**, with the
 compiler errors a click away -- the **live run** with a mini progress bar (several live runs are a
 dropdown, filtered by the board's repository filter), **watch** when `bobcat watch` has reported a

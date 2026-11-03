@@ -83,6 +83,19 @@ describe('StatusStrip', () => {
     expect(segment.find('[data-tone]').attributes('data-tone')).toBe('ok')
   })
 
+  it('says when a runner that is not connected was last seen, with no uptime and no warmth (bobcat#806)', async () => {
+    const strip = render()
+    await flushPromises()
+    pushRunners([runner({ connected: false, lastSeenAt: '2026-10-26T11:58:00Z' })])
+    await flushPromises()
+
+    const segment = strip.find('[data-testid="strip-runner"]')
+    expect(segment.text()).toContain('Bank.Tests · not connected · last seen 2m ago · built 3m ago')
+    expect(segment.text()).not.toContain('up ')
+    expect(segment.text()).not.toContain('warm')
+    expect(segment.find('[data-tone]').attributes('data-tone')).toBe('bad')
+  })
+
   it('sums several runners up, in the worst of their tones', async () => {
     const strip = render()
     await flushPromises()

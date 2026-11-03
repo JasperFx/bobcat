@@ -392,7 +392,14 @@ public sealed class RunnerRegistry
         {
             lock (_gate)
             {
-                if (find(id) is { } runner) runner.Streams--;
+                if (find(id) is { } runner)
+                {
+                    runner.Streams--;
+
+                    // bobcat#806: the runner was there until now, so this is when it was last seen — a
+                    // stopped runner reads "last seen 2m ago", not the moment it connected an hour back.
+                    runner.LastSeenAt = _time.GetUtcNow();
+                }
             }
 
             // And a stream closing is the runner disconnecting.
