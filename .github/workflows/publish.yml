@@ -3,6 +3,12 @@ name: publish
 # Publishes the Bobcat NuGet packages. The version is centralized in
 # src/Directory.Build.props (<Version>); bump it there to cut a release.
 # Trigger by pushing a tag like `v0.5.0`, or run manually from the Actions tab.
+#
+# NuGet trusted publishing: no long-lived API key. The NuGet/login step trades this run's GitHub
+# OIDC token for a key that expires within the hour, under a trusted publishing policy on nuget.org
+# owned by `jeremydmiller` that names this repository and THIS workflow file (publish.yml).
+# Renaming the file, or moving the repository, breaks the policy until it is edited on nuget.org
+# to match. 1.0.1's first publish failed because the NUGET_API_KEY secret had expired.
 on:
   push:
     tags:
@@ -12,6 +18,11 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # id-token: write is what lets NuGet/login ask GitHub for the OIDC token it exchanges. Naming
+    # any permission drops the rest to none, so contents: read (the checkout) is declared too.
+    permissions:
+      contents: read
+      id-token: write
 
     # This job runs the full suite before packing, so it needs the same infrastructure the test
     # job has: the Postgres the database-backed tests use. [PostgresFact] refuses to skip on CI, so
@@ -56,11 +67,17 @@ jobs:
       - name: Build, test and pack
         run: ./build.sh CI Pack
 
+      - name: NuGet login (trusted publishing)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: jeremydmiller
+
       - name: Push to NuGet
         run: >
           dotnet nuget push "${{ github.workspace }}/artifacts/packages/*.nupkg"
           --source https://api.nuget.org/v3/index.json
-          --api-key ${{ secrets.NUGET_API_KEY }}
+          --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
           --skip-duplicate
 
       # --skip-duplicate keeps the push idempotent for re-runs, but it also means a push
