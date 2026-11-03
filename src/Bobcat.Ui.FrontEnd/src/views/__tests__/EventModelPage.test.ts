@@ -139,6 +139,43 @@ describe('EventModelPage', () => {
     expect(slice.attributes('data-outcome')).toBe('passed')
   })
 
+  it('loads a run that finished before the page opened before colouring by it (bobcat#809)', async () => {
+    // The board's one request seeds a finished run as a summary with no scenarios; its events are
+    // loaded only when something asks. The canvas has to ask, or every slice reads "not run".
+    const model = useEventModelStore()
+    model.descriptor = descriptor()
+    model.status = 'loaded'
+    useRunsStore().applySummaries([
+      {
+        runId: RUN, suite: 'Wallets', repository: '/repo', branch: 'main', mode: 'in-process', finished: true,
+        orphaned: false, exitCode: 0, scenarios: 1, startedAt: '2026-08-24T10:00:00Z', finishedAt: '2026-08-24T10:00:03Z',
+        passed: 1, failed: 0,
+      },
+    ])
+
+    const archive = [
+      { type: 'run_started', runId: RUN, suite: 'Wallets', repository: '/repo', branch: 'main', mode: 'in-process', startedAt: '2026-08-24T10:00:00Z', totalScenarios: 1 },
+      { type: 'scenario_started', runId: RUN, uid: 'Wallet/Crediting a wallet', feature: 'Wallet', scenario: 'Crediting a wallet', attempt: 1, at: '2026-08-24T10:00:01Z' },
+      { type: 'scenario_finished', runId: RUN, uid: 'Wallet/Crediting a wallet', outcome: 'CleanPass', attempts: 1, durationMs: 40, errorMessage: null, at: '2026-08-24T10:00:02Z' },
+    ]
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      requests.push(url)
+      if (url.startsWith(`/api/runs/${RUN}/export`)) {
+        return Promise.resolve({ ok: true, text: () => Promise.resolve(archive.map((e) => JSON.stringify(e)).join('\n')) } as Response)
+      }
+      return new Promise(() => {})
+    }))
+
+    const wrapper = await mountPage()
+    // Until the run's events arrive the canvas is uncoloured, not "not run".
+    expect(wrapper.find('[data-slice="CreditWallet"]').attributes('data-outcome')).not.toBe('notRun')
+
+    await flushPromises()
+    expect(requests).toContain(`/api/runs/${RUN}/export?format=ndjson`)
+    expect(wrapper.find('[data-slice="CreditWallet"]').attributes('data-outcome')).toBe('passed')
+  })
+
   it('clicking the slice opens its bound scenarios with step results and drift', async () => {
     seedStores()
     const wrapper = await mountPage()
