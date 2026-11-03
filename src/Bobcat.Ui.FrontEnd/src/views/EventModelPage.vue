@@ -38,6 +38,7 @@ import { useRunsStore, type RunState, type ScenarioState } from '@/stores/runs-s
 import SpecificationView from '@/components/SpecificationView.vue'
 import RunButton from '@/components/RunButton.vue'
 import { specHref } from '@/lib/specLinks'
+import { ensureRunEvents } from '@/messages/hydrate'
 import { formatAbsolute, formatRelative, useNow } from '@/composables/time'
 
 const model = useEventModelStore()
@@ -101,8 +102,19 @@ const evidenceRun = computed<RunState | undefined>(() =>
   selectedRunId.value ? runs.runById(selectedRunId.value) : runChoices.value[0]
 )
 
+// bobcat#809: a run that finished before the page loaded reaches the store as a summary with no
+// scenarios, so it has to be loaded before it can colour anything — as the run and spec pages do
+// (bobcat#784). Until it is, the canvas stays uncoloured rather than calling every slice "not run".
+watch(
+  () => evidenceRun.value?.runId,
+  (runId) => {
+    if (runId) void ensureRunEvents(runId)
+  },
+  { immediate: true }
+)
+
 const sliceOutcomes = computed(() =>
-  evidenceRun.value ? outcomesFor(model.descriptor, evidenceRun.value.scenarios) : undefined
+  evidenceRun.value?.eventsLoaded ? outcomesFor(model.descriptor, evidenceRun.value.scenarios) : undefined
 )
 
 // ---------------------------------------------------------------- drill-down
