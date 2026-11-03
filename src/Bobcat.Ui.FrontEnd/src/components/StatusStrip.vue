@@ -32,11 +32,18 @@ onMounted(() => {
 
 // ---------------------------------------------------------------- runner
 
+// bobcat#806: an uptime and "warm" are only true of a runner that is there. One that is not says
+// when it was last heard from instead, and offers no mode, since it can serve nothing.
 function describeRunner(runner: RunnerView): string {
   const parts = [runner.suite ?? runner.runnerId, runnerState(runner).label]
-  const up = formatRelative(runner.registeredAt, now.value)
-  if (up && up !== 'just now') parts.push(`up ${up.replace(' ago', '')}`)
-  if (runner.modes.includes('warm')) parts.push('warm')
+  if (runner.connected) {
+    const up = formatRelative(runner.registeredAt, now.value)
+    if (up && up !== 'just now') parts.push(`up ${up.replace(' ago', '')}`)
+    if (runner.modes.includes('warm')) parts.push('warm')
+  } else {
+    const seen = formatRelative(runner.lastSeenAt, now.value)
+    if (seen) parts.push(`last seen ${seen}`)
+  }
   const built = formatRelative(runner.builtAt, now.value)
   if (built) parts.push(`built ${built}`)
   return parts.join(' · ')

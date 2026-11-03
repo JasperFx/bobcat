@@ -233,6 +233,31 @@ public class RunnerRegistryTests
     }
 
     [Fact]
+    public async Task a_runner_that_disconnects_was_last_seen_when_its_stream_closed()
+    {
+        // bobcat#806: the status strip says "last seen 2m ago" for a stopped runner, so the time it
+        // left must be when its stream closed, not when it connected.
+        var time = new Bobcat.Supervisor.Tests.FakeTimeProvider();
+        var runners = new RunnerRegistry(time);
+        runners.Register(registration(), "JasperFx/stoat");
+
+        using var cts = new CancellationTokenSource();
+        var enumerator = runners.Stream("r-1", null, Long, cts.Token).GetAsyncEnumerator(cts.Token);
+        var moving = enumerator.MoveNextAsync();
+        await Task.Delay(50);
+        var connectedAt = time.GetUtcNow();
+        runners.Find("r-1")!.LastSeenAt.ShouldBe(connectedAt);
+
+        time.Advance(TimeSpan.FromMinutes(40));
+        cts.Cancel();
+        try { await moving; } catch (OperationCanceledException) { }
+        await enumerator.DisposeAsync();
+
+        runners.Find("r-1")!.Connected.ShouldBeFalse();
+        runners.Find("r-1")!.LastSeenAt.ShouldBe(connectedAt.AddMinutes(40));
+    }
+
+    [Fact]
     public void registering_again_keeps_the_queue_and_ends_a_rebuilding_status()
     {
         var runners = registry();
