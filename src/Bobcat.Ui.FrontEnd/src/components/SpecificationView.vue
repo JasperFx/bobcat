@@ -31,28 +31,30 @@ const reports = computed(() => props.scenario.reports ?? [])
     <ul class="bm-lines" data-testid="declared-narrative">
       <!-- #304 — the sentences the test declared, each with the work that ran under it. A row with
            no work reports NOTHING rather than a borrowed number: nothing observed it. -->
-      <li
-        v-for="row in spec.rows"
-        :key="`declared-${row.number}`"
-        class="bm-declared"
-        :data-status="row.status"
-        :data-declared="row.number"
-      >
-        <strong v-if="row.keyword">{{ row.keyword }}</strong> {{ row.text }}
-        <span v-if="row.observedMs !== null" class="bm-duration">{{ row.observedMs }}ms</span>
-        <span
-          v-else-if="row.status === 'declared' && row.lines.length === 0"
-          class="bm-unobserved"
-          title="Declared by a marker comment; no [BobcatStep] helper ran inside it, so nothing observed how long it took"
+      <!-- bobcat#810: the sentences and the lines under none of them, in the order the test wrote
+           them, as the console shows it. -->
+      <template v-for="item in spec.items" :key="item.kind === 'row' ? `declared-${item.row.number}` : item.line.key">
+        <li
+          v-if="item.kind === 'row'"
+          class="bm-declared"
+          :data-status="item.row.status"
+          :data-declared="item.row.number"
         >
-          declared
-        </span>
-        <ul v-if="row.lines.length" class="bm-lines bm-recorded">
-          <SpecLine v-for="line in row.lines" :key="line.key" :line="line" />
-        </ul>
-      </li>
-
-      <SpecLine v-for="line in spec.outside" :key="line.key" :line="line" />
+          <strong v-if="item.row.keyword">{{ item.row.keyword }}</strong> {{ item.row.text }}
+          <span v-if="item.row.observedMs !== null" class="bm-duration">{{ item.row.observedMs }}ms</span>
+          <span
+            v-else-if="item.row.status === 'declared' && item.row.lines.length === 0"
+            class="bm-unobserved"
+            title="Declared by a marker comment; no [BobcatStep] helper ran inside it, so nothing observed how long it took"
+          >
+            declared
+          </span>
+          <ul v-if="item.row.lines.length" class="bm-lines bm-recorded">
+            <SpecLine v-for="line in item.row.lines" :key="line.key" :line="line" />
+          </ul>
+        </li>
+        <SpecLine v-else :line="item.line" />
+      </template>
     </ul>
 
     <div v-if="spec.scenarioFailure" class="bm-scenario-failure" data-testid="scenario-failure">

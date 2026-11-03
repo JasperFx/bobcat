@@ -8,7 +8,7 @@ import {
   shortTypeName,
   verdictOf,
   type RowMarker,
-  type SpecLine,
+  type SpecLine as SpecLineModel,
   type TextSegment,
 } from '@/composables/specification'
 
@@ -16,9 +16,9 @@ import {
  * One line of a rendered specification (stoat#58, #59, #60): a step that ran, with everything it
  * said about itself, or a planned step the run never reached.
  */
-const props = defineProps<{ line: SpecLine }>()
+const props = defineProps<{ line: SpecLineModel }>()
 
-const GLYPHS: Record<SpecLine['status'], string> = {
+const GLYPHS: Record<SpecLineModel['status'], string> = {
   running: '⋯',
   passed: '✓',
   failed: '✗',
@@ -184,12 +184,23 @@ function describe(cell: StepCell): string {
     </dl>
 
     <AttachmentList v-if="step && step.attachments?.length" :attachments="step.attachments" />
+
+    <!-- bobcat#810: the steps this one ran inside it, nested under it as the console shows them. -->
+    <ul v-if="line.children.length" class="bm-children" data-testid="nested-lines">
+      <SpecLine v-for="child in line.children" :key="child.key" :line="child" />
+    </ul>
   </li>
 </template>
 
 <style scoped>
 .bm-line {
   margin: 2px 0;
+}
+
+.bm-children {
+  list-style: none;
+  margin: 0;
+  padding-left: 16px;
 }
 
 /* Inline flow, not flex: a long sentence must wrap beside its keyword the way prose does, rather

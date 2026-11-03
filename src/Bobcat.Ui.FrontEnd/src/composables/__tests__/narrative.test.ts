@@ -20,6 +20,7 @@ function step(overrides: Partial<StepState> & { stepId: string }): StepState {
     progress: null,
     declaredStepNumber: null,
     plannedStepNumber: null,
+    parentStepId: null,
     values: [],
     cells: [],
     columns: [],
@@ -31,9 +32,9 @@ function step(overrides: Partial<StepState> & { stepId: string }): StepState {
 }
 
 const declared = [
-  { keyword: 'Given', text: 'the events are published' },
-  { keyword: 'When', text: 'the daemon is running' },
-  { keyword: 'Then', text: 'every aggregate matches' },
+  { keyword: 'Given', text: 'the events are published', line: null },
+  { keyword: 'When', text: 'the daemon is running', line: null },
+  { keyword: 'Then', text: 'every aggregate matches', line: null },
 ]
 
 describe('narrativeFor', () => {

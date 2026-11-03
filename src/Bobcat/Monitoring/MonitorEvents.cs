@@ -121,7 +121,11 @@ public record ScenarioStarted(
 /// 1-based index into <see cref="ScenarioStarted.DeclaredSteps"/> of the marker comment this step
 /// sits under, or null.
 /// </param>
-public record PlannedStepInfo(string Keyword, string Template, string Grammar, int? DeclaredStepNumber = null);
+/// <param name="Line">
+/// 1-based source line of the call site (bobcat#810), so a viewer can put the plan and the marker
+/// comments in the order the test wrote them, as the console does. Null from an older publisher.
+/// </param>
+public record PlannedStepInfo(string Keyword, string Template, string Grammar, int? DeclaredStepNumber = null, int? Line = null);
 
 /// <summary>
 /// One step a scenario declared — a marker comment, on the wire (issue #304).
@@ -131,7 +135,11 @@ public record PlannedStepInfo(string Keyword, string Template, string Grammar, i
 /// narrative, not a report of anything that happened; what ran attaches to it through
 /// <see cref="StepStarted.DeclaredStepNumber"/>.
 /// </remarks>
-public record DeclaredStepInfo(string Keyword, string Text);
+/// <param name="Line">
+/// 1-based source line of the comment (bobcat#810): where it sits among the planned steps, which a
+/// helper called before the first comment needs to be shown before it. Null from an older publisher.
+/// </param>
+public record DeclaredStepInfo(string Keyword, string Text, int? Line = null);
 
 public record ScenarioFinished(
     Guid RunId,
@@ -278,7 +286,11 @@ public record StepStarted(
     // Storyteller italicised a sentence's input cells. Cannot be recomputed from the text — a value
     // that also occurs in the prose would mark the wrong characters — so it travels. Null when the
     // step has no substituted values.
-    IReadOnlyList<StepValueSpan>? Values = null) : MonitorEvent(RunId);
+    IReadOnlyList<StepValueSpan>? Values = null,
+    // The step this one ran inside (bobcat#810): a [Given] helper that calls other steps is their
+    // parent, and the console nests them under it. Null for a step called straight from the test
+    // body, and from an older publisher.
+    string? ParentStepId = null) : MonitorEvent(RunId);
 
 /// <summary>Where one substituted input value sits in a step's rendered sentence.</summary>
 public record StepValueSpan(int Start, int Length);

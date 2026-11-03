@@ -190,6 +190,9 @@ public class StepReportWireTests : IDisposable
         planned.Select(x => x.Template).ShouldBe(["the service is called", "the value should be {value}"]);
         planned[1].Grammar.ShouldBe("Grammar.Value");
 
+        // The call sites' lines (bobcat#810), so a viewer orders the plan among the marker comments.
+        planned.Select(x => x.Line).ShouldBe([10, 11]);
+
         // The count comes from the plan when there is no declared narrative, so a watcher can render
         // "step 1 of 2" for a projected test that uses no marker comments at all.
         started.TotalSteps.ShouldBe(2);

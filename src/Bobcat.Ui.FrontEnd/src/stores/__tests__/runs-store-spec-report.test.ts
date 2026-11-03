@@ -20,7 +20,7 @@ function started(store: ReturnType<typeof useRunsStore>) {
     scenario: 'divides',
     attempt: 1,
     at: '2026-09-29T12:00:00Z',
-    plannedSteps: [{ keyword: '', template: 'The value should be {value}', grammar: 'G.ValueIs', declaredStepNumber: null }],
+    plannedSteps: [{ keyword: '', template: 'The value should be {value}', grammar: 'G.ValueIs', declaredStepNumber: null, line: null }],
   })
   store.handleStepStarted({
     runId: RUN,

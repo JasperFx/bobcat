@@ -30,6 +30,7 @@ function step(overrides: Partial<StepState> & { stepId: string }): StepState {
     progress: null,
     declaredStepNumber: null,
     plannedStepNumber: null,
+    parentStepId: null,
     values: [],
     cells: [],
     columns: [],
@@ -47,7 +48,7 @@ function source(overrides: Partial<Source> = {}): Source {
 }
 
 const plan = (...templates: string[]): PlannedStepInfo[] =>
-  templates.map((template) => ({ keyword: 'Then', template, grammar: `G.${template}`, declaredStepNumber: null }))
+  templates.map((template) => ({ keyword: 'Then', template, grammar: `G.${template}`, declaredStepNumber: null, line: null }))
 
 function describeLines(lines: SpecLine[]): string[] {
   return lines.map((line) =>
@@ -147,12 +148,12 @@ describe('specificationFor', () => {
     const spec = specificationFor(
       source({
         declaredSteps: [
-          { keyword: 'Given', text: 'a calculator' },
-          { keyword: 'Then', text: 'the sums add up' },
+          { keyword: 'Given', text: 'a calculator', line: null },
+          { keyword: 'Then', text: 'the sums add up', line: null },
         ],
         plannedSteps: [
-          { keyword: 'Given', template: 'Start with {v}', grammar: 'G.Start', declaredStepNumber: 1 },
-          { keyword: 'Then', template: 'The sum is {s}', grammar: 'G.Sum', declaredStepNumber: 2 },
+          { keyword: 'Given', template: 'Start with {v}', grammar: 'G.Start', declaredStepNumber: 1, line: null },
+          { keyword: 'Then', template: 'The sum is {s}', grammar: 'G.Sum', declaredStepNumber: 2, line: null },
         ],
         steps: [step({ stepId: 'start', plannedStepNumber: 1, declaredStepNumber: 1, status: 'failed' })],
       }),
@@ -212,6 +213,75 @@ describe('specificationFor', () => {
     expect(explained.scenarioFailure).toBeNull()
 
     expect(specificationFor(source({ status: 'passed', errorMessage: 'stale' })).scenarioFailure).toBeNull()
+  })
+})
+
+describe('specificationFor — source order and nesting (bobcat#810)', () => {
+  /** The specification top to bottom: a row with its lines, a line with its children, indented. */
+  function outline(spec: ReturnType<typeof specificationFor>): string[] {
+    const ofLine = (line: SpecLine, depth: number): string[] => [
+      `${'  '.repeat(depth)}${line.kind === 'step' ? line.step.stepId : `#${line.number}`}`,
+      ...line.children.flatMap((child) => ofLine(child, depth + 1)),
+    ]
+    return spec.items.flatMap((item) =>
+      item.kind === 'row'
+        ? [`row ${item.row.number}`, ...item.row.lines.flatMap((line) => ofLine(line, 1))]
+        : ofLine(item.line, 0),
+    )
+  }
+
+  // Marten's DaemonTests, as the issue found it: a [Given] helper called before the first marker
+  // comment, with two steps of its own, then a When comment nothing ran under and a Then comment with
+  // two assertions.
+  const daemon = () =>
+    source({
+      status: 'passed',
+      declaredSteps: [
+        { keyword: 'When', text: 'the daemon stops', line: 40 },
+        { keyword: 'Then', text: 'each skipped event is a dead letter', line: 44 },
+      ],
+      plannedSteps: [
+        { keyword: 'Given', template: 'the names are published', grammar: 'G.Publish', declaredStepNumber: null, line: 31 },
+        { keyword: '', template: 'namedDocumentsSkipped', grammar: 'Should.Be', declaredStepNumber: 2, line: 46 },
+        { keyword: '', template: 'collateNamesSkipped', grammar: 'Should.Be', declaredStepNumber: 2, line: 47 },
+      ],
+      steps: [
+        step({ stepId: 's1', plannedStepNumber: 1 }),
+        step({ stepId: 's2', parentStepId: 's1' }),
+        step({ stepId: 's3', parentStepId: 's1' }),
+        step({ stepId: 's4', plannedStepNumber: 2, declaredStepNumber: 2 }),
+        step({ stepId: 's5', plannedStepNumber: 3, declaredStepNumber: 2 }),
+      ],
+    })
+
+  it('puts a helper called before the first marker comment before it, with its own steps nested under it', () => {
+    expect(outline(specificationFor(daemon()))).toEqual(['s1', '  s2', '  s3', 'row 1', 'row 2', '  s4', '  s5'])
+  })
+
+  it('nests a step under its parent even when it carries a declared number of its own', () => {
+    const scenario = daemon()
+    scenario.steps[1] = step({ stepId: 's2', parentStepId: 's1', declaredStepNumber: 1 })
+    const spec = specificationFor(scenario)
+    expect(outline(spec)).toEqual(['s1', '  s2', '  s3', 'row 1', 'row 2', '  s4', '  s5'])
+    // The row's own status still counts what ran under its comment.
+    expect(spec.rows[0]!.status).toBe('passed')
+  })
+
+  it('keeps every line in the flat lists the exceptions are read from, nested or not', () => {
+    const scenario = daemon()
+    scenario.steps[2] = step({
+      stepId: 's3',
+      parentStepId: 's1',
+      status: 'failed',
+      exception: { type: 'System.TimeoutException', message: 'shard', frames: [], hiddenFrames: 0, stackTrace: null },
+    })
+    expect(specificationFor(scenario).exceptions.map((e) => e.key)).toEqual(['step-2'])
+  })
+
+  it('puts the rows first, as it always did, when the publisher sent no source lines', () => {
+    const scenario = daemon()
+    scenario.declaredSteps = scenario.declaredSteps.map((d) => ({ ...d, line: null }))
+    expect(outline(specificationFor(scenario))).toEqual(['row 1', 'row 2', '  s4', '  s5', 's1', '  s2', '  s3'])
   })
 })
 
