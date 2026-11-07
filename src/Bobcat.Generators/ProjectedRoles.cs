@@ -262,7 +262,9 @@ internal static class ProjectedRoles
     /// <param name="cyclic">
     /// Set when some helper on the walk was cut for being an ancestor already on it. Such a reading depends on
     /// the path it was reached by, so it is not memoized; everything else is a function of the method and the
-    /// depth alone.
+    /// depth alone. The one reading this changes: a helper whose clean reading was kept from one caller is reused
+    /// from a caller it calls back into, where the old walk would have cut it. That is two helpers calling each
+    /// other, a recursion at run time too, and is accepted.
     /// </param>
     private static Reading read(
         MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct, HashSet<IMethodSymbol> visiting, int depth,
