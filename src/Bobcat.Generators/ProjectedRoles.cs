@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -62,7 +64,7 @@ internal static class ProjectedRoles
     internal sealed class Reading
     {
         /// <summary>Every (role word, qualified type) stamped, in call order.</summary>
-        public readonly List<(string Role, string Type)> Roles = new();
+        public List<(string Role, string Type)> Roles = new();
 
         /// <summary>
         /// The act's command: the last <c>Command</c> stamped (bobcat#464's rule). Null when the test's last act is a
@@ -105,7 +107,19 @@ internal static class ProjectedRoles
         /// the slice the test binds (<c>[BobcatSpec(typeof(AddBook))]</c> over <c>WhenPosted(new AddBook(…), url)</c>)
         /// is the act's command; see <see cref="AdoptBoundCommand"/>.
         /// </summary>
-        public readonly List<string> UnstampedActTypes = new();
+        public List<string> UnstampedActTypes = new();
+
+        /// <summary>
+        /// An independent copy, so a caller that adopts a bound command (<see cref="AdoptBoundCommand"/>) changes
+        /// its own reading and not the one <see cref="Read"/> keeps for the next caller (bobcat#815).
+        /// </summary>
+        public Reading Clone()
+        {
+            var copy = (Reading)MemberwiseClone();
+            copy.Roles = new List<(string Role, string Type)>(Roles);
+            copy.UnstampedActTypes = new List<string>(UnstampedActTypes);
+            return copy;
+        }
 
         /// <summary>
         /// bobcat#681: when the last act is a project's own method that declares no role but calls an act — a
@@ -185,12 +199,78 @@ internal static class ProjectedRoles
     /// <summary>How deep a chain of a project's own wrapping methods is followed to find the act it calls.</summary>
     private const int MaxWrapperDepth = 3;
 
-    public static Reading Read(MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct)
-        => read(method, model, ct, new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default), 0);
+    /// <summary>
+    /// How many times a helper's declaration was bound and walked for an act in <paramref name="compilation"/>
+    /// (bobcat#815) — the figure the performance test pins, so a shared helper cannot quietly go back to being
+    /// read once per caller. Per compilation, because the test suite runs generators in parallel.
+    /// </summary>
+    internal static int HelperWalks(Compilation compilation)
+        => memos.TryGetValue(compilation, out var memo) ? memo.Walks : 0;
 
-    private static Reading read(
-        MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct, HashSet<IMethodSymbol> visiting, int depth)
+    /// <summary>
+    /// bobcat#815: what each compilation has already read, so a body is bound and walked once however many
+    /// callers ask. Two tables per compilation: every test method's own reading (the manifest and the
+    /// marker-spec transforms both ask for it), and every project helper followed for an act, keyed by the
+    /// depth it was reached at so the three-deep rule reads exactly as before. Keyed on the compilation
+    /// because an incremental build is a new compilation with new symbols; nothing here outlives one.
+    /// </summary>
+    private static readonly ConditionalWeakTable<Compilation, Memo> memos = new();
+
+    private sealed class Memo
     {
+        public readonly ConcurrentDictionary<IMethodSymbol, Reading> Tests = new(SymbolEqualityComparer.Default);
+        public readonly ConcurrentDictionary<(IMethodSymbol Method, int Depth), Wrapped> Helpers = new(WrapperKeyComparer.Instance);
+        public int Walks;
+    }
+
+    /// <summary>A memoized helper result: the reading, or none, when the helper makes no act.</summary>
+    private sealed class Wrapped
+    {
+        public static readonly Wrapped None = new(null);
+        public readonly Reading? Reading;
+        public Wrapped(Reading? reading) => Reading = reading;
+    }
+
+    private sealed class WrapperKeyComparer : IEqualityComparer<(IMethodSymbol Method, int Depth)>
+    {
+        public static readonly WrapperKeyComparer Instance = new();
+
+        public bool Equals((IMethodSymbol Method, int Depth) x, (IMethodSymbol Method, int Depth) y)
+            => x.Depth == y.Depth && SymbolEqualityComparer.Default.Equals(x.Method, y.Method);
+
+        public int GetHashCode((IMethodSymbol Method, int Depth) key)
+            => unchecked(SymbolEqualityComparer.Default.GetHashCode(key.Method) * 31 + key.Depth);
+    }
+
+    /// <summary>
+    /// What <paramref name="method"/>'s body states. Read once per compilation and handed out as a copy, so the
+    /// callers that then adopt a bound command each change their own.
+    /// </summary>
+    public static Reading Read(MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct)
+    {
+        var memo = memos.GetValue(model.Compilation, _ => new Memo());
+        if (model.GetDeclaredSymbol(method, ct) is not IMethodSymbol symbol)
+            return read(method, model, ct, new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default), 0, out _);
+
+        if (memo.Tests.TryGetValue(symbol, out var known)) return known.Clone();
+
+        var reading = read(method, model, ct, new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default), 0, out _);
+        memo.Tests[symbol] = reading;
+        return reading.Clone();
+    }
+
+    /// <param name="cyclic">
+    /// Set when some helper on the walk was cut for being an ancestor already on it. Such a reading depends on
+    /// the path it was reached by, so it is not memoized; everything else is a function of the method and the
+    /// depth alone. The one reading this changes: a helper whose clean reading was kept from one caller is reused
+    /// from a caller it calls back into, where the old walk would have cut it. That is two helpers calling each
+    /// other, a recursion at run time too, and is accepted.
+    /// </param>
+    private static Reading read(
+        MethodDeclarationSyntax method, SemanticModel model, CancellationToken ct, HashSet<IMethodSymbol> visiting, int depth,
+        out bool cyclic)
+    {
+        cyclic = false;
         var reading = new Reading();
         SyntaxNode? body = (SyntaxNode?)method.Body ?? method.ExpressionBody;
         if (body is null) return reading;
@@ -212,14 +292,13 @@ internal static class ProjectedRoles
                 // bobcat#681: a project's own helper that declares nothing but calls an act IS the act. Before, the
                 // act vanished with it and a spec that only asserted afterwards read as a View
                 if (!isDeferred(invocation, body)
-                    && wrappedAct(operation.TargetMethod, compilation, ct, visiting, depth) is { } inner)
+                    && wrappedAct(operation.TargetMethod, compilation, ct, visiting, depth, ref cyclic) is { } inner)
                 {
                     adoptWrapped(operation, invocation, inner, reading, compilation);
                 }
 
                 continue;
             }
-
             string? command = null;
             string? read = null;
             foreach (var role in roles)
@@ -296,26 +375,49 @@ internal static class ProjectedRoles
     /// <summary>
     /// bobcat#681: what a project's own method declaring no Event Model attribute does, when its body — in this
     /// compilation — makes an act; null when it makes none, is not source here, or the chain is too deep or cycles.
+    /// Memoized per compilation by method and depth (bobcat#815): a helper forty specs share is read once, and a
+    /// helper reached twice in one body through two paths is read once.
     /// </summary>
     private static Reading? wrappedAct(
-        IMethodSymbol target, Compilation compilation, CancellationToken ct, HashSet<IMethodSymbol> visiting, int depth)
+        IMethodSymbol target, Compilation compilation, CancellationToken ct, HashSet<IMethodSymbol> visiting, int depth,
+        ref bool cyclic)
     {
         var definition = (target.ReducedFrom ?? target).OriginalDefinition;
         if (depth >= MaxWrapperDepth || definition.DeclaringSyntaxReferences.Length == 0) return null;
-        if (!visiting.Add(definition)) return null;
+
+        var memo = memos.GetValue(compilation, _ => new Memo());
+        if (memo.Helpers.TryGetValue((definition, depth), out var known)) return known.Reading;
+
+        if (!visiting.Add(definition))
+        {
+            cyclic = true;
+            return null;
+        }
 
         try
         {
+            var innerCyclic = false;
+            Reading? found = null;
             foreach (var reference in definition.DeclaringSyntaxReferences)
             {
                 if (reference.GetSyntax(ct) is not MethodDeclarationSyntax declaration) continue;
                 if (!compilation.ContainsSyntaxTree(declaration.SyntaxTree)) continue;
 
-                var inner = read(declaration, compilation.GetSemanticModel(declaration.SyntaxTree), ct, visiting, depth + 1);
-                if (inner.HasAct) return inner;
+                Interlocked.Increment(ref memo.Walks);
+                var inner = read(declaration, compilation.GetSemanticModel(declaration.SyntaxTree), ct, visiting, depth + 1, out var cut);
+                innerCyclic |= cut;
+                if (inner.HasAct)
+                {
+                    found = inner;
+                    break;
+                }
             }
 
-            return null;
+            // A walk that met an ancestor read differently from another caller, so only a clean one is kept
+            if (innerCyclic) cyclic = true;
+            else memo.Helpers[(definition, depth)] = found is null ? Wrapped.None : new Wrapped(found);
+
+            return found;
         }
         finally
         {

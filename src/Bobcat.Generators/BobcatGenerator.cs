@@ -23,6 +23,7 @@ public class BobcatGenerator : IIncrementalGenerator
             .CreateSyntaxProvider(
                 predicate: (node, _) => node is InvocationExpressionSyntax,
                 transform: StepInterceptors.Extract)
+            .WithTrackingName("StepCalls")
             .Where(c => c != null)
             .Select((c, _) => c!);
 
@@ -119,6 +120,7 @@ public class BobcatGenerator : IIncrementalGenerator
             .CreateSyntaxProvider(
                 predicate: (node, _) => DeclaredValues.IsCandidate(node),
                 transform: DeclaredValues.Extract)
+            .WithTrackingName("DeclaredValues")
             .Where(d => d != null)
             .Select((d, _) => d!);
 
@@ -138,6 +140,7 @@ public class BobcatGenerator : IIncrementalGenerator
             .CreateSyntaxProvider(
                 predicate: (node, _) => TableCallChecks.IsCandidate(node),
                 transform: TableCallChecks.Extract)
+            .WithTrackingName("TableCalls")
             .Where(f => f != null)
             .Select((f, _) => f!);
 
@@ -154,6 +157,7 @@ public class BobcatGenerator : IIncrementalGenerator
             .CreateSyntaxProvider(
                 predicate: (node, _) => InlineExamples.IsCandidate(node),
                 transform: InlineExamples.Check)
+            .WithTrackingName("ExampleTables")
             .Where(f => f != null)
             .Select((f, _) => f!);
 
@@ -174,6 +178,7 @@ public class BobcatGenerator : IIncrementalGenerator
             .CreateSyntaxProvider(
                 predicate: (node, _) => UnawaitedSteps.IsCandidate(node),
                 transform: UnawaitedSteps.Check)
+            .WithTrackingName("UnawaitedSteps")
             .Where(f => f != null)
             .Select((f, _) => f!.Value);
 
@@ -187,6 +192,7 @@ public class BobcatGenerator : IIncrementalGenerator
             .CreateSyntaxProvider(
                 predicate: (node, _) => MemberCheckShapes.IsCandidate(node),
                 transform: MemberCheckShapes.Check)
+            .WithTrackingName("MemberChecks")
             .Where(f => f != null)
             .Select((f, _) => f!);
 
@@ -202,6 +208,7 @@ public class BobcatGenerator : IIncrementalGenerator
             .CreateSyntaxProvider(
                 predicate: (node, _) => ProjectedRoles.IsDeclarationCandidate(node),
                 transform: ProjectedRoles.CheckDeclaration)
+            .WithTrackingName("RoleSources")
             .Where(f => f != null)
             .Select((f, _) => f!);
 
@@ -218,6 +225,7 @@ public class BobcatGenerator : IIncrementalGenerator
             .CreateSyntaxProvider(
                 predicate: (node, _) => SpecificationManifest.IsCandidate(node),
                 transform: SpecificationManifest.Extract)
+            .WithTrackingName("SpecBindings")
             .Where(f => f != null)
             .Select((f, _) => f!);
 
@@ -245,6 +253,7 @@ public class BobcatGenerator : IIncrementalGenerator
             .CreateSyntaxProvider(
                 predicate: (node, _) => node is ClassDeclarationSyntax cds && cds.AttributeLists.Count > 0,
                 transform: MarkerCommentSpecs.Extract)
+            .WithTrackingName("MarkedSpecs")
             .Where(s => s != null)
             .Select((s, _) => s!);
 
@@ -254,6 +263,7 @@ public class BobcatGenerator : IIncrementalGenerator
             .CreateSyntaxProvider(
                 predicate: (node, _) => InheritedSpecs.IsCandidate(node),
                 transform: InheritedSpecs.Extract)
+            .WithTrackingName("InheritedSpecs")
             .Where(s => s != null)
             .Select((s, _) => s!);
 
@@ -261,6 +271,7 @@ public class BobcatGenerator : IIncrementalGenerator
             .CreateSyntaxProvider(
                 predicate: (node, _) => node is MethodDeclarationSyntax { AttributeLists.Count: > 0 },
                 transform: InheritedSpecs.SkipOverride)
+            .WithTrackingName("SkipOverrides")
             .Where(x => x != null)
             .Select((x, _) => x!);
 

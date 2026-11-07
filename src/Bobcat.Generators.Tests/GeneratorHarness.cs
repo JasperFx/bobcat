@@ -82,7 +82,7 @@ public static class GeneratorHarness
         IEnumerable<MetadataReference> extraReferences,
         CSharpParseOptions parseOptions)
     {
-        var references = referenceSet().AddRange(extraReferences);
+        var references = References.AddRange(extraReferences);
         var compilation = CSharpCompilation.Create(
             "SpecProject",
             [CSharpSyntaxTree.ParseText(source, parseOptions)],
@@ -119,7 +119,7 @@ public static class GeneratorHarness
         var compilation = CSharpCompilation.Create(
             assemblyName,
             [CSharpSyntaxTree.ParseText(source, parseOptions)],
-            referenceSet().AddRange(references),
+            References.AddRange(references),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
                 nullableContextOptions: NullableContextOptions.Enable));
 
@@ -130,6 +130,11 @@ public static class GeneratorHarness
 
         return stream.ToArray();
     }
+
+    /// <summary>The reference set every in-memory compilation here builds against, resolved once.</summary>
+    internal static ImmutableArray<MetadataReference> References => references.Value;
+
+    private static readonly Lazy<ImmutableArray<MetadataReference>> references = new(referenceSet);
 
     private static ImmutableArray<MetadataReference> referenceSet()
     {
