@@ -55,6 +55,16 @@ internal static class ProjectedAssertions
     private static readonly IAssertionDialect[] dialects = [new ShouldlyDialect()];
 
     /// <summary>The dialect that claims <paramref name="method"/>, or null.</summary>
+    internal static bool MightBeAssertion(string methodName)
+    {
+        foreach (var dialect in dialects)
+        {
+            if (dialect.MightClaim(methodName)) return true;
+        }
+
+        return false;
+    }
+
     internal static IAssertionDialect? DialectFor(IMethodSymbol method)
     {
         foreach (var dialect in dialects)
@@ -130,6 +140,12 @@ internal interface IAssertionDialect
     /// <summary>Whether this dialect owns <paramref name="method"/>.</summary>
     bool Claims(IMethodSymbol method);
 
+    /// <summary>
+    /// Whether a method of this name could be one this dialect owns. Asked of the call site's syntax
+    /// alone, before anything is bound, so it may say yes too often and must never say no wrongly.
+    /// </summary>
+    bool MightClaim(string methodName);
+
     /// <summary>The thing being asserted about, as the author wrote it — the cell's name.</summary>
     string Subject(IMethodSymbol method, InvocationExpressionSyntax invocation);
 
@@ -174,6 +190,9 @@ internal sealed class ShouldlyDialect : IAssertionDialect
         => method.IsExtensionMethod
            && method.Name.StartsWith("Should", System.StringComparison.Ordinal)
            && method.ContainingNamespace?.ToDisplayString() == "Shouldly";
+
+    public bool MightClaim(string methodName)
+        => methodName.StartsWith("Should", System.StringComparison.Ordinal);
 
     /// <summary>
     /// The step's sentence, read off the CALL SITE: <c>calculator.Value.ShouldBe(7)</c> becomes
