@@ -76,7 +76,7 @@ dotnet test --project src/Bobcat.Tests/ --filter-method "*passes_on_retry*"
 # Inspect generated source (look in obj/Debug/net10.0/generated/)
 ```
 
-Most shipped packages multi-target **net9.0 and net10.0**; `Bobcat.Console` and every test host
+Most shipped packages multi-target **net10.0 and net11.0**; `Bobcat.Console` and every test host
 targets net10.0 only, and
 `Bobcat.Generators` targets netstandard2.0 (a Roslyn analyzer). See Package Structure in `docs/agents/build-and-test.md`.
 

@@ -27,6 +27,9 @@
     <!-- Released libraries opt back in individually. -->
     <IsPackable>false</IsPackable>
 
+    <!-- Explicit, so the language level does not float with whichever SDK builds (net11.0 would otherwise get C# 15). Bobcat.Generators sets its own. -->
+    <LangVersion Condition="'$(MSBuildProjectExtension)' == '.csproj'">14</LangVersion>
+
     <!--
       Each shipped library also sets <GenerateDocumentationFile>, so its Bobcat.xml travels beside
       the dll and a consumer gets IntelliSense for the vocabulary (bobcat#622). That cannot be set

@@ -29,7 +29,7 @@ hands Bobcat the JSON to publish. Without JasperFx.Events, no Event Model is gen
 
 | | Requirement | Built and tested against |
 |---|---|---|
-| .NET | `net9.0` or `net10.0` for the libraries; the `bobcat` tool needs the .NET 10 SDK | .NET 10 |
+| .NET | `net10.0` or `net11.0` for the libraries; the `bobcat` tool needs the .NET 10 SDK | .NET 10 |
 | `JasperFx`, `JasperFx.Events` | none from 1.0.0-rc.2 (rc.1 and earlier: 2.90.2 or later) | the `bobcat` tool and the Event Model generator's tests: 2.90.2 |
 | Marten, Fisher, Polecat | none from Bobcat; through `WolverineFx.Bobcat`, below | in the Wolverine repository since #744 |
 | WolverineFx | through `WolverineFx.Bobcat`, below | in the Wolverine repository since #744 |
