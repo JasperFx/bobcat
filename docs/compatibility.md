@@ -218,6 +218,22 @@ The JasperFx minimum is the line that matters when you upgrade.
 Releases before 0.50.0 also carry the retired Gherkin lane. Bobcat 0.50.0 removed it (see
 [Diagnostics](/diagnostics#retired) for the diagnostics that went with it).
 
+## Bobcat 1.1 notes: the .NET floor and the Aspire fixture {#bobcat-1-1-notes}
+
+Bobcat 1.1 joins the .NET 11 release of the Critter Stack (bobcat#775, bobcat#778).
+
+- **The libraries target `net10.0;net11.0`; `net9.0` is gone.** `Bobcat`, `Bobcat.Supervisor` and the four
+  runner adapters no longer ship a `net9.0` assembly, so a spec project on .NET 9 can't restore them. Move the
+  spec project to `net10.0` (or `net11.0`) before taking 1.1. `Bobcat.Generators` is still `netstandard2.0`, and
+  the `bobcat` tool still needs the .NET 10 SDK. Code that read `net9.0` as a reason to write
+  `x.ShouldBe(52, null)` in a member check no longer has to: see [Expected objects](/expected-objects).
+- **Aspire test infrastructure is a documented, compiled pattern.** An Aspire AppHost can own the Postgres,
+  RabbitMQ or SQL Server a suite needs, started once from an xUnit v3 assembly fixture, in place of a compose
+  file. [Test Infrastructure with Aspire](/tutorials/aspire-test-infrastructure) walks through the sample pair
+  in this repository. Bobcat adds no Aspire package of its own; the fixture is ordinary test code.
+- **`AlsoTrack` is not covered here.** Tracking messages across several Wolverine hosts belongs to Wolverine's
+  tracked sessions, not to Bobcat; read the Wolverine release notes for its status.
+
 ## Migrating to 1.0.0-rc.2 {#migrating-to-rc-2}
 
 Bobcat 1.0.0-rc.2 takes no JasperFx or Wolverine dependency (bobcat#744; design:
