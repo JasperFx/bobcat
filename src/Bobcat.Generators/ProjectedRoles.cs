@@ -242,6 +242,70 @@ internal static class ProjectedRoles
             => unchecked(SymbolEqualityComparer.Default.GetHashCode(key.Method) * 31 + key.Depth);
     }
 
+    private static readonly ConditionalWeakTable<Compilation, HashSet<string>> actNames = new();
+
+    /// <summary>
+    /// bobcat#815: the names a call must carry to matter to <see cref="read"/>: a method an Event Model attribute
+    /// marks, or a method of this compilation whose body calls one of those names within the wrapper depth. A name
+    /// is in the syntax, so a call of any other name is skipped without binding its body.
+    /// </summary>
+    internal static HashSet<string> NamesThatCouldAct(Compilation compilation, CancellationToken ct)
+    {
+        if (actNames.TryGetValue(compilation, out var known)) return known;
+
+        var names = new HashSet<string>();
+        var declarations = new List<(string Name, SyntaxNode Body)>();
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            SemanticModel? model = null;
+            foreach (var method in tree.GetRoot(ct).DescendantNodes().OfType<MethodDeclarationSyntax>())
+            {
+                ct.ThrowIfCancellationRequested();
+                if (((SyntaxNode?)method.Body ?? method.ExpressionBody) is { } body)
+                    declarations.Add((method.Identifier.ValueText, body));
+
+                if (method.AttributeLists.Count == 0) continue;
+                model ??= compilation.GetSemanticModel(tree);
+                if (model.GetDeclaredSymbol(method, ct) is IMethodSymbol symbol && StatesEventModel(symbol))
+                    names.Add(symbol.Name);
+            }
+        }
+
+        foreach (var assembly in StepCallCandidates.AssembliesThatCouldDeclareSteps(compilation))
+        {
+            ct.ThrowIfCancellationRequested();
+            addEventModelNames(assembly.GlobalNamespace, names);
+        }
+
+        for (var depth = 0; depth < MaxWrapperDepth; depth++)
+        {
+            var wrappers = declarations
+                .Where(d => !names.Contains(d.Name) && d.Body.DescendantNodes().OfType<InvocationExpressionSyntax>()
+                    .Any(i => StepCallCandidates.NameOf(i) is not { } name || names.Contains(name)))
+                .Select(d => d.Name)
+                .ToList();
+            if (wrappers.Count == 0) break;
+            names.UnionWith(wrappers);
+        }
+
+        return actNames.GetValue(compilation, _ => names);
+    }
+
+    private static void addEventModelNames(INamespaceOrTypeSymbol container, HashSet<string> names)
+    {
+        foreach (var member in container.GetMembers())
+        {
+            if (member is IMethodSymbol method)
+            {
+                if (StatesEventModel(method)) names.Add(method.Name);
+            }
+            else if (member is INamespaceOrTypeSymbol nested)
+            {
+                addEventModelNames(nested, names);
+            }
+        }
+    }
+
     /// <summary>
     /// What <paramref name="method"/>'s body states. Read once per compilation and handed out as a copy, so the
     /// callers that then adopt a bound command each change their own.
@@ -276,9 +340,12 @@ internal static class ProjectedRoles
         if (body is null) return reading;
 
         var compilation = model.Compilation;
+        var couldAct = NamesThatCouldAct(compilation, ct);
         foreach (var invocation in body.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>())
         {
             ct.ThrowIfCancellationRequested();
+            if (StepCallCandidates.NameOf(invocation) is { } called && !couldAct.Contains(called)) continue;
+            StepCallCandidates.Binding(compilation);
             if (model.GetOperation(invocation, ct) is not IInvocationOperation operation) continue;
 
             var (carrier, roles) = AttributesOf(operation.TargetMethod, RoleAttributeName);

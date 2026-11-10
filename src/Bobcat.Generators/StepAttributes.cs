@@ -41,6 +41,9 @@ internal static class StepAttributes
         ("StepAttribute", "")
     ];
 
+    /// <summary>The names a step attribute's type, or one of its bases, can carry.</summary>
+    internal static readonly string[] Names = System.Array.ConvertAll(known, k => k.Attribute);
+
     internal sealed class Recognized
     {
         public string Keyword = "";

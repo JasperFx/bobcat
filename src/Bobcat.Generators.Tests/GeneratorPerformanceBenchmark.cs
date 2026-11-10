@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using Shouldly;
 using Xunit;
@@ -72,6 +73,33 @@ public class GeneratorPerformanceBenchmark(ITestOutputHelper output)
         var helpersInSource = SyntheticSpecProject.HelperMethodCount + SyntheticSpecProject.VocabularyMethodCount;
         output.WriteLine($"helper walks: {walks}, helpers in source: {helpersInSource}, specs: {8 * SyntheticSpecProject.SpecsPerFile}");
         walks.ShouldBeLessThanOrEqualTo(helpersInSource * 2);
+    }
+
+    /// <summary>
+    /// A call is bound only when its name is one a step, an act or an assertion dialect could answer to: the
+    /// cost of reading a project grows with its steps, not with every call in every body. Pinned by counting the
+    /// call sites the four reading passes bind, against the steps and acts the synthetic project actually makes.
+    /// </summary>
+    [Fact]
+    public void the_generator_binds_only_the_calls_a_step_could_answer_to()
+    {
+        var project = SyntheticSpecProject.Build(specFiles: 8, fillerFiles: 8);
+
+        var (cold, _) = run(project);
+        var bound = StepCallCandidates.CallsBound(cold.Compilation);
+
+        var specs = 8 * SyntheticSpecProject.SpecsPerFile;
+        var invocations = cold.Compilation.SyntaxTrees
+            .Sum(tree => tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>().Count());
+
+        // A spec body is read by four passes, each binding at most its three acts and its two arranging calls;
+        // every arranging helper binds its act, its opening helper and that helper's act.
+        var perSpec = 4 * 5;
+        var perHelperFile = SyntheticSpecProject.ArrangersPerFile * 3;
+        var ceiling = specs * perSpec + SyntheticSpecProject.HelperFiles * perHelperFile;
+        output.WriteLine($"calls bound: {bound}, ceiling: {ceiling}, invocations in source: {invocations}");
+        bound.ShouldBeLessThanOrEqualTo(ceiling);
+        bound.ShouldBeLessThan(invocations);
     }
 
     private static int sizeFrom(string variable, int fallback)

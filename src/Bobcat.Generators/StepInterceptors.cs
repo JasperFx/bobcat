@@ -167,10 +167,9 @@ internal static class StepInterceptors
         public Location? Declaration;
     }
 
-    public static InterceptedCall? Extract(GeneratorSyntaxContext ctx, CancellationToken ct)
+    public static InterceptedCall? Extract(SemanticModel model, InvocationExpressionSyntax invocation, CancellationToken ct)
     {
-        if (ctx.Node is not InvocationExpressionSyntax invocation) return null;
-        if (ctx.SemanticModel.GetSymbolInfo(invocation, ct).Symbol is not IMethodSymbol method) return null;
+        if (model.GetSymbolInfo(invocation, ct).Symbol is not IMethodSymbol method) return null;
 
         // Any step attribute, not just the legacy [BobcatStep]: [Given], [When], [Then], [Check] and
         // the keywordless [Step] all reach a C# call site the same way (the merge).
@@ -178,14 +177,14 @@ internal static class StepInterceptors
 
         // ...or an ordinary assertion the project asked to have projected. Extracted unconditionally
         // and gated at emit time, because the transform cannot see MSBuild properties.
-        if (recognized is null) return ExtractAssertion(ctx, invocation, method, ct);
+        if (recognized is null) return ExtractAssertion(model, invocation, method, ct);
 
         // RSEXPERIMENTAL002: GetInterceptableLocation and GetInterceptsLocationAttributeSyntax are
         // marked experimental by Roslyn, and there is no supported alternative — hand-writing the
         // encoded location is exactly what the API exists to stop people doing. Accepted knowingly
         // and confined to these two lines: if the shape changes, it changes here.
 #pragma warning disable RSEXPERIMENTAL002
-        var location = ctx.SemanticModel.GetInterceptableLocation(invocation, ct);
+        var location = model.GetInterceptableLocation(invocation, ct);
 #pragma warning restore RSEXPERIMENTAL002
         if (location is null) return null;
 
@@ -242,10 +241,10 @@ internal static class StepInterceptors
             DeclaredIndex = commentIndex,
             CommentIndex = commentIndex,
             CommentKeyword = commentKeyword,
-            Uid = UidOf(invocation, ctx.SemanticModel, ct),
+            Uid = UidOf(invocation, model, ct),
             Line = invocation.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
             Location = invocation.GetLocation(),
-            Inaccessible = InaccessibilityOf(method, ctx.SemanticModel.Compilation),
+            Inaccessible = InaccessibilityOf(method, model.Compilation),
             Declaration = method.Locations.FirstOrDefault(l => l.IsInSource)
         };
 
@@ -420,7 +419,7 @@ internal static class StepInterceptors
     /// A statement-level Shouldly call, as a step that gathers rather than throws.
     /// </summary>
     private static InterceptedCall? ExtractAssertion(
-        GeneratorSyntaxContext ctx, InvocationExpressionSyntax invocation, IMethodSymbol method,
+        SemanticModel model, InvocationExpressionSyntax invocation, IMethodSymbol method,
         CancellationToken ct)
     {
         if (ProjectedAssertions.DialectFor(method) is not { } dialect) return null;
@@ -429,11 +428,11 @@ internal static class StepInterceptors
         // alone.
         if (ProjectedAssertions.StatementOf(invocation) is not { } statement) return null;
 
-        var uid = UidOf(invocation, ctx.SemanticModel, ct);
+        var uid = UidOf(invocation, model, ct);
         if (uid is null) return null;
 
 #pragma warning disable RSEXPERIMENTAL002
-        var location = ctx.SemanticModel.GetInterceptableLocation(invocation, ct);
+        var location = model.GetInterceptableLocation(invocation, ct);
 #pragma warning restore RSEXPERIMENTAL002
         if (location is null) return null;
 
@@ -458,7 +457,7 @@ internal static class StepInterceptors
             ReturnsVoid = definition.ReturnsVoid,
             Keyword = "Then",
             IsProjectedAssertion = true,
-            FlushesRun = ProjectedAssertions.IsLastOfRun(statement, ctx.SemanticModel, ct),
+            FlushesRun = ProjectedAssertions.IsLastOfRun(statement, model, ct),
             Definition = definition,
             Uid = uid,
             DeclaredIndex = commentIndex,
@@ -470,7 +469,7 @@ internal static class StepInterceptors
 
         call.Subject = dialect.Subject(method, invocation);
         call.Comparison = dialect.ComparisonOf(method);
-        call.Template = dialect.Sentence(method, invocation, ctx.SemanticModel);
+        call.Template = dialect.Sentence(method, invocation, model);
         call.StepText = call.Template;
 
         return call;

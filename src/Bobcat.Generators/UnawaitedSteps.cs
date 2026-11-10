@@ -33,6 +33,8 @@ internal static class UnawaitedSteps
     /// <summary>The call site to report and what to say about it, or null.</summary>
     public static (Location Location, string Method, string ReturnType)? Check(GeneratorSyntaxContext ctx, CancellationToken ct)
     {
+        if (!StepCallCandidates.MightBeStep((InvocationExpressionSyntax)ctx.Node, ctx.SemanticModel.Compilation, ct)) return null;
+        StepCallCandidates.Binding(ctx.SemanticModel.Compilation);
         if (ctx.SemanticModel.GetSymbolInfo(ctx.Node, ct).Symbol is not IMethodSymbol method) return null;
         if (!isAwaitable(method.ReturnType)) return null;
         if (!isStep(method)) return null;

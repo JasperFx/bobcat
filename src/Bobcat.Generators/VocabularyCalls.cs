@@ -62,6 +62,8 @@ internal static class VocabularyCalls
         foreach (var invocation in body.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>())
         {
             ct.ThrowIfCancellationRequested();
+            if (StepCallCandidates.NameOf(invocation) is { } called && keywordOf(called) is null) continue;
+            StepCallCandidates.Binding(model.Compilation);
             if (model.GetOperation(invocation, ct) is not IInvocationOperation operation) continue;
 
             var target = operation.TargetMethod;

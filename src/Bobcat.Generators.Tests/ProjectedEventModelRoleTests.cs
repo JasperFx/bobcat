@@ -1539,6 +1539,40 @@ public class ProjectedEventModelRoleTests
     }
 
     [Fact]
+    public void a_helper_three_deep_over_an_act_is_still_the_act()
+    {
+        var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary + SpecAttribute +
+            """
+            namespace Vocab
+            {
+                public abstract class DeepScenario : ScenarioBase
+                {
+                    public Task Outer() => Middle();
+                    private Task Middle() => Inner();
+                    private Task Inner() => WhenReceived(new OpenAccount(Guid.Empty, "Ann"));
+                }
+            }
+
+            [BobcatFeature("Accounts")]
+            public class accounts : DeepScenario
+            {
+                [BobcatSpec(typeof(OpenAccount))]
+                public async Task an_opening()
+                {
+                    await Outer();
+                    ThenEvents(typeof(AccountOpened));
+                }
+            }
+            """);
+        outcome.CompilationErrors.ShouldBeEmpty();
+
+        // bobcat#815 skips a call by its name before binding it; a wrapper at the depth cap must still be a name it keeps
+        var slice = GeneratedEventModel.For(load(outcome))!.Slices.Single(x => x.Name == "OpenAccount");
+        slice.Pattern.ShouldBe(SlicePattern.Command);
+        slice.CommandType!.Name.ShouldBe("OpenAccount");
+    }
+
+    [Fact]
     public void a_helper_whose_body_names_its_command_is_that_act_and_needs_no_report()
     {
         var outcome = GeneratorHarness.Run(Usings + Domain + Vocabulary + SpecAttribute + ProjectHelpers +

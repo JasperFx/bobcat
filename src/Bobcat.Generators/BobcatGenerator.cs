@@ -19,13 +19,21 @@ public class BobcatGenerator : IIncrementalGenerator
         // 3c. Collect calls to [BobcatStep] helpers (issue #110). Each one becomes an interceptor
         //     that reports the step as it runs — the only way a step declared OUTSIDE the test
         //     body, on a shared helper, can report progress without the test being edited.
+        //     Binding is the cost here, and a spec project has a few hundred thousand invocations of
+        //     which a few thousand are steps. So the syntax pass binds nothing: it hands every call
+        //     site on, and StepCallCandidates binds only the ones whose NAME a step could answer to.
+        var projectingAssertions = context.AnalyzerConfigOptionsProvider
+            .Select((config, _) => ProjectedAssertions.Enabled(config));
+
         var stepCalls = context.SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: (node, _) => node is InvocationExpressionSyntax,
-                transform: StepInterceptors.Extract)
-            .WithTrackingName("StepCalls")
-            .Where(c => c != null)
-            .Select((c, _) => c!);
+                transform: (ctx, _) => (InvocationExpressionSyntax)ctx.Node)
+            .Collect()
+            .Combine(projectingAssertions)
+            .Combine(context.CompilationProvider)
+            .SelectMany((input, ct) => StepCallCandidates.Extract(input.Left.Left, input.Right, input.Left.Right, ct))
+            .WithTrackingName("StepCalls");
 
         context.RegisterSourceOutput(
             stepCalls.Collect().Combine(context.AnalyzerConfigOptionsProvider).Combine(context.ParseOptionsProvider),
