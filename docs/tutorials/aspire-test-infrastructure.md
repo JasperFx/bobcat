@@ -157,6 +157,42 @@ Both specs reset the same table, which is safe because xUnit runs the tests of o
 time. Classes run in parallel by default, so a second class against the same database needs its own
 tables or schema, or a shared `[Collection]`.
 
+## Step 4 -- drive the application over HTTP
+
+Aspire can also run the application under test. The sample AppHost adds a small web project as a
+resource named `web` (`builder.AddProject<Projects.…>("web").WithHttpEndpoint()`), and the spec
+assembly calls it by that name: `CreateHttpClient("web")` on the started application returns a client
+whose address Aspire resolved. A short step vocabulary over it keeps the specs readable, including an
+**eventually** step for work that finishes after the request has returned:
+
+<<< ../../src/Bobcat.Aspire.Samples/AspireHttp.cs#http-steps{cs}
+
+<<< ../../src/Bobcat.Aspire.Samples/WebSpecs.cs#web-specs{cs}
+
+The eventually step polls and returns the moment the system agrees; it is not a sleep, and when the
+timeout passes it fails with the last status it saw. The fixture also waits for `web` to be healthy
+(`WaitForResourceHealthyAsync("web")`) before any spec runs.
+
+An endpoint needs declaring: a project with no `launchSettings.json` gets no HTTP endpoint from
+Aspire, and `CreateHttpClient` throws an `ArgumentException` until the AppHost says
+`.WithHttpEndpoint()`.
+
+**Tracked sessions do not reach into Aspire-hosted processes.** Wolverine's `TrackActivity()` watches
+an `IHost` in *your* process; a service Aspire runs is another process, so there is nothing to
+`AlsoTrack`. Assert on what the HTTP surface or the database shows, with an eventually step, or host
+the application in-process (Alba) and give it Aspire's connection strings.
+
+## Step 5 -- show spec progress on the Aspire dashboard
+
+The AppHost can declare a resource that runs nothing, and the fixture publishes the run's progress
+as that resource's state, so the dashboard shows `Running: 3 passed, 0 failed` turning red on the
+first failure, with the counts as properties:
+
+<<< ../../src/Bobcat.Aspire.Samples/TestInfrastructure.cs#spec-progress{cs}
+
+It subscribes to `ScenarioRecorder.ScenarioCompleted`. Publishing is guarded: a progress update can
+never fail a specification.
+
 ## Aspire or docker-compose?
 
 | | docker-compose | Aspire AppHost |

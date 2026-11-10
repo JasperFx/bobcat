@@ -27,4 +27,9 @@
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The service under test; Aspire generates Projects.Bobcat_Aspire_Samples_Web from it. -->
+    <ProjectReference Include="..\Bobcat.Aspire.Samples.Web\Bobcat.Aspire.Samples.Web.csproj" />
+  </ItemGroup>
+
 </Project>
