@@ -29,7 +29,9 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: |
+            10.0.x
+            11.0.x
 
       # For EmbedFrontend's npm ci + Vite build inside the pack, and the Playwright leg.
       - name: Setup Node
