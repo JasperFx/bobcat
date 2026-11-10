@@ -175,8 +175,9 @@ internal static class StepInterceptors
         // the keywordless [Step] all reach a C# call site the same way (the merge).
         var recognized = StepAttributes.On(method);
 
-        // ...or an ordinary assertion the project asked to have projected. Extracted unconditionally
-        // and gated at emit time, because the transform cannot see MSBuild properties.
+        // ...or an ordinary assertion the project asked to have projected. StepCallCandidates hands a
+        // Should* call here only when the project projects assertions (bobcat#815), and the emit
+        // still gates on the same property, so the two cannot disagree.
         if (recognized is null) return ExtractAssertion(model, invocation, method, ct);
 
         // RSEXPERIMENTAL002: GetInterceptableLocation and GetInterceptsLocationAttributeSyntax are
