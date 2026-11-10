@@ -23,9 +23,16 @@ public sealed class TestInfrastructure : IAsyncLifetime
     private static readonly TimeSpan StartupTimeout = TimeSpan.FromMinutes(3);
 
     private DistributedApplication? _app;
+    private int _passed, _failed;
 
     /// <summary>The whole connection string to the "orders" database, as the AppHost declared it.</summary>
     public string OrdersConnectionString { get; private set; } = "";
+
+    /// <summary>A client for a resource the AppHost declared, by name.</summary>
+    public HttpClient CreateHttpClient(string resourceName)
+        => (_app ?? throw new InvalidOperationException(
+                "The AppHost was not started: this suite was handed a connection string instead."))
+            .CreateHttpClient(resourceName);
 
     public async ValueTask InitializeAsync()
     {
@@ -58,6 +65,10 @@ public sealed class TestInfrastructure : IAsyncLifetime
 
             // "Running" is not "ready": wait for the health check Aspire attaches to the database.
             await _app.ResourceNotifications.WaitForResourceHealthyAsync("orders", timeout.Token);
+            await _app.ResourceNotifications.WaitForResourceHealthyAsync("web", timeout.Token);
+
+            ScenarioRecorder.ScenarioCompleted += publishProgress;
+            await PublishProgress("Running");
 
             OrdersConnectionString = await _app.GetConnectionStringAsync("orders", timeout.Token)
                 ?? throw new InvalidOperationException("The AppHost has no connection string for 'orders'.");
@@ -76,8 +87,45 @@ public sealed class TestInfrastructure : IAsyncLifetime
         }
     }
 
+    // #region spec-progress
+    // The "specs" resource the AppHost declared shows this run on the Aspire dashboard: its state
+    // is the verdict so far, its properties the counts.
+    private void publishProgress(ScenarioRecorder.Recording recording)
+    {
+        var failed = recording.Steps.Any(s => s.Status != ResultStatus.success);
+        if (failed) Interlocked.Increment(ref _failed); else Interlocked.Increment(ref _passed);
+        _ = PublishProgress("Running");
+    }
+
+    private async Task PublishProgress(string state)
+    {
+        try
+        {
+            if (_app is null) return;
+            var specs = _app.Services.GetRequiredService<DistributedApplicationModel>()
+                .Resources.Single(r => r.Name == "specs");
+            var style = _failed > 0 ? KnownResourceStateStyles.Error : KnownResourceStateStyles.Success;
+            await _app.ResourceNotifications.PublishUpdateAsync(specs, snapshot => snapshot with
+            {
+                State = new ResourceStateSnapshot($"{state}: {_passed} passed, {_failed} failed", style),
+                Properties =
+                [
+                    new ResourcePropertySnapshot("passed", _passed),
+                    new ResourcePropertySnapshot("failed", _failed)
+                ]
+            });
+        }
+        catch
+        {
+            // Progress is a courtesy; it must never fail a specification.
+        }
+    }
+    // #endregion spec-progress
+
     public async ValueTask DisposeAsync()
     {
+        ScenarioRecorder.ScenarioCompleted -= publishProgress;
+        await PublishProgress("Finished");
         // Stops the containers the AppHost started.
         if (_app is not null) await _app.DisposeAsync();
     }

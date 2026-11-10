@@ -7,6 +7,7 @@
   <Folder Name="/src/">
     <Project Path="src/Bobcat.Aspire.Samples.AppHost/Bobcat.Aspire.Samples.AppHost.csproj" />
     <Project Path="src/Bobcat.Aspire.Samples/Bobcat.Aspire.Samples.csproj" />
+    <Project Path="src/Bobcat.Aspire.Samples.Web/Bobcat.Aspire.Samples.Web.csproj" />
     <Project Path="src/Bobcat.Console/Bobcat.Console.csproj" />
     <Project Path="src/Bobcat.Console.SampleWeb/Bobcat.Console.SampleWeb.csproj" />
     <Project Path="src/Bobcat.Console.SampleWeb.Specs/Bobcat.Console.SampleWeb.Specs.csproj" />
