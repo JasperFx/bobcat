@@ -53,14 +53,14 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these n
 
 | Package | Target | Responsibility |
 |---------|--------|----------------|
-| **Bobcat** | net9.0; net10.0 | Runtime: the projected specification recorder, verification (`TableRunner`, `PropertyCells`, `SetVerificationComparer`, `ObjectSetVerification`, partial objects, `RecordBuilding`), rendering, the monitor wire, the resident runner, the resilience vocabulary and `Preflight`. No JasperFx or Wolverine dependency (#744); the Critter Stack vocabulary ships in WolverineFx.Bobcat |
+| **Bobcat** | net10.0; net11.0 | Runtime: the projected specification recorder, verification (`TableRunner`, `PropertyCells`, `SetVerificationComparer`, `ObjectSetVerification`, partial objects, `RecordBuilding`), rendering, the monitor wire, the resident runner, the resilience vocabulary and `Preflight`. No JasperFx or Wolverine dependency (#744); the Critter Stack vocabulary ships in WolverineFx.Bobcat |
 | **Bobcat.Generators** | netstandard2.0 | Source generator: step interceptors, marker-comment specs, declared values, specification bindings, the Event Model descriptor and its publishing bridge, BOBCAT032 table checks |
-| **Bobcat.Supervisor** | net9.0; net10.0 | Drives MTP hosts as worker processes; retry/isolation policy, parallel lanes |
-| **Bobcat.Xunit** | net9.0; net10.0 | Projects xUnit v3 `[Fact]`/`[Theory]` tests into the Bobcat model (marker steps) |
-| **Bobcat.TUnit** | net9.0; net10.0 | The same projection for TUnit `[Test]` methods |
-| **Bobcat.NUnit** | net9.0; net10.0 | The same projection for NUnit `[Test]`/`[TestCase]` methods (an `ITestAction`) |
-| **Bobcat.MSTest** | net9.0; net10.0 | The same projection for MSTest `[TestMethod]`s — references no MSTest; ships global hooks as source |
-| **Bobcat.EventModel** | net9.0; net10.0 | Imports an eventmodelers.ai emlang board and writes it as C# stub types plus an `EventModelDefinition`; the curated YAML format is retired (#406) |
+| **Bobcat.Supervisor** | net10.0; net11.0 | Drives MTP hosts as worker processes; retry/isolation policy, parallel lanes |
+| **Bobcat.Xunit** | net10.0; net11.0 | Projects xUnit v3 `[Fact]`/`[Theory]` tests into the Bobcat model (marker steps) |
+| **Bobcat.TUnit** | net10.0; net11.0 | The same projection for TUnit `[Test]` methods |
+| **Bobcat.NUnit** | net10.0; net11.0 | The same projection for NUnit `[Test]`/`[TestCase]` methods (an `ITestAction`) |
+| **Bobcat.MSTest** | net10.0; net11.0 | The same projection for MSTest `[TestMethod]`s — references no MSTest; ships global hooks as source |
+| **Bobcat.EventModel** | net10.0; net11.0 | Imports an eventmodelers.ai emlang board and writes it as C# stub types plus an `EventModelDefinition`; the curated YAML format is retired (#406) |
 | **Bobcat.Console** | net10.0 | The `bobcat` global tool: `run` (the default), `preview`, `pick` and `watch` over a spec project, `import-event-model`, `resident` for the out-of-process resident runner, `ui` (the run board and Event Model canvas, `src/Bobcat.Ui`), `watch-event-model`, and the agent queries (`list-runs`, `run-status`, `failing-tests`, `failing-spec`, `flaky-ledger`, `await-run`, `export-run`, `event-model`, `slice-coverage`). Packable only with `EmbedFrontend=true`, so it never ships without its page |
 
 `design/history/acceptance-coverage-map.md` maps the retired acceptance suite onto
