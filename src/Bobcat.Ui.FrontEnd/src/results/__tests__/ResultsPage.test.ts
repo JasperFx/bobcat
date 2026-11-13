@@ -6,8 +6,8 @@ import fixture from './results.fixture.json'
 
 const results = fixture as BobcatResults
 
-function page(error: string | null = null) {
-  return mount(ResultsPage, { props: { data: { files: [{ attachmentBase: '', results }] }, error } })
+function page(error: string | null = null, focus: string | null = null) {
+  return mount(ResultsPage, { props: { data: { files: [{ attachmentBase: '', results }] }, error, focus, fullPage: 'results.html' } })
 }
 
 describe('the HTML results page', () => {
@@ -56,5 +56,37 @@ describe('the HTML results page', () => {
 
   it('says when its results could not be read', () => {
     expect(page('broken').get('[data-testid="page-error"]').text()).toBe('broken')
+  })
+})
+
+describe('the HTML results page focused on one specification (bobcat#553)', () => {
+  it('renders only that specification, open, with no header and no filter bar', () => {
+    const wrapper = page(null, 'Sets/a set of names missing one and expecting one that is not there')
+
+    expect(wrapper.find('[data-testid="run-verdict"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="failing-only"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="scenario"]')).toHaveLength(0)
+
+    const focused = wrapper.get('[data-testid="focused-scenario"]')
+    expect(focused.get('h1').text()).toContain('a set of names missing one and expecting one that is not there')
+    expect(focused.text()).toContain('Sets')
+    expect(focused.text()).toContain('failed')
+    expect(focused.find('[data-testid="specification"]').exists()).toBe(true)
+    expect(focused.findAll('[data-testid="row-marker"]').map((m) => m.text())).toEqual(['', '', 'missing', 'extra'])
+    expect(focused.attributes('data-status')).toBe('failed')
+  })
+
+  it('keeps a passing specification\'s body visible too, rather than closed', () => {
+    const wrapper = page(null, 'Actions/custom logging from a step')
+
+    expect(wrapper.get('[data-testid="focused-scenario"]').get('[data-testid="report"]').text()).toContain('Envelopes')
+  })
+
+  it('says in one line when the identity is not in the page, and links the whole page', () => {
+    const wrapper = page(null, 'Nowhere/nothing')
+
+    expect(wrapper.get('[data-testid="focus-missing"]').text()).toBe('No specification named “Nowhere/nothing” in this results page.')
+    expect(wrapper.find('[data-testid="focused-scenario"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="full-page-link"]').attributes('href')).toBe('results.html')
   })
 })

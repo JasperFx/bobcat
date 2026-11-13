@@ -415,7 +415,7 @@ public class StepRender
     public List<string> Logs { get; init; } = new();
 
     /// <summary>Log lines past <see cref="StepLog.MaxLines"/> that were not kept (bobcat#547).</summary>
-    public int SuppressedLogs { get; private set; }
+    public int SuppressedLogs { get; internal set; }
 
     internal void HideLogs()
     {

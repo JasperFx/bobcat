@@ -43,13 +43,57 @@ export function readPageData(inlined: string | null | undefined): { data: Result
   const text = inlined ?? ''
   if (text.trim().length === 0) return { data: { files: [] }, error: null }
   try {
-    const parsed = JSON.parse(text) as Partial<ResultsPageData> | BobcatResults[]
-    // A bare array of results files is accepted too: it is what a hand-made page would hold.
-    if (Array.isArray(parsed)) return { data: { files: parsed.map((results) => ({ attachmentBase: null, results })) }, error: null }
-    return { data: { files: parsed.files ?? [] }, error: null }
+    return { data: pageDataOf(JSON.parse(text)), error: null }
   } catch (e) {
     return { data: { files: [] }, error: `The results inlined in this page could not be read: ${(e as Error).message}` }
   }
+}
+
+/**
+ * Parsed JSON as the page's data, whichever of the three shapes it is: the page's own
+ * `{files: [...]}` (what `bobcat results-html` inlines and `bobcat results-docs` writes as
+ * results.json), a bare array of results files, or one results file as a run wrote it. The
+ * `<bobcat-spec>` element (bobcat#553) fetches a file and reads it through this.
+ */
+export function pageDataOf(parsed: unknown): ResultsPageData {
+  if (Array.isArray(parsed)) return { files: (parsed as BobcatResults[]).map((results) => ({ attachmentBase: null, results })) }
+  if (parsed && typeof parsed === 'object') {
+    const object = parsed as Partial<ResultsPageData> & Partial<BobcatResults>
+    if (Array.isArray(object.files)) return { files: object.files }
+    if (Array.isArray(object.scenarios)) return { files: [{ attachmentBase: null, results: object as BobcatResults }] }
+  }
+  return { files: [] }
+}
+
+/**
+ * The specification a results page is asked to focus on (bobcat#553): `?spec=<identity>`, or
+ * `#spec=<identity>` for a page served where the query string is not kept. URL-encoded, so
+ * `Loan%20Underwriting%2Fthe%20rules` is `Loan Underwriting/the rules`. Null when neither names one.
+ */
+export function focusOf(search: string, hash: string): string | null {
+  const fromQuery = new URLSearchParams(search).get('spec')
+  if (fromQuery && fromQuery.length > 0) return fromQuery
+
+  const match = /^#spec=(.*)$/.exec(hash)
+  if (!match || !match[1]) return null
+  try {
+    const decoded = decodeURIComponent(match[1])
+    return decoded.length > 0 ? decoded : null
+  } catch {
+    return null
+  }
+}
+
+/** The scenario named by `{Feature}/{Scenario}` across every file, or null. The LAST file's wins: a retried specification's latest attempt. */
+export function scenarioNamed(data: ResultsPageData, id: string): ResultsScenarioView | null {
+  let found: ResultsScenarioView | null = null
+  for (const file of data.files) {
+    for (const scenario of file.results.scenarios ?? []) {
+      const view = scenarioOf(scenario, file.attachmentBase)
+      if (view.id === id) found = view
+    }
+  }
+  return found
 }
 
 export function attachmentsOf(attachments: ResultsAttachment[] | null | undefined, base: string | null): StepAttachment[] {

@@ -4,7 +4,10 @@ import { cellsOf, specificationFor } from '@/composables/specification'
 import fixture from './results.fixture.json'
 import {
   featuresOf,
+  focusOf,
+  pageDataOf,
   readPageData,
+  scenarioNamed,
   scenarioOf,
   summaryOf,
   type ResultsPageData,
@@ -188,5 +191,42 @@ describe('a page of results files', () => {
     const { data, error } = readPageData('{"files": [')
     expect(data.files).toEqual([])
     expect(error).toContain('could not be read')
+  })
+
+  it('reads one results file as a run wrote it, the page shape, or an array, and nothing else as no results (bobcat#553)', () => {
+    expect(pageDataOf(results).files).toEqual([{ attachmentBase: null, results }])
+    expect(pageDataOf(page).files).toBe(page.files)
+    expect(pageDataOf([results]).files[0]!.attachmentBase).toBeNull()
+    expect(pageDataOf({ run: {} }).files).toEqual([])
+    expect(pageDataOf('text').files).toEqual([])
+    expect(pageDataOf(null).files).toEqual([])
+  })
+
+  it('finds a specification by identity, taking the latest file that holds it', () => {
+    const earlier = { ...results, scenarios: results.scenarios!.map((s) => ({ ...s, verdict: 'failed', succeeded: false })) }
+    const two: ResultsPageData = { files: [{ attachmentBase: null, results: earlier }, { attachmentBase: 'later/', results }] }
+
+    const found = scenarioNamed(two, 'Actions/custom logging from a step')
+    expect(found?.status).toBe('passed')
+    expect(scenarioNamed(two, 'Nowhere/nothing')).toBeNull()
+  })
+})
+
+describe('the specification a results page focuses on (bobcat#553)', () => {
+  it('is read from ?spec=, URL-encoded', () => {
+    expect(focusOf('?spec=Loan%20Underwriting%2Fthe%20underwriting%20rules', '')).toBe('Loan Underwriting/the underwriting rules')
+    expect(focusOf('?other=1&spec=Sets%2Fa+set', '')).toBe('Sets/a set')
+  })
+
+  it('falls back to #spec=', () => {
+    expect(focusOf('', '#spec=Sets%2Fa%20set')).toBe('Sets/a set')
+    expect(focusOf('?spec=Query%2Fwins', '#spec=Hash%2Floses')).toBe('Query/wins')
+  })
+
+  it('is null when nothing names one', () => {
+    expect(focusOf('', '')).toBeNull()
+    expect(focusOf('?spec=', '#spec=')).toBeNull()
+    expect(focusOf('', '#Sets/a set')).toBeNull()
+    expect(focusOf('', '#spec=%E0%A4%A')).toBeNull()
   })
 })

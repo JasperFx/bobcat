@@ -55,6 +55,7 @@ export default defineConfig({
           { text: 'Bobcat with MSTest', link: '/mstest' },
           { text: 'Integrations', link: '/integrations/' },
           { text: 'The `bobcat` Tool', link: '/bobcat-tool' },
+          { text: 'Living Documentation', link: '/living-docs' },
           { text: 'The Bobcat UI', link: '/bobcat-ui' },
           { text: 'Querying Runs from the CLI', link: '/agent-queries' },
           { text: 'Spec Identities', link: '/spec-identities' },

@@ -68,9 +68,14 @@ public class SpecInput
     [Description("Also write the run as one self-contained HTML results page to this file; with --results its attachments link from it")]
     public string? HtmlFlag { get; set; }
 
+    [Description("Also write the run as living documentation into this directory: Markdown per specification, indexes, and the <bobcat-spec> web component; with --results its attachments link from it")]
+    [FlagAlias("docs", true)]
+    public string? DocsFlag { get; set; }
+
     internal RunOptions RunOptions => new(
         ResultsFlag is { Length: > 0 } results ? Path.GetFullPath(results) : null, JsonFlag, VerboseFlag,
-        HtmlFlag is { Length: > 0 } html ? Path.GetFullPath(html) : null);
+        HtmlFlag is { Length: > 0 } html ? Path.GetFullPath(html) : null,
+        DocsFlag is { Length: > 0 } docs ? Path.GetFullPath(docs) : null);
 
     /// <summary>
     /// With <c>--json</c>, standard output is the results file and nothing else, so an agent can
@@ -96,7 +101,7 @@ public class SpecRunInput : SpecInput
     [FlagAlias("failed", true)]
     public bool FailedFlag { get; set; }
 
-    [Description("Run the last run's selection again, with its framework, configuration, --results, --html, --json, --verbose and supervision flags")]
+    [Description("Run the last run's selection again, with its framework, configuration, --results, --html, --docs, --json, --verbose and supervision flags")]
     [FlagAlias("repeat", true)]
     public bool RepeatFlag { get; set; }
 
@@ -190,6 +195,7 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
             input.ConfigurationFlag = recorded.Configuration;
             input.ResultsFlag ??= recorded.Results;
             input.HtmlFlag ??= recorded.Html;
+            input.DocsFlag ??= recorded.Docs;
             input.JsonFlag |= recorded.Json;
             input.VerboseFlag |= recorded.Verbose;
             input.RetriesFlag ??= recorded.Retries;
@@ -278,6 +284,7 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
                     Selection = chosen.Identities.ToList(),
                     Results = input.RunOptions.ResultsDirectory,
                     Html = input.RunOptions.HtmlFile,
+                    Docs = input.RunOptions.DocsDirectory,
                     Json = input.JsonFlag,
                     Verbose = input.VerboseFlag,
                     Retries = supervision?.Retries,

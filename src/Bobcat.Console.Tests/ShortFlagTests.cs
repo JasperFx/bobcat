@@ -64,7 +64,7 @@ public class ShortFlagTests
         commands().Select(CommandFactory.CommandNameFor).ShouldBe(
         [
             "import-event-model", "resident", "ui", "watch-event-model", "generate-ui-contracts",
-            "results-schema", "results-html", "list-runs", "run-status", "failing-tests", "failing-spec",
+            "results-schema", "results-html", "results-docs", "list-runs", "run-status", "failing-tests", "failing-spec",
             "flaky-ledger", "event-model", "slice-coverage", "export-run", "await-run",
             "run", "preview", "pick", "watch"
         ], ignoreOrder: true);
@@ -112,7 +112,7 @@ public class ShortFlagTests
         { "run", "--failed" }, { "run", "--framework" }, { "run", "--feature" },
         { "run", "--repeat" }, { "run", "--retries" }, { "run", "--results" },
         { "run", "--stall" }, { "run", "--stall-action" }, { "run", "--scenario" }, { "run", "--slice" },
-        { "run", "--configuration" }, { "run", "--chapter" },
+        { "run", "--configuration" }, { "run", "--chapter" }, { "run", "--docs" },
         { "preview", "--framework" }, { "preview", "--feature" }, { "preview", "--configuration" }, { "preview", "--chapter" },
         { "watch", "--scenario" }, { "watch", "--slice" }, { "watch", "--results" },
         // results-schema: --baseline and --baseline-name were both -b

@@ -41,6 +41,7 @@ public static class BobcatCommands
         // The HTML results page for results files already written (bobcat#541); `run --html` writes
         // the same page for the run it does.
         factory.RegisterCommand<ResultsHtmlCommand>();
+        factory.RegisterCommand<LivingDocs.ResultsDocsCommand>();
 
         // The agent-facing reads over a running `bobcat ui` (bobcat#524): JSON on stdout.
         factory.RegisterCommand<ListRunsCommand>();

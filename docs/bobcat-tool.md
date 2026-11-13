@@ -114,6 +114,7 @@ Feature: Tables
 | Run one slice, chapter, domain or pattern of the Event Model | `bobcat run --slice …`, `--chapter …`, `--domain …`, `--pattern …` |
 | Keep a JSON record of the run, with its schema, for CI or a coding agent | `bobcat run --results <dir>`, or `bobcat run --json` to stdout |
 | Turn results files into one HTML page to open from a downloaded artifact | `bobcat run --html <file>`, `bobcat results-html <dir>` |
+| Put the specifications, with their last result, in the documentation | `bobcat run --docs <dir>`, `bobcat results-docs <dir>` ([Living Documentation](living-docs.md)) |
 | Retry what is allowed to be retried, or split the suite across worker processes | `bobcat run --retries N`, `bobcat run --workers N` |
 | Watch runs live and see the Event Model coloured by them | `bobcat ui` |
 | Keep an application's Event Model live in the UI as you edit it | `bobcat watch-event-model <project>` |
@@ -131,6 +132,7 @@ Feature: Tables
 | **[`watch`](#run-preview-pick-watch)** | run a spec project, and again whenever its source changes |
 | **[`import-event-model`](#import-event-model)** | convert an eventmodelers.ai board export into **C#**: stub records and an `EventModelDefinition` per chapter (specifications per example moved to a Wolverine-side command in 1.0.0-rc.2) |
 | **[`results-html`](#results-page)** | write the self-contained HTML results page from results files already written |
+| **[`results-docs`](living-docs.md#results-docs)** | write living documentation — Markdown per specification, indexes, the `<bobcat-spec>` web component — from results files already written |
 | **[`results-schema`](#results-file)** | print or write the JSON Schema of the results file |
 | **[`resident`](#resident)** | keep a suite whose process Bobcat does not own available to a run console, running the specifications the console asks for |
 | **[`ui`](bobcat-ui.md)** | serve the [Bobcat UI](bobcat-ui.md) -- the live run board and the Event Model canvas -- on 5525 and open it in the browser, until Ctrl+C |
@@ -177,6 +179,7 @@ instead of leaving the last green run in view.
 | `--no-build` | use the last build as it is |
 | `--results <dir>` | write the run's JSON results file, and its schema, into this directory (not `preview`) |
 | `--html <file>` | also write the run as one self-contained [HTML results page](#results-page) (not `preview`) |
+| `--docs <dir>` | also write the run as [living documentation](living-docs.md): Markdown per specification, indexes, the `<bobcat-spec>` web component (not `preview`) |
 | `--json` | print the results file on standard output instead of the rendered tree; every other line goes to standard error (`run`, `pick`) |
 | `--verbose` | write every scenario's reports, passing ones too, on every surface: console, results file, wire (not `preview`) |
 | `--failed` | run only the specifications that failed or errored last time (`run`; see below) |
@@ -188,7 +191,7 @@ instead of leaving the last green run in view.
 
 **No short flag means two things.** `-f` would have been `--framework`, `--feature` and `--failed`;
 `-r` `--repeat`, `--retries` and `--results`; `-s` `--stall`, `--stall-action`, `--scenario` and
-`--slice`; `-c` `--configuration` and `--chapter`. Every flag that collided is long-only, and a short
+`--slice`; `-c` `--configuration` and `--chapter`; `-d` `--domain` and `--docs`. Every flag that collided is long-only, and a short
 alias exists only where it is unique within its command: `-w` (`--workers`), `-d` (`--domain`), `-p`
 (`--pattern`), `-t` (`--trait`), `-n` (`--no-build`), `-j` (`--json`), `-v` (`--verbose`), `-h`
 (`--html`). A test in the repository fails on a new collision.
@@ -204,7 +207,7 @@ bobcat run --repeat              # the last run's selection and flags again
 
 **Every `bobcat run` writes `obj/bobcat/last-run.json`** in the spec project, with or without
 `--results`: the failed identities, the selection it ran (identities, empty for everything), its
-framework, configuration, `--results`, `--html`, `--json`, `--verbose` and supervision flags, the host's exit code, a timestamp
+framework, configuration, `--results`, `--html`, `--docs`, `--json`, `--verbose` and supervision flags, the host's exit code, a timestamp
 and a reserved `seed` (null until seeded random order ships). `obj/` is git-ignored and
 `dotnet clean` removes it.
 
@@ -212,7 +215,7 @@ and a reserved `seed` (null until seeded random order ships). `obj/` is git-igno
   their `{Feature}/{Scenario}` identity, with the flags given now. The rerun is itself the last run,
   so repeating `--failed` narrows to what is still red.
 - **`--repeat`** replays the last run's selection, framework, configuration, `--results`, `--html`,
-  `--json` and `--verbose`. A `--framework`/`--results`/`--html` given beside it wins; `--json`/`--verbose` add to the
+  `--docs`, `--json` and `--verbose`. A `--framework`/`--results`/`--html`/`--docs` given beside it wins; `--json`/`--verbose` add to the
   recorded ones. It always builds unless `--no-build` is given now.
 - **A specification renamed or deleted since is refused by name**, and nothing runs: a rerun that
   quietly dropped it would read as green. Start over with a plain `bobcat run`.
@@ -334,6 +337,11 @@ bobcat results-html artifacts/bobcat                             # artifacts/bob
 - **Writing it never fails a run**: the specifications decide the exit code. A tool built from
   source without `-p:EmbedFrontend=true` has no page to write and says so; the packed tool always
   has it.
+- **One specification at a time:** `results.html?spec=<identity>` (URL-encoded `{Feature}/{Scenario}`,
+  or `#spec=`) renders only that specification, open, without the header or the filter bar — the
+  form a documentation page embeds in an iframe. See [Living Documentation](living-docs.md), which
+  also covers the Markdown pages (`bobcat run --docs`, `bobcat results-docs`) and the `<bobcat-spec>`
+  web component written from the same results files.
 
 ### Selecting by Event Model coordinates {#selecting-by-coordinates}
 
