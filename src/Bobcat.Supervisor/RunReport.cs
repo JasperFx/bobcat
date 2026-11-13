@@ -58,6 +58,13 @@ public static partial class RunReport
             report.AppendLine(OrderLine(results.Seed));
         }
 
+        // A leg of a sharded run says which leg it was and what share it took (bobcat#576), so the
+        // legs of one CI job can be checked against each other from their logs alone.
+        if (results.ShardLeg is { } leg)
+        {
+            report.AppendLine(leg.ToString());
+        }
+
         // Stalls lead, beside the retries (bobcat#704): a stalled test that eventually passed
         // still exceeded its budget, and in a green run a section below the fold goes unread —
         // Polecat's flat_table_works_with_async_daemon stalled in 10 of 78 jobs and showed only
@@ -499,6 +506,20 @@ public static partial class RunReport
                 },
             ["order"] = Spell(results.Order),
             ["seed"] = results.Seed,
+            ["shard"] = results.ShardLeg is not { } leg
+                ? null
+                : new JsonObject
+                {
+                    ["index"] = leg.Shard.Index,
+                    ["count"] = leg.Shard.Count,
+                    ["classes"] = leg.Partitions.Count,
+                    ["totalClasses"] = leg.TotalPartitions,
+                    ["tests"] = leg.Tests.Count,
+                    ["totalTests"] = leg.TotalTests,
+                    ["balancedBy"] = leg.BalancedByDuration ? "duration" : "count",
+                    ["estimateMs"] = leg.BalancedByDuration ? (long)leg.Estimate.TotalMilliseconds : null,
+                    ["totalEstimateMs"] = leg.BalancedByDuration ? (long)leg.TotalEstimate.TotalMilliseconds : null
+                },
             ["timing"] = describe(RunTiming.For(results)),
             ["memory"] = describe(RunResources.For(results)),
             ["stalled"] = new JsonArray(results.StalledTests.Select(s => (JsonNode)new JsonObject

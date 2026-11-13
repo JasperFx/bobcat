@@ -129,9 +129,18 @@ public class SpecRunInput : SpecInput
     [FlagAlias("seed", true)]
     public int? SeedFlag { get; set; }
 
+    [Description("Supervised: run leg i of n when the suite is split across machines (2/4); the class partitions are balanced over the legs from the ledger, so every leg must be given the same one")]
+    [FlagAlias("shard", true)]
+    public string? ShardFlag { get; set; }
+
+    [Description("Supervised: a test ledger file whose recorded durations balance the lanes and the --shard legs; read, never written. A missing file balances by test count")]
+    [FlagAlias("ledger", true)]
+    public string? LedgerFlag { get; set; }
+
     /// <summary>The supervision the flags ask for; null for a plain run.</summary>
     internal Supervision? Supervision(out string? refusal)
-        => Specs.Supervision.From(RetriesFlag, WorkersFlag, StallFlag, StallActionFlag, OrderFlag, SeedFlag, out refusal);
+        => Specs.Supervision.From(RetriesFlag, WorkersFlag, StallFlag, StallActionFlag, OrderFlag, SeedFlag, ShardFlag,
+            LedgerFlag, out refusal);
 }
 
 /// <summary>
@@ -176,6 +185,16 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
             return false;
         }
 
+        if ((input.FailedFlag || input.RepeatFlag) && input.ShardFlag is not null)
+        {
+            // bobcat#576: a leg is a share of the whole suite. --failed reruns what failed on this
+            // machine, which is already within its leg, and --repeat replays the shard it recorded.
+            AnsiConsole.MarkupLine(input.FailedFlag
+                ? "[red]--failed reruns what failed in the last run, which already ran on one leg; it cannot be split again with --shard. Run --failed alone on that leg.[/]"
+                : "[red]--repeat replays the last run's --shard; it cannot be given another. Run --repeat alone, or --shard without --repeat.[/]");
+            return false;
+        }
+
         var supervision = input.Supervision(out var refusal);
         if (refusal is not null)
         {
@@ -216,6 +235,10 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
             // now wins, and a different --order now makes the seed moot or refused as it would anywhere.
             input.OrderFlag ??= recorded.Order;
             if (input.OrderFlag is not null) input.SeedFlag ??= last!.Seed;
+
+            // The same leg, split from the same ledger (bobcat#576).
+            input.ShardFlag = recorded.Shard;
+            input.LedgerFlag ??= recorded.Ledger;
             input.RouteConsole();
 
             project = await input.ProjectAsync();
@@ -228,7 +251,7 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
             // A supervised run writes a results file per worker request, so there is no one file
             // to put on standard output; they all go to --results.
             AnsiConsole.MarkupLine("[red]--json prints one results file, and a supervised run (--retries, --workers, --stall, "
-                                   + "--stall-action, --order, --seed) writes one per worker request. Use --results <dir> to keep them all.[/]");
+                                   + "--stall-action, --order, --seed, --shard, --ledger) writes one per worker request. Use --results <dir> to keep them all.[/]");
             return false;
         }
 
@@ -306,7 +329,9 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
                     Workers = supervision?.Workers,
                     Stall = supervision is null ? null : input.StallFlag,
                     StallAction = supervision is null ? null : Specs.Supervision.Spell(supervision.StallAction),
-                    Order = supervision is null || supervision.Order == RunOrder.Declared ? null : RunReport.Spell(supervision.Order)
+                    Order = supervision is null || supervision.Order == RunOrder.Declared ? null : RunReport.Spell(supervision.Order),
+                    Shard = supervision?.Shard?.ToString(),
+                    Ledger = supervision?.Ledger
                 }
             }.Write(path);
         }

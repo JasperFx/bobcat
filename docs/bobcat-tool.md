@@ -190,6 +190,8 @@ instead of leaving the last green run in view.
 | `--stall-action <action>` | supervised: what a stall does, `report` (default), `kill-and-retry` or `abort` (`run`) |
 | `--order <order>` | supervised: `declared` (default) or `random`, which shuffles the test classes and deals them over the lanes, never the tests inside a class (`run`; see below) |
 | `--seed <N>` | supervised: the seed a random order is reproduced from; needs `--order random` (`run`) |
+| `--shard <i/n>` | supervised: run leg `i` of `n` when the suite is split across machines; the legs are disjoint and together run everything (`run`; see below) |
+| `--ledger <file>` | supervised: a test ledger whose durations balance the lanes and the `--shard` legs; read, never written (`run`) |
 
 **No short flag means two things.** `-f` would have been `--framework`, `--feature` and `--failed`;
 `-r` `--repeat`, `--retries` and `--results`; `-s` `--stall`, `--stall-action`, `--scenario` and
@@ -227,7 +229,7 @@ and the `seed` of a `--order random` run (null otherwise). `obj/` is git-ignored
   `--domain`, `--pattern`, `--trait`), nor with each other. A run selected by coordinates is
   repeated as the identities it resolved to.
 
-### Supervised runs: `--retries`, `--workers`, `--stall`, `--order` {#supervised}
+### Supervised runs: `--retries`, `--workers`, `--stall`, `--order`, `--shard` {#supervised}
 
 ```bash
 bobcat run --retries 2                        # retry what is allowed to be retried, twice at most
@@ -236,10 +238,11 @@ bobcat run --stall 2m --stall-action kill-and-retry
 bobcat run --failed --retries 2 --results artifacts/bobcat
 bobcat run --order random                     # the classes in a shuffled order; prints the seed
 bobcat run --order random --seed 1234567      # that order again
+bobcat run --shard 2/4 --ledger artifacts/ledger/ledger.json   # leg 2 of a suite split four ways
 ```
 
-**Any of `--retries`, `--workers`, `--stall`, `--stall-action`, `--order` or `--seed` makes the run
-supervised** (bobcat#546): the same test host, driven as worker processes by Bobcat's supervisor,
+**Any of `--retries`, `--workers`, `--stall`, `--stall-action`, `--order`, `--seed`, `--shard` or
+`--ledger` makes the run supervised** (bobcat#546): the same test host, driven as worker processes by Bobcat's supervisor,
 the thing a hand-written `Supervisor` host does in C#. Without any of them `bobcat run` is exactly
 the plain run. `--results`, `--verbose` and every selection flag work on both.
 
@@ -280,9 +283,31 @@ the plain run. `--results`, `--verbose` and every selection flag work on both.
   machine — runs the same order. A random run is slower than the declared one: nothing balances the
   lanes, and that is the point. `--seed` without `--order random` is refused; the seed is the same
   sequence on every machine and every .NET version, by Bobcat's own generator.
+- **`--shard i/n` runs one leg of a suite split across machines** (bobcat#576). Each CI job in a
+  matrix runs `--shard 1/4` … `--shard 4/4`; the test classes are balanced over the four legs the
+  way `--workers` balances lanes (longest first, from the ledger's durations, by test count when
+  there are none), so the legs never run a class twice and never drop one. Each leg computes its own
+  share without talking to the others, so **every leg must see the same tests and the same ledger**:
+  give them the same selection flags and the same `--ledger` file (one downloaded artifact, not each
+  job's own). With different ledgers two legs can disagree, and a class can run twice or not at all.
+  The report says what the leg took, `Shard 2/4: 17 of 68 class(es) (230 of 912 test(s)), estimated
+  3m10s of 12m40s (Known durations matched 910/912 test(s))`, or "legs balanced by test count" with
+  no estimate. A leg with more legs than classes has nothing to run and passes. Inside a leg the
+  ordinary lanes apply, so `--workers` and `--order random` combine with it: the shard is taken
+  first, then the leg's classes are ordered. A shard is not a lane: lanes share one machine's run,
+  legs are separate runs. Each leg's results files carry `run.shard`; point `bobcat results-html` at
+  all the legs' `--results` directories to see the whole suite on one page.
+  `--shard` is refused with `--failed` (that leg's failures already ran on one leg; run `--failed`
+  alone there) and with `--repeat` (which replays the shard it recorded). A malformed or out-of-range
+  value is refused by name: `--shard '0/4': the leg must be between 1 and 4; legs are numbered from 1.`
+- **`--ledger <file>` balances on recorded durations.** It reads a `TestLedger` file (the CI
+  artifact [Parallel-ready suites](parallel-ready-suites.md#durations-from-the-last-run-the-ledger-as-a-ci-artifact)
+  describes) and never writes it. A missing file is a first run: `No ledger at … yet: balanced by
+  test count.` An unreadable one stops the run, because a leg that quietly balanced by count while the
+  others used the ledger would split the suite differently.
 - **`--json` is refused** for a supervised run: it writes one results file per worker request, so
   there is no single file to print. Use `--results <dir>`.
-- `--repeat` replays the supervision flags with the rest, the seed included.
+- `--repeat` replays the supervision flags with the rest, the seed, the shard and the ledger included.
 
 ### The results file {#results-file}
 

@@ -104,6 +104,22 @@ public class ResultsFileReaderTests
 
         contents.Order.ShouldBe("random");
         contents.Seed.ShouldBe(20261113);
+        contents.Shard.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_shards_leg_is_read_back_from_the_run_header()
+    {
+        // bobcat#576: each leg's file says which leg produced it, so legs folded onto one page can be told apart.
+        var run = new MonitorRunInfo(Guid.NewGuid(), "My.Specs", "/repo", "main", "xunit");
+        var started = new DateTimeOffset(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
+        var json = ResultsFile.Serialize(ResultsFile.Build(run, started, started.AddSeconds(1), [everything()], null, shard: "2/4"));
+
+        var contents = ResultsFileReader.Read(json);
+
+        contents.Shard.ShouldBe("2/4");
+        contents.Order.ShouldBeNull();
+        json.ShouldContain("\"shard\": \"2/4\"");
     }
 
     [Fact]

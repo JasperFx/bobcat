@@ -232,7 +232,58 @@ Append-only. One entry per discussion: date, candidate ids, who decided, what, a
   (…run again with --order random --seed N)`, JSON `order`/`seed`) carry it; `run_started` gains a
   field only when `bobcat ui` renders it.
 - **Shard + random (C6):** mix the leg index into the seed, so two legs do not start on the same
-  class at the same moment — still the recommendation, to be done with C6.
+  class at the same moment — still the recommendation, to be done with C6. *Superseded by the C6
+  entry below: legs are disjoint, so they cannot start on the same class, and the seed is not mixed.*
+
+### 2026-11-13 — C6 decisions, as shipped (bobcat#576)
+
+- **`WorkPlan.Legs(tests, n, partitionKey, knownDurations)` / `WorkPlan.Shard(…, RunShard)`**: the
+  class partitions weighed exactly as `Build` weighs them (known duration by ledger key then uid, the
+  median for an unknown test, one nominal second each when nothing is known — a count balance),
+  sorted heaviest first then by key ordinally, and dealt LPT to the lightest leg, lowest index on a
+  tie. A pure function of the test list and the known durations: discovery order never enters it
+  (pinned by a test that reverses the list on 20 random suites × every leg of n = 1..8), and a
+  property test over 40 random suites checks the legs are disjoint, cover every test, and never
+  split a class. A leg's tests keep their discovery order, so a one-lane declared leg is still the
+  plain single request.
+- **Applied in `Supervisor.Run` after the specification selection and `TestFilter`**, before the
+  run bracket opens and before isolation is split out, so every leg splits the same list and the
+  bracket's total is the leg's. **An isolated test is a partition of its own, keyed `isolated:` +
+  its ledger key** (display name; uid only where two share one) — never the bare uid, which on xUnit
+  hashes the assembly path and differs between machines. Isolation itself is unchanged inside the leg.
+- **An empty leg passes.** More legs than classes leaves a leg with nothing to run; that is the split
+  working, so `FailWhenNoTests` does not abort it (a stale filter on an unsharded run still does).
+- **Determinism depends on every leg reading the same ledger artifact**, stated in the docs and the
+  `--shard` description: two legs with different ledgers can weigh a class differently and overlap or
+  drop it. Nothing checks this at run time — legs never talk to each other.
+- **The tool had no way to read a ledger, so `--ledger <file>` came with it.** Without it `bobcat run
+  --shard` could only ever balance by count, which the decision above calls ledger-balanced. Read,
+  never written (recording the next ledger stays with the host that already does, now merging the
+  legs' ledgers); a missing file is a first run and balances by count with a line saying so; an
+  unreadable file stops the run with exit 2, because a leg that silently fell back to count while its
+  siblings read the ledger would split differently. It also feeds lane balancing for an unsharded
+  supervised run, which is the same `KnownTestDurations`.
+- **The log line**: `Shard 2/4: 17 of 68 class(es) (230 of 912 test(s)), estimated 3m10s of 12m40s
+  (Known durations matched 910/912 test(s))`; without durations no time is claimed ("legs balanced
+  by test count (no known durations)" or "(known durations matched 0/N test(s))"), because a
+  nominal-second estimate is a count in disguise. In the supervisor log and the report;
+  `RunReport.ToJson` gains `shard {index, count, classes, totalClasses, tests, totalTests,
+  balancedBy, estimateMs, totalEstimateMs}` (estimates null when balanced by count).
+- **Recorded additively**: results file `run.shard` (`"2/4"`, from `BOBCAT_RUN_SHARD` on each
+  worker; `SchemaVersion` unmoved, read back by `ResultsFileReader`), `last-run.json`
+  `arguments.shard` and `arguments.ledger`. Not on the monitor wire this pass.
+- **Refusals**: malformed (`--shard '2of4' is not a shard; write it as i/n …`), a count below 1, a
+  leg outside 1..n (`the leg must be between 1 and 4; legs are numbered from 1`). `--shard` with
+  `--failed` is refused (the failures already ran on one leg; run `--failed` alone there) and with
+  `--repeat` (which replays the shard it recorded, so `--repeat` alone is the same leg again).
+  `--shard` and `--ledger` are long-only.
+- **Shard + random order (C8): shard first, then order within the leg, and the seed is NOT mixed
+  with the leg index.** The C8 note wanted mixing so two legs would not start on the same class; but
+  legs are disjoint, so they cannot. Mixing would only make one printed seed mean different
+  permutations on different legs, so `--order random --seed N` on leg 2 would not reproduce what the
+  seed means anywhere else. One seed, one meaning.
+- **Gate: out of scope** — a gate is one machine. `GateDeclaration.Configure` can still set
+  `Supervisor.Shard` if a gate ever wants it.
 
 ### 2026-10-16 — C9, vocabulary usage (Jeremy) — **post-1.0, with #552**
 

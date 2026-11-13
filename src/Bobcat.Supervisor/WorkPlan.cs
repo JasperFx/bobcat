@@ -1,3 +1,4 @@
+using System.Globalization;
 using Bobcat.Ledger;
 
 namespace Bobcat.Supervisor;
@@ -37,6 +38,85 @@ public enum RunOrder
 {
     Declared,
     Random
+}
+
+/// <summary>
+/// One leg of a run split across machines (bobcat#576): <c>bobcat run --shard 2/4</c> is
+/// <c>new RunShard(2, 4)</c>. <see cref="Index"/> is 1-based, as the flag is written.
+/// </summary>
+public sealed record RunShard(int Index, int Count)
+{
+    /// <summary>
+    /// Reads <c>i/n</c>. A refusal names what is wrong, in the words the tool prints: malformed, a
+    /// count below 1, an index below 1 or above the count.
+    /// </summary>
+    public static RunShard? Parse(string text, out string? refusal)
+    {
+        refusal = null;
+        var parts = text.Trim().Split('/');
+        if (parts.Length != 2
+            || !int.TryParse(parts[0].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
+            || !int.TryParse(parts[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var count))
+        {
+            refusal = $"--shard '{text}' is not a shard; write it as i/n, the leg and the number of legs, such as 2/4.";
+            return null;
+        }
+
+        if (count < 1)
+        {
+            refusal = $"--shard '{text}': the number of legs must be 1 or more.";
+            return null;
+        }
+
+        if (index < 1 || index > count)
+        {
+            refusal = $"--shard '{text}': the leg must be between 1 and {count}; legs are numbered from 1.";
+            return null;
+        }
+
+        return new RunShard(index, count);
+    }
+
+    /// <summary><c>i/n</c>, the flag's own spelling.</summary>
+    public override string ToString() => $"{Index}/{Count}";
+}
+
+/// <summary>
+/// What one shard of a run holds (bobcat#576), and what it was weighed against: its tests in
+/// discovery order, the partitions (classes) it took, and the whole run's figures beside its own.
+/// </summary>
+public sealed record ShardLeg(
+    RunShard Shard,
+    IReadOnlyList<WorkerTest> Tests,
+    IReadOnlyList<string> Partitions,
+    int TotalPartitions,
+    int TotalTests,
+    TimeSpan Estimate,
+    TimeSpan TotalEstimate,
+    DurationCoverage? Coverage)
+{
+    /// <summary>True when known durations weighed the legs; false when they were balanced by test count.</summary>
+    public bool BalancedByDuration => Coverage is { BalancedByCount: false };
+
+    /// <summary>
+    /// The sentence a shard is announced with in the supervisor's log and its report:
+    /// <c>Shard 2/4: 17 of 68 class(es) (230 of 912 test(s)), estimated 3m10s of 12m40s (Known durations matched 410/456 test(s))</c>.
+    /// Without known durations no time is claimed, because the estimate would be a test count in disguise.
+    /// </summary>
+    public override string ToString()
+    {
+        var head = $"Shard {Shard}: {Partitions.Count} of {TotalPartitions} class(es) ({Tests.Count} of {TotalTests} test(s))";
+        if (BalancedByDuration) return $"{head}, estimated {format(Estimate)} of {format(TotalEstimate)} ({Coverage})";
+
+        return Coverage is null
+            ? $"{head}, legs balanced by test count (no known durations)"
+            : $"{head}, legs balanced by test count (known durations matched 0/{Coverage.Tests} test(s))";
+    }
+
+    private static string format(TimeSpan span)
+        => span.TotalHours >= 1 ? $"{(int)span.TotalHours}h{span.Minutes:D2}m"
+            : span.TotalMinutes >= 1 ? $"{(int)span.TotalMinutes}m{span.Seconds:D2}s"
+            : $"{span.TotalSeconds:0.#}s";
 }
 
 /// <summary>One worker's share of a run.</summary>
@@ -203,6 +283,99 @@ public static class WorkPlan
         return lanes
             .Select(lane => new WorkLane(lane.Index, lane.Uids, lane.Load) { Partitions = lane.Keys })
             .OrderByDescending(lane => lane.Estimate)
+            .ToList();
+    }
+
+    /// <summary>
+    /// The tests of one leg of a run split across machines (bobcat#576): <see cref="Legs"/>, then
+    /// leg <paramref name="shard"/>.
+    /// </summary>
+    public static ShardLeg Shard(
+        IReadOnlyList<WorkerTest> tests,
+        RunShard shard,
+        Func<WorkerTest, string>? partitionKey = null,
+        IReadOnlyDictionary<string, TimeSpan>? knownDurations = null)
+    {
+        if (shard.Count < 1 || shard.Index < 1 || shard.Index > shard.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(shard), shard, "A shard is i/n with 1 <= i <= n.");
+        }
+
+        return Legs(tests, shard.Count, partitionKey, knownDurations)[shard.Index - 1];
+    }
+
+    /// <summary>
+    /// Every leg of a run split <paramref name="count"/> ways (bobcat#576): the same class partitions
+    /// <see cref="Build"/> plans lanes from, balanced longest-first over legs instead of lanes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A pure function of the test list and the known durations.</b> Each leg runs on another
+    /// machine and computes only its own share, so the legs can only be disjoint and cover everything
+    /// if every machine computes the same split: partitions are weighed as <see cref="Build"/> weighs
+    /// them (known duration, the median for a test with none, one nominal second each when nothing is
+    /// known — so a count balance), sorted heaviest first and then by key ordinally, and dealt to the
+    /// lightest leg, the lowest-numbered on a tie. Discovery order never enters it. Two machines
+    /// reading <em>different</em> ledgers can disagree, and then legs overlap or drop a class — so
+    /// every leg must read the same ledger artifact.
+    /// </para>
+    /// <para>
+    /// A leg's tests keep their discovery order. A leg beyond the number of partitions is empty: a leg
+    /// with nothing to run, not an error.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<ShardLeg> Legs(
+        IReadOnlyList<WorkerTest> tests,
+        int count,
+        Func<WorkerTest, string>? partitionKey = null,
+        IReadOnlyDictionary<string, TimeSpan>? knownDurations = null)
+    {
+        if (count < 1) throw new ArgumentOutOfRangeException(nameof(count), count, "A run splits into 1 or more legs.");
+
+        var key = partitionKey ?? ClassOf;
+        var durations = durationsOf(tests, knownDurations);
+        var fallback = medianOf(durations);
+        var coverage = CoverageOf(tests, knownDurations);
+
+        var partitions = tests
+            .GroupBy(key, StringComparer.Ordinal)
+            .Select(group => (
+                Key: group.Key,
+                Uids: group.Select(t => t.Uid).ToList(),
+                Estimate: group.Aggregate(TimeSpan.Zero, (sum, t) => sum + estimate(t, durations, fallback))))
+            .OrderByDescending(p => p.Estimate)
+            .ThenBy(p => p.Key, StringComparer.Ordinal)
+            .ToList();
+
+        var loads = new TimeSpan[count];
+        var members = Enumerable.Range(0, count).Select(_ => new HashSet<string>(StringComparer.Ordinal)).ToArray();
+        var keys = Enumerable.Range(0, count).Select(_ => new List<string>()).ToArray();
+
+        foreach (var partition in partitions)
+        {
+            var lightest = 0;
+            for (var i = 1; i < count; i++)
+            {
+                if (loads[i] < loads[lightest]) lightest = i;
+            }
+
+            members[lightest].UnionWith(partition.Uids);
+            keys[lightest].Add(partition.Key);
+            loads[lightest] += partition.Estimate;
+        }
+
+        var totalEstimate = partitions.Aggregate(TimeSpan.Zero, (sum, p) => sum + p.Estimate);
+
+        return Enumerable.Range(0, count)
+            .Select(i => new ShardLeg(
+                new RunShard(i + 1, count),
+                tests.Where(t => members[i].Contains(t.Uid)).ToList(),
+                keys[i].Order(StringComparer.Ordinal).ToList(),
+                partitions.Count,
+                tests.Count,
+                loads[i],
+                totalEstimate,
+                coverage))
             .ToList();
     }
 
