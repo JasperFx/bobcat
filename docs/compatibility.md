@@ -25,12 +25,12 @@ The Event Model still works without a reference: when your spec project has Jasp
 WolverineFx.Bobcat or directly), `Bobcat.Generators` emits the Event Model source and a small bridge that
 hands Bobcat the JSON to publish. Without JasperFx.Events, no Event Model is generated, exactly as before.
 
-## Bobcat 1.0
+## Bobcat 1.0 and 1.1
 
 | | Requirement | Built and tested against |
 |---|---|---|
-| .NET | `net10.0` or `net11.0` for the libraries; the `bobcat` tool needs the .NET 10 SDK | .NET 10 |
-| `JasperFx`, `JasperFx.Events` | none from 1.0.0-rc.2 (rc.1 and earlier: 2.90.2 or later) | the `bobcat` tool and the Event Model generator's tests: 2.90.2 |
+| .NET | `net9.0`, `net10.0` or `net11.0` for the libraries (1.1; 1.0.x: `net9.0` or `net10.0`); the `bobcat` tool is built for .NET 10 and rolls forward to .NET 11 (`RollForward=Major`), so it runs on a machine with only the .NET 10 or only the .NET 11 runtime | .NET 10 (the test hosts); the SDK that builds the repository is .NET 11 |
+| `JasperFx`, `JasperFx.Events` | none from 1.0.0-rc.2 (rc.1 and earlier: 2.90.2 or later) | the `bobcat` tool and the Event Model generator's tests: 2.96.0 (the 2.x line; JasperFx 3 comes after 1.1) |
 | Marten, Fisher, Polecat | none from Bobcat; through `WolverineFx.Bobcat`, below | in the Wolverine repository since #744 |
 | WolverineFx | through `WolverineFx.Bobcat`, below | in the Wolverine repository since #744 |
 | Alba | any for Bobcat itself, which does not reference it. `WolverineFx.Bobcat.Http` 6.51.0-alpha.1 and later require **9.0.0-rc.2** (below) | |
@@ -218,15 +218,29 @@ The JasperFx minimum is the line that matters when you upgrade.
 Releases before 0.50.0 also carry the retired Gherkin lane. Bobcat 0.50.0 removed it (see
 [Diagnostics](/diagnostics#retired) for the diagnostics that went with it).
 
-## Bobcat 1.1 notes: the .NET floor and the Aspire fixture {#bobcat-1-1-notes}
+## Bobcat 1.1 notes: .NET 11, otherwise 1.0-compatible {#bobcat-1-1-notes}
 
-Bobcat 1.1 joins the .NET 11 release of the Critter Stack (bobcat#775, bobcat#778).
+Bobcat 1.1 adds .NET 11 and changes nothing else a 1.0.x suite depends on (bobcat#828): anything that
+builds and runs against 1.0.3 builds and runs against 1.1.0 unchanged.
 
-- **The libraries target `net10.0;net11.0`; `net9.0` is gone.** `Bobcat`, `Bobcat.Supervisor` and the four
-  runner adapters no longer ship a `net9.0` assembly, so a spec project on .NET 9 can't restore them. Move the
-  spec project to `net10.0` (or `net11.0`) before taking 1.1. `Bobcat.Generators` is still `netstandard2.0`, and
-  the `bobcat` tool still needs the .NET 10 SDK. Code that read `net9.0` as a reason to write
-  `x.ShouldBe(52, null)` in a member check no longer has to: see [Expected objects](/expected-objects).
+- **The libraries target `net9.0;net10.0;net11.0`.** `Bobcat`, `Bobcat.Supervisor`, `Bobcat.EventModel` and the
+  four runner adapters each ship all three assemblies, so a spec project on .NET 9 restores 1.1 exactly as it
+  restored 1.0.3, and a project on `net11.0` gets a `net11.0` assembly rather than a rolled-forward `net10.0`
+  one. `Bobcat.Generators` is still `netstandard2.0`. Dropping `net9.0` belongs to a later major, with the
+  JasperFx 3 / Wolverine 7 move (bobcat#775's change was reversed for 1.1 and comes back after it).
+- **A `net9.0` spec project still defaults to C# 13**, so a member check there is still written
+  `x => x.Age.ShouldBe(52, null)` unless the project pins `LangVersion` 14; see
+  [Expected objects](/expected-objects). Nothing about that changed in 1.1.
+- **The `bobcat` tool is built for .NET 10 and rolls forward to .NET 11.** `Bobcat.Console` sets
+  `RollForward=Major`, so `dotnet tool install -g Bobcat.Console` works and `bobcat` starts on a machine that has
+  only the .NET 11 runtime (or only the .NET 10 one). It stays on WolverineFx 6.x and JasperFx 2.x.
+- **No JasperFx 3.** The tool and `Bobcat.EventModel` are built against JasperFx / JasperFx.Events 2.96.0, the
+  version 1.0.3 shipped with, so an `import-event-model` consumer is not forced onto JasperFx 3, Wolverine 7 or
+  Marten 10. The runtime packages reference no JasperFx at all, as since 1.0.0-rc.2.
+- **No Wolverine 7, Alba 9 or YamlDotNet 18.** Those moves (bobcat#776, bobcat#823) come after 1.1.
+- **No public API removals or signature changes.** The resident runner's `ServerSentEvents` reader is the
+  hand-rolled one 1.0.3 shipped (it works on every target framework; the framework's `SseParser` is in the box
+  only from net10.0).
 - **Aspire test infrastructure is a documented, compiled pattern.** An Aspire AppHost can own the Postgres,
   RabbitMQ or SQL Server a suite needs, started once from an xUnit v3 assembly fixture, in place of a compose
   file. [Test Infrastructure with Aspire](/tutorials/aspire-test-infrastructure) walks through the sample pair

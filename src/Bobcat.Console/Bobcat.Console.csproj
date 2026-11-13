@@ -11,6 +11,16 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <!--
+      Bobcat 1.1 (bobcat#828): the tool must run on a machine that has only the .NET 11 runtime.
+      RollForward rather than a second target: multi-targeting this project and Bobcat.Ui would run
+      EmbedFrontend's `npm ci` + Vite build once per framework inside every pack and UiSmoke, and a
+      tool package carries one framework's runtimeconfig per TFM for no gain — the tool's own code
+      is the same IL either way. A .NET tool does NOT roll forward across majors by default (that is
+      what the `allow-roll-forward` switch of `dotnet tool install` exists for), so this is what makes `bobcat`
+      start on .NET 11 while it stays built on net10.0 and WolverineFx 6.x.
+    -->
+    <RollForward>Major</RollForward>
     <OutputType>Exe</OutputType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

@@ -74,10 +74,10 @@ See [Getting Started](https://bobcat.jasperfx.net/getting-started) for wiring up
 
 Before getting started you will need the following in your environment:
 
-### 1. .NET SDK 10.0+
+### 1. .NET SDK 11.0
 
-Available [here](https://dotnet.microsoft.com/download). The repository builds with the .NET 10 SDK. Most
-packages target both net10.0 and net11.0; `Bobcat.Generators` targets `netstandard2.0` because it
+Available [here](https://dotnet.microsoft.com/download). The repository builds with the .NET 11 SDK (the `net11.0` target needs it). Most
+packages target net9.0, net10.0 and net11.0; `Bobcat.Generators` targets `netstandard2.0` because it
 is a Roslyn analyzer.
 
 ### 2. Docker

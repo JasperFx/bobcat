@@ -16,7 +16,7 @@
 
     The Spectre.Console and Microsoft.Extensions.*.Abstractions pins are core's own references,
     which it used to receive transitively through JasperFx. They are held at the lowest version
-    that serves both target frameworks, because a test framework's floor becomes every
+    that serves every target framework, because a test framework's floor becomes every
     consumer's floor.
   -->
 
@@ -25,9 +25,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- The tools only (Bobcat.EventModel, Bobcat.Console, Bobcat.Ui) and the tests that drive them: see the header. -->
-    <PackageVersion Include="JasperFx" Version="3.0.0" />
-    <PackageVersion Include="JasperFx.Events" Version="3.0.0" />
+    <!-- The tools only (Bobcat.EventModel, Bobcat.Console, Bobcat.Ui) and the tests that drive them: see the header.
+         Held on the 2.x line at what 1.0.3 shipped (bobcat#828): JasperFx 3 forces every Bobcat.EventModel
+         consumer onto Wolverine 7 and Marten 10, which is the move after 1.1 (bobcat#776). WolverineFx 6.54.0
+         itself asks for 2.95.1, so 2.96.0 satisfies the tool's whole graph. -->
+    <PackageVersion Include="JasperFx" Version="2.96.0" />
+    <PackageVersion Include="JasperFx.Events" Version="2.96.0" />
     <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="6.54.0" />
 
     <!-- Core's own references, received transitively through JasperFx before bobcat#744. -->
