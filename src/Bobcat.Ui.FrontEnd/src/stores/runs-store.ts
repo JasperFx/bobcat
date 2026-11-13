@@ -225,6 +225,12 @@ export interface ScenarioState {
   outcome: string | null
   durationMs: number | null
   errorMessage: string | null
+  /**
+   * The failure's stack trace for a test the supervisor forwarded (bobcat#825), as the publisher
+   * capped it — a last line of "… (truncated)" says when. Null for a Bobcat scenario, whose
+   * exceptions ride the step that threw, and on a pass.
+   */
+  stackTrace: string | null
   retryReason: string | null
   /** Steps of the CURRENT attempt only — a retry starts a fresh bracket. */
   steps: StepState[]
@@ -581,6 +587,7 @@ export const useRunsStore = defineStore('runs', () => {
         outcome: null,
         durationMs: null,
         errorMessage: null,
+        stackTrace: null,
         retryReason: null,
         steps: [],
         totalSteps: null,
@@ -1021,6 +1028,9 @@ export const useRunsStore = defineStore('runs', () => {
     scenario.status = 'running'
     scenario.outcome = null
     scenario.finishedAt = null
+    // A retry starts clean: the reason the last attempt failed is not this one's.
+    scenario.errorMessage = null
+    scenario.stackTrace = null
   }
 
   function handleTestFinished(e: TestFinished) {
@@ -1033,6 +1043,11 @@ export const useRunsStore = defineStore('runs', () => {
     scenario.state = e.state
     scenario.durationMs = e.durationMs
     scenario.finishedAt = e.at
+    // The reason (bobcat#825), into the same slot a Bobcat scenario's own message takes, so
+    // SpecificationView shows a supervised failure the way it shows a projected one. Optional
+    // on the wire — a publisher before 1.0.1 never sends it — so absent reads as none.
+    scenario.errorMessage = e.errorMessage ?? null
+    scenario.stackTrace = e.stackTrace ?? null
     // Skipped counts as a pass because the supervisor's own WorkerOutcome.Succeeded does, so
     // it is already inside the passed figure the terminal run_finished carries; calling it
     // anything else would leave the progress bar and the final counts disagreeing. An

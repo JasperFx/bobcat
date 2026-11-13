@@ -36,6 +36,7 @@ function scenario(uid: string, status: ScenarioStatus, overrides: Partial<Scenar
     touchedTypes: [],
     finishedAt: null,
     state: null,
+    stackTrace: null,
     workerPublished: true,
     forwarded: false,
     displayName: null,

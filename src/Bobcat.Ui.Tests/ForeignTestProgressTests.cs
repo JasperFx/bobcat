@@ -171,4 +171,46 @@ public class ForeignTestProgressTests
         projection.Scenarios.ShouldHaveSingleItem().Outcome.ShouldBeNull();
         finished(projection).ShouldBe(0);
     }
+
+    [Fact]
+    public void a_forwarded_failure_carries_its_reason_onto_the_scenario()
+    {
+        // bobcat#825: the reason lands in the same slot a Bobcat scenario's own message takes, so
+        // the board, failing-tests and the exports read a supervised failure as they read any other.
+        var projection = fold(
+            new TestStarted(run, "Acme.OrderTests.pays", "Acme.OrderTests.pays", 0, at("2026-09-01T10:00:01Z")),
+            new TestFinished(run, "Acme.OrderTests.pays", "Acme.OrderTests.pays", "Failed", 120, 0,
+                at("2026-09-01T10:00:03Z"), null,
+                "Shouldly.ShouldAssertException : total should be 6 but was 8",
+                "   at Acme.OrderTests.pays() in OrderTests.cs:line 42\n… (truncated)"));
+
+        var scenario = projection.Scenarios.ShouldHaveSingleItem();
+        scenario.Outcome.ShouldBe("Failed");
+        scenario.ErrorMessage.ShouldBe("Shouldly.ShouldAssertException : total should be 6 but was 8");
+        scenario.StackTrace.ShouldBe("   at Acme.OrderTests.pays() in OrderTests.cs:line 42\n… (truncated)");
+    }
+
+    [Fact]
+    public void a_forwarded_pass_and_an_older_publisher_leave_the_reason_null()
+    {
+        var projection = fold(
+            new TestFinished(run, "t", "t", "Passed", 10, 0, at("2026-09-01T10:00:03Z")));
+
+        var scenario = projection.Scenarios.ShouldHaveSingleItem();
+        scenario.ErrorMessage.ShouldBeNull();
+        scenario.StackTrace.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_retry_of_a_foreign_test_starts_without_the_last_attempts_reason()
+    {
+        var projection = fold(
+            new TestFinished(run, "t", "t", "Failed", 10, 0, at("2026-09-01T10:00:03Z"), null, "the broker refused", "   at T.t()"),
+            new TestStarted(run, "t", "t", null, at("2026-09-01T10:00:09Z")));
+
+        var scenario = projection.Scenarios.ShouldHaveSingleItem();
+        scenario.Outcome.ShouldBeNull();
+        scenario.ErrorMessage.ShouldBeNull();
+        scenario.StackTrace.ShouldBeNull();
+    }
 }

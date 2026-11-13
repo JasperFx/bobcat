@@ -139,6 +139,46 @@ public class SupervisorEndToEndTests : IDisposable
         results.Failed.ShouldContain(t => isNamed(t, "Basics.always_fails"));
     }
 
+    private sealed class RecordingSink : Bobcat.Monitoring.IMonitorEventSink
+    {
+        private readonly List<Bobcat.Monitoring.MonitorEvent> _events = [];
+
+        public void Post(Bobcat.Monitoring.MonitorEvent @event)
+        {
+            lock (_events) _events.Add(@event);
+        }
+
+        public IReadOnlyList<Bobcat.Monitoring.MonitorEvent> Events
+        {
+            get { lock (_events) return _events.ToArray(); }
+        }
+    }
+
+    [Fact]
+    public async Task a_real_workers_failure_reaches_the_wire_with_the_reason_its_node_carried()
+    {
+        // bobcat#825, against a real MTP host rather than the fake: the terminal node's
+        // error.message and error.stacktrace are what readNode reads, and this is the proof those
+        // keys are what xUnit v3 on MTP 2.5 actually sends — a fake agreeing with itself is not.
+        var sink = new RecordingSink();
+        var supervisor = new Supervisor(factory()) { PublishToMonitor = true, MonitorSink = sink };
+
+        await supervisor.Run();
+
+        var finished = sink.Events.OfType<Bobcat.Monitoring.TestFinished>().ToList();
+        var broken = finished.Single(e => WorkerHosts.IsNamed(e.DisplayName, "Basics.always_fails"));
+
+        // xUnit v3 calls a thrown exception "Error" and a disagreeing assertion "Failed"; the
+        // framework's word travels verbatim, and either one needs its reason.
+        broken.State.ShouldBeOneOf("Failed", "Error");
+        broken.ErrorMessage.ShouldNotBeNull().ShouldContain("this one never works");
+        broken.StackTrace.ShouldNotBeNull().ShouldContain("always_fails");
+
+        // Nothing non-passing left the wire without a reason, and nothing passing carried one.
+        finished.Where(e => e.State is not ("Passed" or "Skipped")).ShouldAllBe(e => e.ErrorMessage != null);
+        finished.Where(e => e.State is "Passed" or "Skipped").ShouldAllBe(e => e.ErrorMessage == null && e.StackTrace == null);
+    }
+
     [Fact]
     public async Task a_worker_reads_its_connection_strings_through_configuration_as_an_aspire_app_would()
     {

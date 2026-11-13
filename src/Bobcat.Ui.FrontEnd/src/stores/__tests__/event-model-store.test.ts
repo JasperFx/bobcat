@@ -56,6 +56,7 @@ function scenario(overrides: Partial<ScenarioState> & { uid: string }): Scenario
     touchedTypes: [],
     finishedAt: null,
     state: null,
+    stackTrace: null,
     workerPublished: true,
     forwarded: false,
     displayName: null,

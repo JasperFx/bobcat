@@ -111,6 +111,24 @@ public sealed record WorkerTestUpdate(string Uid, string DisplayName, string Exe
     /// <summary>Framework metadata on the node — same channel as <see cref="WorkerOutcome.Traits"/>.</summary>
     public IReadOnlyDictionary<string, string> Traits { get; init; }
         = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The exception type of a non-passing verdict, when the framework's message carries one
+    /// (<see cref="WorkerOutcome.ErrorType"/>'s convention). Null while in progress, on a pass
+    /// or a skip, and for a framework that erases it.
+    /// </summary>
+    public string? ErrorType { get; init; }
+
+    /// <summary>
+    /// Why the test did not pass (bobcat#825): the terminal node's own <c>error.message</c>, and
+    /// the folded <see cref="WorkerOutcome.ErrorMessage"/> when the node carries none. Null while
+    /// in progress and on a pass or a skip — a reason is only ever stamped on a verdict that
+    /// needs one.
+    /// </summary>
+    public string? ErrorMessage { get; init; }
+
+    /// <summary>The failure's stack trace, uncapped — the publisher bounds it before the wire.</summary>
+    public string? StackTrace { get; init; }
 }
 
 /// <summary>The result of asking a worker to run a set of tests.</summary>

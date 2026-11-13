@@ -51,6 +51,7 @@ function scenario(overrides: Partial<ScenarioState> = {}): ScenarioState {
     touchedTypes: [],
     finishedAt: null,
     state: null,
+    stackTrace: null,
     workerPublished: true,
     forwarded: false,
     displayName: null,

@@ -149,6 +149,10 @@ public static class AgentQueries
                     outcome = s.Outcome,
                     attempts = s.Attempts,
                     errorMessage = s.ErrorMessage,
+                    // A supervised test's own word and its capped stack (bobcat#825) — a Bobcat
+                    // scenario carries neither; its exception rides the failing step below.
+                    state = s.State,
+                    stackTrace = s.StackTrace,
                     failedSteps = s.Steps
                         .Where(step => StepVerdict.IsFailed(step.Status))
                         .Select(step => new

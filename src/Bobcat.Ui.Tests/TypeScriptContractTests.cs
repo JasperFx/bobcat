@@ -50,6 +50,21 @@ public class TypeScriptContractTests
     }
 
     [Fact]
+    public void a_forwarded_tests_reason_is_optional_on_the_mirror_because_the_wire_only_just_gained_it()
+    {
+        // bobcat#825: test_finished.errorMessage / stackTrace are trailing optional on the wire, so
+        // the store reads them as members a publisher may omit — and the fold (handleTestFinished)
+        // writes `?? null` rather than trusting their presence.
+        var generated = TypeScriptContracts.GenerateMonitorEvents();
+        var start = generated.IndexOf("export interface TestFinished extends MonitorEvent {", StringComparison.Ordinal);
+        start.ShouldBeGreaterThanOrEqualTo(0);
+        var block = generated[start..generated.IndexOf('}', start)];
+
+        block.ShouldContain("  errorMessage?: string | null");
+        block.ShouldContain("  stackTrace?: string | null");
+    }
+
+    [Fact]
     public void every_event_is_routed_to_its_runs_store_handler()
     {
         var routes = TypeScriptContracts.GenerateRelayRoutes();

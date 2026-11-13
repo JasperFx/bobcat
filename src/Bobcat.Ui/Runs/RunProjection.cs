@@ -389,6 +389,9 @@ public class RunProjection
                 if (scenario.FinishedAt is { } finished && e.At <= finished) break;
                 scenario.Outcome = null;
                 scenario.FinishedAt = null;
+                // A retry starts clean: the reason the last attempt failed is not this one's.
+                scenario.ErrorMessage = null;
+                scenario.StackTrace = null;
                 break;
             }
 
@@ -403,6 +406,12 @@ public class RunProjection
                 scenario.State = e.State;
                 scenario.DurationMs = e.DurationMs;
                 scenario.FinishedAt = e.At;
+                // The reason (bobcat#825), into the same slot a Bobcat scenario's own message
+                // takes, so the board, failing-tests and the exports read a supervised failure
+                // exactly as they read a projected one. Null from an older publisher, and on a
+                // pass — which is also what the field held before this.
+                scenario.ErrorMessage = e.ErrorMessage;
+                scenario.StackTrace = e.StackTrace;
                 break;
             }
 
@@ -479,6 +488,14 @@ public class ScenarioProjection
 
     public long? DurationMs { get; set; }
     public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// The failure's stack trace for a test the supervisor forwarded (bobcat#825), as the publisher
+    /// capped it. Null for a Bobcat scenario — its exceptions live on the step that threw
+    /// (<see cref="StepProjection.Exception"/>) — and on a pass.
+    /// </summary>
+    public string? StackTrace { get; set; }
+
     public List<string> RetryReasons { get; } = new();
 
     /// <summary>
