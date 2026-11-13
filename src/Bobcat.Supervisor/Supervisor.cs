@@ -36,6 +36,13 @@ public sealed class Supervisor
     // the list is sized before any of them start, so the slots need no lock of their own.
     private readonly List<IWorkerClient?> _lanes = [];
     private readonly Dictionary<string, int> _laneOfTest = new(StringComparer.Ordinal);
+
+    // A random order's books (bobcat#578): which partition each batched test is in and where that
+    // partition sits in its lane's order, so a lane — first pass or a same-process retry — runs its
+    // partitions one request at a time in the order the seed gave them.
+    private readonly Dictionary<string, string> _partitionOfTest = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _partitionRank = new(StringComparer.Ordinal);
+    private int? _seed;
     private readonly object _gate = new();
 
     // What discovery called each test. Written once, before anything runs, and read only when a
@@ -137,6 +144,22 @@ public sealed class Supervisor
     /// <see cref="WorkPlan.ClassOf"/>.
     /// </summary>
     public Func<WorkerTest, string>? PartitionKey { get; set; }
+
+    /// <summary>
+    /// The order the class partitions run in (bobcat#578). <see cref="RunOrder.Declared"/> by default:
+    /// the balanced plan, one request per lane. <see cref="RunOrder.Random"/> shuffles the partitions
+    /// with <see cref="Seed"/>, deals them round-robin over the lanes, and runs each lane's partitions
+    /// one request at a time in that order — never the tests inside a class. For finding coupling
+    /// between classes; slower than the balanced plan, and meant to be.
+    /// </summary>
+    public RunOrder Order { get; set; } = RunOrder.Declared;
+
+    /// <summary>
+    /// The seed a random <see cref="Order"/> is reproduced from. Null mints one at the start of the
+    /// run; either way the seed used is on <see cref="SupervisorResults.Seed"/> and in the report, so
+    /// the order can be run again. Ignored for a declared order.
+    /// </summary>
+    public int? Seed { get; set; }
 
     /// <summary>
     /// Disposes the idle lane workers before any fresh-process retry runs, once no pending
@@ -759,6 +782,8 @@ public sealed class Supervisor
             LanePlan = _lanePlan,
             LaneElapsed = laneElapsed(),
             FailOnCollapsed = FailOnCollapsed,
+            Order = Order,
+            Seed = _seed,
             Duration = live.Elapsed,
             WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks)),
             WorkerBusyTime = TimeSpan.FromTicks(Interlocked.Read(ref _busyTicks)),
@@ -775,6 +800,11 @@ public sealed class Supervisor
         _ledger = new InFlightLedger(Time);
         _sampler = ResourceSampleInterval is null ? null : new MemorySampler(Time, _memoryTargets);
         ITimer? ticker = null;
+
+        // Settled before anything runs and said out loud, so a run that found a coupling can be
+        // run again in the same order (bobcat#578). A declared order has no seed.
+        _seed = Order == RunOrder.Random ? Seed ?? Random.Shared.Next() : null;
+        if (_seed is { } seed) Log?.Invoke($"Order: random, seed {seed}");
 
         try
         {
@@ -925,7 +955,9 @@ public sealed class Supervisor
             KnownTestDurations = KnownTestDurations,
             LanePlan = _lanePlan,
             LaneElapsed = laneElapsed(),
-            FailOnCollapsed = FailOnCollapsed
+            FailOnCollapsed = FailOnCollapsed,
+            Order = Order,
+            Seed = _seed
         };
     }
 
@@ -1124,9 +1156,22 @@ public sealed class Supervisor
     {
         if (batched.Count > 0)
         {
-            var plan = WorkPlan.Build(batched, MaxParallelWorkers, PartitionKey, KnownTestDurations);
+            var plan = WorkPlan.Build(batched, MaxParallelWorkers, PartitionKey, KnownTestDurations, Order, _seed ?? 0);
             _lanesPlanned = Math.Max(_lanesPlanned, plan.Count);
             _lanePlan = plan;
+
+            if (Order == RunOrder.Random)
+            {
+                var key = PartitionKey ?? WorkPlan.ClassOf;
+                lock (_gate)
+                {
+                    foreach (var test in batched) _partitionOfTest[test.Uid] = key(test);
+                    foreach (var lane in plan)
+                    {
+                        for (var rank = 0; rank < lane.Partitions.Count; rank++) _partitionRank[lane.Partitions[rank]] = rank;
+                    }
+                }
+            }
 
             // Said out loud (bobcat#663): a ledger keyed by uids from another machine or TFM can
             // match nothing, and the run then reads exactly like a duration-balanced one.
@@ -2130,7 +2175,9 @@ public sealed class Supervisor
         TimeSpan elapsed;
         try
         {
-            result = await worker.Run(uids, ct);
+            result = Order == RunOrder.Random
+                ? await runPartitionsInOrder(worker, uids, ct)
+                : await worker.Run(uids, ct);
         }
         finally
         {
@@ -2143,6 +2190,58 @@ public sealed class Supervisor
         notify(observer => observer.LaneFinished(index, result));
 
         return (index, result, elapsed);
+    }
+
+    /// <summary>
+    /// A random order's lane (bobcat#578): one <c>testing/runTests</c> request per class partition,
+    /// in the order the seed dealt them, into the lane's one long-lived worker.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One request holding every partition would leave the order inside it to the test framework —
+    /// xUnit runs a filtered set in its own collection order — so a single-lane random run would
+    /// shuffle nothing at all. The request is the only unit whose order the supervisor owns.
+    /// </para>
+    /// <para>
+    /// A worker that dies (or is killed to clear a stall or heal a track) mid-lane ends the lane
+    /// there: the partitions it never got to are completed as <see cref="WorkerTestState.Indeterminate"/>
+    /// with the same fault, exactly as the tests of the one request a crash cut short already are
+    /// (<see cref="MtpWorkerClient.Complete"/>), so the recording that follows reads a lane the same
+    /// way whichever shape it ran in — a stall kill's innocent batch-mates included.
+    /// </para>
+    /// </remarks>
+    private async Task<WorkerRunResult> runPartitionsInOrder(IWorkerClient worker, IReadOnlyList<string> uids, CancellationToken ct)
+    {
+        List<IReadOnlyList<string>> requests;
+        lock (_gate)
+        {
+            requests = uids
+                .GroupBy(uid => _partitionOfTest.TryGetValue(uid, out var key) ? key : uid, StringComparer.Ordinal)
+                .OrderBy(g => _partitionRank.TryGetValue(g.Key, out var rank) ? rank : int.MaxValue)
+                .ThenBy(g => g.Key, StringComparer.Ordinal)
+                .Select(g => (IReadOnlyList<string>)g.ToList())
+                .ToList();
+        }
+
+        if (requests.Count == 1) return await worker.Run(requests[0], ct);
+
+        Log?.Invoke($"{requests.Count} class(es) in {uids.Count} test(s), one request each, in the seed's order: " +
+                    string.Join(", ", requests.Select(r => _partitionOfTest.TryGetValue(r[0], out var key) ? key : r[0])));
+
+        var outcomes = new List<WorkerOutcome>();
+        for (var i = 0; i < requests.Count; i++)
+        {
+            var result = await worker.Run(requests[i], ct);
+            outcomes.AddRange(result.Outcomes);
+
+            if (!result.Crashed) continue;
+
+            var unreached = requests.Skip(i + 1).SelectMany(r => r).ToList();
+            outcomes.AddRange(MtpWorkerClient.Complete(unreached, [], result.Fault));
+            return result with { Outcomes = outcomes };
+        }
+
+        return new WorkerRunResult(outcomes) { ProcessId = worker.ProcessId };
     }
 
     private IReadOnlyDictionary<int, TimeSpan> laneElapsed()

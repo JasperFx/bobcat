@@ -9,10 +9,16 @@ namespace Bobcat.Console.Specs;
 
 /// <summary>
 /// What makes a <c>bobcat run</c> supervised (bobcat#546): any of <c>--retries</c>,
-/// <c>--workers</c>, <c>--stall</c> or <c>--stall-action</c>. Null when none was given, and then the
-/// run is the plain one, unchanged.
+/// <c>--workers</c>, <c>--stall</c>, <c>--stall-action</c>, <c>--order</c> or <c>--seed</c>. Null when
+/// none was given, and then the run is the plain one, unchanged.
 /// </summary>
-internal sealed record Supervision(int Retries, int Workers, TimeSpan Stall, StallAction StallAction)
+/// <param name="Seed">
+/// The seed a random <paramref name="Order"/> runs with (bobcat#578) — given, or minted here so the
+/// tool can print it, hand it to the supervisor and record it for <c>--repeat</c> as one value. Null
+/// for a declared order.
+/// </param>
+internal sealed record Supervision(int Retries, int Workers, TimeSpan Stall, StallAction StallAction,
+    RunOrder Order = RunOrder.Declared, int? Seed = null)
 {
     /// <summary>
     /// How long a test may be in flight before a supervised run names it, when <c>--stall</c> does not
@@ -25,9 +31,26 @@ internal sealed record Supervision(int Retries, int Workers, TimeSpan Stall, Sta
     /// The supervision the flags ask for, null for none, or a refusal naming the flag that is wrong.
     /// </summary>
     public static Supervision? From(int? retries, int? workers, string? stall, string? stallAction, out string? refusal)
+        => From(retries, workers, stall, stallAction, order: null, seed: null, out refusal);
+
+    public static Supervision? From(int? retries, int? workers, string? stall, string? stallAction,
+        string? order, int? seed, out string? refusal)
     {
         refusal = null;
-        if (retries is null && workers is null && stall is null && stallAction is null) return null;
+        if (retries is null && workers is null && stall is null && stallAction is null && order is null && seed is null) return null;
+
+        var runOrder = RunOrder.Declared;
+        if (order is not null && !TryParseOrder(order, out runOrder))
+        {
+            refusal = $"--order '{order}' is not one of declared, random.";
+            return null;
+        }
+
+        if (seed is not null && runOrder != RunOrder.Random)
+        {
+            refusal = "--seed needs --order random; a declared order has no seed.";
+            return null;
+        }
 
         if (retries is < 0)
         {
@@ -55,7 +78,26 @@ internal sealed record Supervision(int Retries, int Workers, TimeSpan Stall, Sta
             return null;
         }
 
-        return new Supervision(retries ?? 0, workers ?? 1, threshold, action);
+        // Minted here, once, so the line at the top of the run, the supervisor's plan, the workers'
+        // results files and last-run.json all carry the same seed.
+        return new Supervision(retries ?? 0, workers ?? 1, threshold, action, runOrder,
+            runOrder == RunOrder.Random ? seed ?? Random.Shared.Next() : null);
+    }
+
+    public static bool TryParseOrder(string text, out RunOrder order)
+    {
+        switch (text.Trim().ToLowerInvariant())
+        {
+            case "declared":
+                order = RunOrder.Declared;
+                return true;
+            case "random":
+                order = RunOrder.Random;
+                return true;
+            default:
+                order = RunOrder.Declared;
+                return false;
+        }
     }
 
     /// <summary>
@@ -168,6 +210,14 @@ internal static class SupervisedHost
         };
         if (options.Verbose) environment[Engine.ScenarioReportVisibility.EnvironmentVariable] = "1";
 
+        // Each worker writes the order into its results file's run header (bobcat#578), so a file
+        // read later says which shuffle produced it.
+        if (supervision.Seed is { } seed)
+        {
+            environment[ResultsFile.OrderVariable] = RunReport.Spell(supervision.Order);
+            environment[ResultsFile.SeedVariable] = seed.ToString(CultureInfo.InvariantCulture);
+        }
+
         var launched = 0;
         var factory = new MtpWorkerFactory(project.HostPath, environment)
         {
@@ -187,6 +237,8 @@ internal static class SupervisedHost
             MaxParallelWorkers = supervision.Workers,
             StallThreshold = supervision.Stall,
             StallAction = supervision.StallAction,
+            Order = supervision.Order,
+            Seed = supervision.Seed,
             Specifications = SpecSelection.Of(identities),
 
             // The supervisor owns the run bracket and every worker publishes under it, so a console
@@ -200,8 +252,14 @@ internal static class SupervisedHost
 
         var started = DateTime.UtcNow;
         var lanes = supervision.Workers == 1 ? "1 worker" : $"{supervision.Workers} workers";
+
+        // At the top, before anything runs: a run that hangs or is cut short has still said its seed.
+        // Plain Console, not Spectre, so the sentence is one greppable line rather than wrapped at the width.
+        if (supervision.Seed is { } announced) System.Console.WriteLine(RunReport.OrderLine(announced));
+
         var outcome = await AnsiConsole.Status().StartAsync(
-            $"Running {project.Name} supervised ({lanes}, retries {supervision.Retries}, stall {describe(supervision)})…",
+            $"Running {project.Name} supervised ({lanes}, retries {supervision.Retries}, stall {describe(supervision)}"
+            + (supervision.Seed is { } s ? $", order random seed {s}" : "") + ")…",
             _ => supervisor.Run(token));
 
         foreach (var file in Directory.EnumerateFiles(renders, "*.ansi").Order(StringComparer.Ordinal))

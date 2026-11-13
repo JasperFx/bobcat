@@ -23,6 +23,22 @@ public sealed record DurationCoverage(int Matched, int Tests)
             : $"Known durations matched {Matched}/{Tests} test(s)";
 }
 
+/// <summary>
+/// The order a supervised run's class partitions run in (bobcat#578). <see cref="Declared"/> is the
+/// plan as <see cref="WorkPlan.Build"/> has always made it: longest partition first, lanes balanced,
+/// and one request per lane that leaves the order inside it to the test framework.
+/// <see cref="Random"/> shuffles the partitions with a seed and deals them round-robin over the lanes,
+/// and each lane runs its partitions one request at a time in that order — so which classes share
+/// a process, and what runs before what inside it, change with the seed. That is how coupling between
+/// classes is found (a <c>static int</c> schema counter, a table one class leaves behind for the
+/// next). Tests inside a class are never reordered.
+/// </summary>
+public enum RunOrder
+{
+    Declared,
+    Random
+}
+
 /// <summary>One worker's share of a run.</summary>
 public sealed record WorkLane(int Index, IReadOnlyList<string> Uids, TimeSpan Estimate)
 {
@@ -119,21 +135,32 @@ public static class WorkPlan
     /// then partitions are weighted by test count instead. Partial data is fine: tests with no
     /// entry are charged the median of the ones that have, so adding a test does not skew a plan.
     /// </param>
+    /// <param name="order">
+    /// <see cref="RunOrder.Declared"/> (the default) balances the lanes longest-first;
+    /// <see cref="RunOrder.Random"/> shuffles the partitions with <paramref name="seed"/> and deals
+    /// them round-robin, into one lane when <paramref name="laneCount"/> is one (bobcat#578).
+    /// </param>
+    /// <param name="seed">The seed a random order is reproduced from; ignored for a declared one.</param>
     /// <returns>
-    /// Lanes in descending estimate order, never more than there are partitions, and never empty.
-    /// The plan is deterministic: the same inputs always produce the same lanes.
+    /// Lanes in descending estimate order (a random plan: in lane order), never more than there are
+    /// partitions, and never empty. The plan is deterministic: the same inputs always produce the
+    /// same lanes, seed included.
     /// </returns>
     public static IReadOnlyList<WorkLane> Build(
         IReadOnlyList<WorkerTest> tests,
         int laneCount,
         Func<WorkerTest, string>? partitionKey = null,
-        IReadOnlyDictionary<string, TimeSpan>? knownDurations = null)
+        IReadOnlyDictionary<string, TimeSpan>? knownDurations = null,
+        RunOrder order = RunOrder.Declared,
+        int seed = 0)
     {
         if (tests.Count == 0) return [];
 
         // One lane means no partitioning decision to make. Returning discovery order verbatim
         // keeps the single-worker path byte-for-byte what it was before parallelism existed.
         var durations = durationsOf(tests, knownDurations);
+
+        if (order == RunOrder.Random) return shuffled(tests, laneCount, partitionKey ?? ClassOf, durations, seed);
 
         if (laneCount <= 1)
         {
@@ -177,6 +204,78 @@ public static class WorkPlan
             .Select(lane => new WorkLane(lane.Index, lane.Uids, lane.Load) { Partitions = lane.Keys })
             .OrderByDescending(lane => lane.Estimate)
             .ToList();
+    }
+
+    /// <summary>
+    /// The random plan (bobcat#578): partitions sorted by key, shuffled with <paramref name="seed"/>,
+    /// dealt round-robin over the lanes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Sorted before it is shuffled</b>, so the order depends on nothing but the set of classes
+    /// and the seed. Discovery order differs between frameworks and machines, and a seed that
+    /// reproduced an order only on the machine that minted it would be no seed at all.
+    /// </para>
+    /// <para>
+    /// <b>Round-robin, not balanced.</b> Balancing would put the shuffled partitions back into
+    /// nearly the same lanes every run, the heavy classes always apart; a random run is for finding
+    /// coupling, not for speed, and is expected to be slower than a balanced one. Tests inside a
+    /// partition keep their discovery order: a class is the unit the author kept together.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlyList<WorkLane> shuffled(
+        IReadOnlyList<WorkerTest> tests, int laneCount, Func<WorkerTest, string> key,
+        IReadOnlyDictionary<string, TimeSpan> durations, int seed)
+    {
+        var fallback = medianOf(durations);
+
+        var partitions = tests
+            .GroupBy(key, StringComparer.Ordinal)
+            .Select(group => (
+                Key: group.Key,
+                Uids: group.Select(t => t.Uid).ToList(),
+                Estimate: group.Aggregate(TimeSpan.Zero, (sum, t) => sum + estimate(t, durations, fallback))))
+            .OrderBy(p => p.Key, StringComparer.Ordinal)
+            .ToList();
+
+        var dealt = Shuffle(partitions, seed);
+
+        var lanes = Enumerable.Range(0, Math.Max(1, Math.Min(laneCount, dealt.Count)))
+            .Select(index => (Index: index, Load: TimeSpan.Zero, Uids: new List<string>(), Keys: new List<string>()))
+            .ToList();
+
+        for (var i = 0; i < dealt.Count; i++)
+        {
+            var lane = lanes[i % lanes.Count];
+            lane.Uids.AddRange(dealt[i].Uids);
+            lane.Keys.Add(dealt[i].Key);
+            lanes[i % lanes.Count] = lane with { Load = lane.Load + dealt[i].Estimate };
+        }
+
+        return lanes
+            .Select(lane => new WorkLane(lane.Index, lane.Uids, lane.Load) { Partitions = lane.Keys })
+            .ToList();
+    }
+
+    /// <summary>
+    /// <paramref name="items"/> in the order <paramref name="seed"/> gives them: a Fisher–Yates
+    /// shuffle over a generator Bobcat owns (<see cref="SeededRandom"/>), so one seed gives one order
+    /// on every machine and every .NET version. <c>System.Random</c>'s sequence for a seed is not
+    /// promised stable across runtime versions, and a seed printed on a CI image has to reproduce
+    /// the run on a developer's machine.
+    /// </summary>
+    public static IReadOnlyList<T> Shuffle<T>(IReadOnlyList<T> items, int seed)
+    {
+        var result = items.ToArray();
+        var random = new SeededRandom(seed);
+
+        for (var i = result.Length - 1; i > 0; i--)
+        {
+            var j = random.Next(i + 1);
+            (result[i], result[j]) = (result[j], result[i]);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -244,4 +343,35 @@ public static class WorkPlan
         var observed = durations.Values.OrderBy(d => d).ToList();
         return observed[observed.Count / 2];
     }
+}
+
+/// <summary>
+/// A small, fixed pseudo-random generator (SplitMix64) whose sequence for a seed is part of Bobcat's
+/// contract: <c>bobcat run --order random --seed N</c> must give the same order everywhere, and
+/// <c>WorkPlanTests</c> pins the sequence with literal values. Never reach for <c>System.Random</c>
+/// here — its algorithm has changed between .NET versions.
+/// </summary>
+internal struct SeededRandom
+{
+    private ulong _state;
+
+    public SeededRandom(int seed)
+    {
+        // Spread the 32-bit seed over the state so neighbouring seeds give unrelated orders.
+        _state = unchecked((ulong)(uint)seed * 0x9E3779B97F4A7C15UL + 0x632BE59BD9B4E019UL);
+    }
+
+    public ulong NextUInt64()
+    {
+        unchecked
+        {
+            var z = _state += 0x9E3779B97F4A7C15UL;
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
+            return z ^ (z >> 31);
+        }
+    }
+
+    /// <summary>A value in <c>[0, bound)</c>. The modulo bias is immaterial for shuffling a test list.</summary>
+    public int Next(int bound) => (int)(NextUInt64() % (ulong)bound);
 }

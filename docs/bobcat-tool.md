@@ -188,6 +188,8 @@ instead of leaving the last green run in view.
 | `--workers <N>` | supervised: run on N worker processes, partitioned by test class (`run`) |
 | `--stall <duration>` | supervised: name a specification in flight longer than this, `90s`/`5m`/`1h`; 5 minutes by default (`run`) |
 | `--stall-action <action>` | supervised: what a stall does, `report` (default), `kill-and-retry` or `abort` (`run`) |
+| `--order <order>` | supervised: `declared` (default) or `random`, which shuffles the test classes and deals them over the lanes, never the tests inside a class (`run`; see below) |
+| `--seed <N>` | supervised: the seed a random order is reproduced from; needs `--order random` (`run`) |
 
 **No short flag means two things.** `-f` would have been `--framework`, `--feature` and `--failed`;
 `-r` `--repeat`, `--retries` and `--results`; `-s` `--stall`, `--stall-action`, `--scenario` and
@@ -208,7 +210,7 @@ bobcat run --repeat              # the last run's selection and flags again
 **Every `bobcat run` writes `obj/bobcat/last-run.json`** in the spec project, with or without
 `--results`: the failed identities, the selection it ran (identities, empty for everything), its
 framework, configuration, `--results`, `--html`, `--docs`, `--json`, `--verbose` and supervision flags, the host's exit code, a timestamp
-and a reserved `seed` (null until seeded random order ships). `obj/` is git-ignored and
+and the `seed` of a `--order random` run (null otherwise). `obj/` is git-ignored and
 `dotnet clean` removes it.
 
 - **`--failed`** runs the specifications whose scenario did not succeed — failed or errored — by
@@ -225,19 +227,21 @@ and a reserved `seed` (null until seeded random order ships). `obj/` is git-igno
   `--domain`, `--pattern`, `--trait`), nor with each other. A run selected by coordinates is
   repeated as the identities it resolved to.
 
-### Supervised runs: `--retries`, `--workers`, `--stall` {#supervised}
+### Supervised runs: `--retries`, `--workers`, `--stall`, `--order` {#supervised}
 
 ```bash
 bobcat run --retries 2                        # retry what is allowed to be retried, twice at most
 bobcat run --workers 4                        # four worker processes, one test class per lane
 bobcat run --stall 2m --stall-action kill-and-retry
 bobcat run --failed --retries 2 --results artifacts/bobcat
+bobcat run --order random                     # the classes in a shuffled order; prints the seed
+bobcat run --order random --seed 1234567      # that order again
 ```
 
-**Any of `--retries`, `--workers`, `--stall` or `--stall-action` makes the run supervised**
-(bobcat#546): the same test host, driven as worker processes by Bobcat's supervisor, the thing a
-hand-written `Supervisor` host does in C#. Without any of them `bobcat run` is exactly the plain
-run. `--results`, `--verbose` and every selection flag work on both.
+**Any of `--retries`, `--workers`, `--stall`, `--stall-action`, `--order` or `--seed` makes the run
+supervised** (bobcat#546): the same test host, driven as worker processes by Bobcat's supervisor,
+the thing a hand-written `Supervisor` host does in C#. Without any of them `bobcat run` is exactly
+the plain run. `--results`, `--verbose` and every selection flag work on both.
 
 - **`--retries N` is a ceiling, not a switch.** A specification is retried only when it carries a
   `Retry` trait (`[Trait("Retry", "2")]`) or a recovery hint (`[ClearsOnRetry(typeof(TimeoutException))]`)
@@ -265,9 +269,20 @@ run. `--results`, `--verbose` and every selection flag work on both.
 - Each worker renders its own specifications, so a specification retried in a fresh process is shown
   once per attempt; the report says which attempt counted. The supervisor's own log is named on the
   last line.
+- **`--order random` shuffles the test classes, never the tests inside one** (bobcat#578). It is
+  for finding coupling *between* classes — a `static int` schema counter, a table one class leaves
+  behind for the next — which a declared order hides because the same classes always share a
+  process in the same sequence. The classes are sorted, shuffled with the seed and dealt
+  round-robin over the lanes, and each lane runs them one class at a time in that order, so with
+  one worker the order is still the seed's. The run prints `Order: random, seed N` at the top and
+  in the report, every worker's results file carries `run.order` and `run.seed`, and
+  `obj/bobcat/last-run.json` records the seed, so `--repeat` — or `--order random --seed N` on any
+  machine — runs the same order. A random run is slower than the declared one: nothing balances the
+  lanes, and that is the point. `--seed` without `--order random` is refused; the seed is the same
+  sequence on every machine and every .NET version, by Bobcat's own generator.
 - **`--json` is refused** for a supervised run: it writes one results file per worker request, so
   there is no single file to print. Use `--results <dir>`.
-- `--repeat` replays the supervision flags with the rest.
+- `--repeat` replays the supervision flags with the rest, the seed included.
 
 ### The results file {#results-file}
 

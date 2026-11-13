@@ -113,6 +113,8 @@ public class ShortFlagTests
         { "run", "--repeat" }, { "run", "--retries" }, { "run", "--results" },
         { "run", "--stall" }, { "run", "--stall-action" }, { "run", "--scenario" }, { "run", "--slice" },
         { "run", "--configuration" }, { "run", "--chapter" }, { "run", "--docs" },
+        // --order and --seed (bobcat#578) are long-only by decision: -s already went long-only three ways over
+        { "run", "--order" }, { "run", "--seed" },
         { "preview", "--framework" }, { "preview", "--feature" }, { "preview", "--configuration" }, { "preview", "--chapter" },
         { "watch", "--scenario" }, { "watch", "--slice" }, { "watch", "--results" },
         // results-schema: --baseline and --baseline-name were both -b

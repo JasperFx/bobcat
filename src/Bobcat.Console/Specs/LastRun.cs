@@ -39,7 +39,10 @@ internal sealed class LastRun
 
     public LastRunArguments Arguments { get; set; } = new();
 
-    /// <summary>Reserved for seeded random order (C8); always null until that ships, so <c>--repeat</c> needs no format change.</summary>
+    /// <summary>
+    /// The seed a random order ran with (bobcat#578, <c>--order random</c>), reserved since 1.0 so
+    /// <c>--repeat</c> needed no format change; null for a declared order or a plain run.
+    /// </summary>
     public int? Seed { get; set; }
 
     public static string PathFor(SpecProject project)
@@ -139,4 +142,7 @@ internal sealed class LastRunArguments
     public int? Workers { get; set; }
     public string? Stall { get; set; }
     public string? StallAction { get; set; }
+
+    /// <summary><c>random</c> when the run was <c>--order random</c> (bobcat#578); null otherwise. Its seed is <see cref="LastRun.Seed"/>. Additive.</summary>
+    public string? Order { get; set; }
 }

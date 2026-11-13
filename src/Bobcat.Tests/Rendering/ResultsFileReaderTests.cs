@@ -85,6 +85,25 @@ public class ResultsFileReaderTests
         contents.Tag.ShouldBe("node-1");
         contents.DurationMs.ShouldBe(227);
         contents.Scenarios.Count.ShouldBe(1);
+
+        // A plain run has no order of its own (bobcat#578)
+        contents.Order.ShouldBeNull();
+        contents.Seed.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_random_orders_seed_is_read_back_from_the_run_header()
+    {
+        // bobcat#578: the supervisor's host hands BOBCAT_RUN_ORDER / BOBCAT_RUN_SEED to its workers,
+        // and each worker's file says which shuffle produced it.
+        var run = new MonitorRunInfo(Guid.NewGuid(), "My.Specs", "/repo", "main", "xunit");
+        var started = new DateTimeOffset(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
+        var json = ResultsFile.Serialize(ResultsFile.Build(run, started, started.AddSeconds(1), [everything()], null, "random", 20261113));
+
+        var contents = ResultsFileReader.Read(json);
+
+        contents.Order.ShouldBe("random");
+        contents.Seed.ShouldBe(20261113);
     }
 
     [Fact]

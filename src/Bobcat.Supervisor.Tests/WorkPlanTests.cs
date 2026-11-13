@@ -226,5 +226,122 @@ public class WorkPlanTests
         lanes.ShouldHaveSingleItem().Uids.Count.ShouldBe(3);
     }
 
+    // ── random order (bobcat#578) ───────────────────────────────────────────
+
+    private static IReadOnlyList<WorkerTest> fiveClasses()
+        => testsInClass("A", 2).Concat(testsInClass("B", 2)).Concat(testsInClass("C", 2))
+            .Concat(testsInClass("D", 2)).Concat(testsInClass("E", 2)).ToList();
+
+    private static string[] partitionsOf(IReadOnlyList<WorkLane> lanes) => lanes.SelectMany(l => l.Partitions).ToArray();
+
+    [Fact]
+    public void the_shuffle_for_a_seed_is_pinned_and_never_changes()
+    {
+        // The seed printed on one machine has to reproduce the order on another, in another .NET
+        // version, years later. This literal IS the contract: a change here is a breaking change
+        // to every recorded seed, whatever SeededRandom was replaced with.
+        WorkPlan.Shuffle(["A", "B", "C", "D", "E"], 42).ShouldBe(["E", "A", "B", "C", "D"]);
+        WorkPlan.Shuffle(["A", "B", "C", "D", "E"], 43).ShouldBe(["B", "C", "A", "E", "D"]);
+        WorkPlan.Shuffle(["A", "B", "C", "D", "E"], 0).ShouldBe(["A", "C", "B", "E", "D"]);
+        WorkPlan.Shuffle(["A", "B", "C", "D", "E"], 1).ShouldBe(["B", "C", "D", "A", "E"]);
+        WorkPlan.Shuffle(["A", "B", "C", "D", "E"], int.MaxValue).ShouldBe(["A", "B", "E", "C", "D"]);
+    }
+
+    [Fact]
+    public void a_random_plan_for_a_seed_is_pinned_too()
+    {
+        var lanes = WorkPlan.Build(fiveClasses(), laneCount: 2, order: RunOrder.Random, seed: 42);
+
+        // Shuffle(42) deals E, A, B, C, D round-robin over two lanes.
+        lanes.Count.ShouldBe(2);
+        lanes[0].Index.ShouldBe(0);
+        lanes[0].Partitions.ShouldBe(["E", "B", "D"]);
+        lanes[1].Partitions.ShouldBe(["A", "C"]);
+        lanes[0].Uids.ShouldBe(["E.test_1", "E.test_2", "B.test_1", "B.test_2", "D.test_1", "D.test_2"]);
+    }
+
+    [Fact]
+    public void the_same_seed_gives_the_same_lanes_and_a_different_seed_a_different_order()
+    {
+        var first = WorkPlan.Build(fiveClasses(), laneCount: 2, order: RunOrder.Random, seed: 7);
+        var again = WorkPlan.Build(fiveClasses(), laneCount: 2, order: RunOrder.Random, seed: 7);
+        var other = WorkPlan.Build(fiveClasses(), laneCount: 2, order: RunOrder.Random, seed: 8);
+
+        first.Select(l => string.Join(",", l.Uids)).ShouldBe(again.Select(l => string.Join(",", l.Uids)));
+        partitionsOf(other).ShouldNotBe(partitionsOf(first));
+    }
+
+    [Fact]
+    public void a_random_order_shuffles_classes_never_the_tests_inside_one()
+    {
+        var tests = testsInClass("A", 5).Concat(testsInClass("B", 5)).ToList();
+
+        foreach (var seed in Enumerable.Range(0, 20))
+        {
+            var lanes = WorkPlan.Build(tests, laneCount: 1, order: RunOrder.Random, seed: seed);
+            var lane = lanes.ShouldHaveSingleItem();
+
+            // Each class's tests are contiguous and in declaration order; only which class comes first moves.
+            var a = lane.Uids.Where(u => u.StartsWith("A.")).ToList();
+            var b = lane.Uids.Where(u => u.StartsWith("B.")).ToList();
+            a.ShouldBe(testsInClass("A", 5).Select(t => t.Uid));
+            b.ShouldBe(testsInClass("B", 5).Select(t => t.Uid));
+            lane.Partitions.Count.ShouldBe(2);
+            var firstClass = lane.Partitions[0];
+            lane.Uids.Take(5).ShouldAllBe(u => u.StartsWith(firstClass + "."));
+        }
+    }
+
+    [Fact]
+    public void a_single_lane_random_run_still_shuffles_the_classes()
+    {
+        // One worker is the common case for finding coupling: the point is what runs before what.
+        var orders = Enumerable.Range(0, 10)
+            .Select(seed => string.Join(",", WorkPlan.Build(fiveClasses(), 1, order: RunOrder.Random, seed: seed).Single().Partitions))
+            .Distinct()
+            .Count();
+
+        orders.ShouldBeGreaterThan(1);
+    }
+
+    [Fact]
+    public void a_random_order_ignores_discovery_order()
+    {
+        // Sorted before shuffled: the seed is the only input, so a host that discovers in another
+        // order (another framework, another machine) still runs the same classes in the same order.
+        var forwards = testsInClass("A", 2).Concat(testsInClass("B", 2)).Concat(testsInClass("C", 2)).ToList();
+        var backwards = testsInClass("C", 2).Concat(testsInClass("B", 2)).Concat(testsInClass("A", 2)).ToList();
+
+        partitionsOf(WorkPlan.Build(forwards, 2, order: RunOrder.Random, seed: 3))
+            .ShouldBe(partitionsOf(WorkPlan.Build(backwards, 2, order: RunOrder.Random, seed: 3)));
+    }
+
+    [Fact]
+    public void a_random_order_deals_round_robin_rather_than_balancing()
+    {
+        // A heavy class lands wherever the shuffle puts it. Balancing would quietly undo the shuffle.
+        var durations = new Dictionary<string, TimeSpan> { ["A.test_1"] = TimeSpan.FromMinutes(10) };
+        var lanes = WorkPlan.Build(fiveClasses(), 2, knownDurations: durations, order: RunOrder.Random, seed: 42);
+
+        lanes[0].Partitions.Count.ShouldBe(3);
+        lanes[1].Partitions.Count.ShouldBe(2);
+        lanes.SelectMany(l => l.Uids).Count().ShouldBe(10);
+        lanes.SelectMany(l => l.Uids).Distinct().Count().ShouldBe(10);
+    }
+
+    [Fact]
+    public void the_declared_order_is_untouched()
+    {
+        // Byte for byte what Build gave before order existed: the default and the explicit spelling agree.
+        var tests = testsInClass("Big", 10).Concat(testsInClass("Small", 2)).Concat(testsInClass("Medium", 6)).ToList();
+
+        var before = WorkPlan.Build(tests, laneCount: 2);
+        var declared = WorkPlan.Build(tests, laneCount: 2, order: RunOrder.Declared, seed: 99);
+
+        declared.Select(l => (l.Index, string.Join(",", l.Uids), l.Estimate))
+            .ShouldBe(before.Select(l => (l.Index, string.Join(",", l.Uids), l.Estimate)));
+        WorkPlan.Build(tests, laneCount: 1, order: RunOrder.Declared, seed: 99).Single().Uids.ShouldBe(tests.Select(t => t.Uid));
+    }
+
     private static string classNameOf(string uid) => WorkPlan.ClassOf(new WorkerTest(uid, uid));
 }

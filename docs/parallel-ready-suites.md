@@ -363,6 +363,21 @@ visible in the test list**, which is why the rule has to be conservative.
 
 You inherit this for free. The thing you must supply is what follows.
 
+### Finding coupling between classes: `--order random`
+
+The class rule protects state *inside* a class. State shared *between* classes — a table one class
+leaves behind that the next one reads, a static the second class assumes the first initialised —
+stays hidden under the declared order, because the same classes always share a process in the same
+sequence and the suite is green by accident. `bobcat run --order random` (or
+`Supervisor.Order = RunOrder.Random`) shuffles the classes with a seed, deals them round-robin over
+the lanes and runs each lane's classes one request at a time in that order; tests inside a class are
+never reordered. The seed is printed at the top of the run (`Order: random, seed N`), in the report,
+in every results file's `run.seed`, and in `obj/bobcat/last-run.json`, so a failure found under one
+shuffle is reproduced with `--order random --seed N` on any machine — the sequence is Bobcat's own
+generator, not `System.Random`'s, which is not stable across .NET versions. Expect a random run to be
+slower: nothing balances the lanes, and balancing would undo the shuffle. Run it on a schedule, not
+on every push, and keep the declared plan for the gate.
+
 ## Step 2 -- per-worker resource isolation
 
 Class-level partitioning keeps a class together. It cannot stop two *different* classes that share a
