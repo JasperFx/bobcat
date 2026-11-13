@@ -702,6 +702,18 @@ Everything here is off by default and reporting-first -- the same guardrail as t
   `KillAndRetry` (kill the wedged worker, give the stalled test one fresh-process retry, resume
   its innocent batch-mates in their lane), or `AbortRun`. Stall-managed outcomes never spend the
   `RetryBudget` and never count as flaky -- a wedge is not a flake.
+- **`DegradationWindow` / `DegradationFactor` / `DegradationFloor`** read a run that is **slow, not
+  stuck** ([bobcat#824](https://github.com/JasperFx/bobcat/issues/824)): a completed test is slow
+  when it ran more than `DegradationFactor` (default 10) times its `KnownTestDurations` entry and
+  at least `DegradationFloor` (default 1s); the run is **degraded** when the last
+  `DegradationWindow` (default 5) completed tests with a known duration were all slow, or when a
+  stall fires. Logged as `DEGRADED:`, fired as the `Degraded` observer callback, collected on
+  `SupervisorResults.Degradations` and reported in a `Degraded` section. Tests with no known
+  duration never count, so a first run cannot degrade; `DegradationWindow = 0` turns it off.
+  Report-only unless **`OnDegraded`** is set -- the callback the supervisor awaits after killing its
+  workers and before resuming, which a [gate](local-gates.md#healing-a-track) sets for a track that
+  declared how to heal its service. Heal-managed outcomes (`HealInduced`) follow the stall rule:
+  never the `RetryBudget`, never flaky.
 - **`MtpWorkerFactory.OnBeforeKill`** hands you the live process (with its pid -- the supervisor
   surfaces it, never guesses) before a forced kill, which is where a `dotnet-dump collect` belongs.
 - **`ResourceSampleInterval`** brackets every attempt with worker RSS samples; per-test retained

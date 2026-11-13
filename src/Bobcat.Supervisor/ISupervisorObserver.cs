@@ -147,6 +147,27 @@ public interface ISupervisorObserver
     }
 
     /// <summary>
+    /// The run degraded (bobcat#824): the last <c>Supervisor.DegradationWindow</c> finished tests
+    /// each ran past <c>Supervisor.DegradationFactor</c> times their known duration, or a stall
+    /// fired. Slow, not stuck — the signal a stall threshold cannot see. Fired from a worker's I/O
+    /// thread or the supervisor's timer thread. Detection always reports; whether anything heals is
+    /// <c>Supervisor.OnDegraded</c>'s opt-in decision, and by default nothing does.
+    /// </summary>
+    void Degraded(RunDegradation degradation)
+    {
+    }
+
+    /// <summary>
+    /// A track's service was healed after the run degraded (bobcat#824), with the pace before and
+    /// after. Fired once the next <c>Supervisor.DegradationWindow</c> tests with a known duration
+    /// have finished after the heal — or at the end of the run, over whatever had finished — because
+    /// the after pace is the evidence the heal worked. Default no-op.
+    /// </summary>
+    void TrackHealed(TrackHeal heal)
+    {
+    }
+
+    /// <summary>
     /// The same death, structured: which lane (null for a one-test isolated or recycled
     /// process), the exit code and the standard error tail as separate facts, alongside the
     /// sentence. The supervisor calls this one; by default it forwards to

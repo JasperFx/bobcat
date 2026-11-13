@@ -163,6 +163,10 @@ public sealed record GateUnitResult(
             if (Results.Failed.Count(t => !t.IsIndeterminate) > 0) parts.Add($"{Results.Failed.Count(t => !t.IsIndeterminate)} failed");
             if (Results.Indeterminate.Count > 0) parts.Add($"{Results.Indeterminate.Count} indeterminate");
             if (Results.Skipped.Count > 0) parts.Add($"{Results.Skipped.Count} skipped");
+            // A green unit that only stayed green because its track was healed says so on its line
+            // (bobcat#824); the full report, with the pace before and after, prints only for a
+            // unit that is not clean.
+            if (Results.TrackHeals.Count > 0) parts.Add($"{Results.TrackHeals.Count} track heal(s)");
             parts.Add($"{Workers} worker(s)");
             return string.Join(", ", parts);
         }

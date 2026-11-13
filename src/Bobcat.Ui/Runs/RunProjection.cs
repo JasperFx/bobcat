@@ -68,6 +68,7 @@ public class RunProjection
     private readonly List<RecycleProjection> _recycles = new();
     private readonly List<WorkerFaultProjection> _workerFaults = new();
     private readonly List<StallProjection> _stalls = new();
+    private readonly List<HealProjection> _heals = new();
 
     public RunProjection(Guid runId)
     {
@@ -100,6 +101,12 @@ public class RunProjection
     /// the hung test, which is exactly what a capped CI job's log cannot produce.
     /// </summary>
     public IReadOnlyList<StallProjection> Stalls => _stalls;
+
+    /// <summary>
+    /// Tracks whose service the gate healed after the run degraded (bobcat#824), in heal order,
+    /// each with the pace before and after. Carried, not yet rendered.
+    /// </summary>
+    public IReadOnlyList<HealProjection> Heals => _heals;
 
     /// <summary>
     /// The latest supervisor progress heartbeat (issue #148) — the only live progress a
@@ -365,6 +372,12 @@ public class RunProjection
                 // Replay guard: hydration re-announces the archive over live state.
                 if (_stalls.Any(s => s.Uid == e.Uid && s.At == e.At)) break;
                 _stalls.Add(new StallProjection(e.Uid, e.DisplayName, e.InFlightMs, e.Lane, e.At));
+                break;
+
+            case TrackHealed e:
+                // Same replay guard: one heal of one track is one entry.
+                if (_heals.Any(h => h.Track == e.Track && h.Heal == e.Heal)) break;
+                _heals.Add(new HealProjection(e.Track, e.Heal, e.Reason, e.Cause, e.PaceBeforeMs, e.PaceAfterMs, e.KnownPaceMs, e.At));
                 break;
 
             // The supervisor's forwarding of a worker's live per-test stream (issue #195) —
@@ -772,6 +785,21 @@ public record StallProjection(
     string DisplayName,
     long InFlightMs,
     int? Lane,
+    DateTimeOffset At);
+
+/// <summary>
+/// A track's service healed after the run degraded (bobcat#824): which track, which heal of it,
+/// why, and the mean pace per test before and after against what those tests are known to take.
+/// Null paces were not measured.
+/// </summary>
+public record HealProjection(
+    string Track,
+    int Heal,
+    string Reason,
+    string? Cause,
+    long? PaceBeforeMs,
+    long? PaceAfterMs,
+    long? KnownPaceMs,
     DateTimeOffset At);
 
 /// <summary>

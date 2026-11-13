@@ -115,6 +115,32 @@ public static partial class RunReport
             }
         }
 
+        // Heals are their own ledger too (bobcat#824): a run that stayed green because its
+        // database was recreated halfway through must say so, with the pace before and after —
+        // the after pace is what says the heal worked.
+        if (results.TrackHeals.Count > 0)
+        {
+            report.AppendLine().AppendLine("Tracks healed (the run degraded and the track's service was recreated):");
+            foreach (var heal in results.TrackHeals)
+            {
+                report.AppendLine($"  ↯ {heal}");
+            }
+        }
+
+        // A degradation nobody healed is still a fact about the run: it ran slow against its own
+        // history, and a green run is exactly where that goes unread.
+        var unhealed = results.Degradations.Count - results.TrackHeals.Count;
+        if (unhealed > 0)
+        {
+            report.AppendLine().AppendLine(results.TrackHeals.Count > 0
+                ? "Degraded (not healed):"
+                : "Degraded (slow against the known durations; nothing healed it):");
+            foreach (var degradation in results.Degradations.Skip(results.TrackHeals.Count))
+            {
+                report.AppendLine($"  • {degradation.Reason}");
+            }
+        }
+
         timing(report, results);
         memory(report, results);
 
@@ -357,7 +383,7 @@ public static partial class RunReport
     /// </summary>
     internal static RecoveredFailure? RecoveredFrom(TestReport test)
     {
-        var failed = test.Attempts.FirstOrDefault(a => !a.Succeeded && !a.StallInduced);
+        var failed = test.Attempts.FirstOrDefault(a => !a.Succeeded && !a.InducedBySupervisor);
         if (failed is null) return null;
 
         return new RecoveredFailure(
@@ -405,7 +431,7 @@ public static partial class RunReport
         var final = test.Final;
         var attempts = test.AttemptCount > 1 ? $" on attempt {final.AttemptNumber}" : "";
 
-        if (final.StallInduced || final.Outcome.State == WorkerTestState.Indeterminate)
+        if (final.InducedBySupervisor || final.Outcome.State == WorkerTestState.Indeterminate)
         {
             return $"{line}; never finished{attempts}";
         }
@@ -470,6 +496,30 @@ public static partial class RunReport
                 ["inFlightMs"] = k.InFlight.TotalMilliseconds,
                 ["lane"] = k.Lane,
                 ["processId"] = k.ProcessId
+            }).ToArray()),
+            ["trackHeals"] = new JsonArray(results.TrackHeals.Select(h => (JsonNode)new JsonObject
+            {
+                ["track"] = h.Track,
+                ["heal"] = h.Number,
+                ["cause"] = h.Cause.ToString(),
+                ["reason"] = h.Reason,
+                ["at"] = h.At,
+                ["paceBefore"] = describe(h.PaceBefore),
+                ["paceAfter"] = describe(h.PaceAfter)
+            }).ToArray()),
+            ["degradations"] = new JsonArray(results.Degradations.Select(d => (JsonNode)new JsonObject
+            {
+                ["cause"] = d.Cause.ToString(),
+                ["reason"] = d.Reason,
+                ["at"] = d.At,
+                ["pace"] = describe(d.Pace),
+                ["slowTests"] = new JsonArray(d.SlowTests.Select(s => (JsonNode)new JsonObject
+                {
+                    ["uid"] = s.Uid,
+                    ["displayName"] = s.DisplayName,
+                    ["observedMs"] = s.Observed.TotalMilliseconds,
+                    ["knownMs"] = s.Known.TotalMilliseconds
+                }).ToArray())
             }).ToArray()),
             ["recyclings"] = new JsonArray(results.Recyclings.Select(r => (JsonNode)r!).ToArray()),
             ["workerFaults"] = new JsonArray(results.WorkerFaults.Select(f => (JsonNode)f!).ToArray()),
@@ -551,6 +601,17 @@ public static partial class RunReport
             ["shareOfRun"] = timing.Share(test.Total)
         }).ToArray())
     };
+
+    /// <summary>A pace (bobcat#824) as JSON; null when nothing measured one, never zeroes.</summary>
+    private static JsonObject? describe(Pace? pace) => pace is null
+        ? null
+        : new JsonObject
+        {
+            ["observedMs"] = pace.Observed.TotalMilliseconds,
+            ["knownMs"] = pace.Known.TotalMilliseconds,
+            ["factor"] = pace.Factor,
+            ["samples"] = pace.Samples
+        };
 
     /// <summary>
     /// The memory block. Same honesty rule as timing: unmeasured is <c>null</c>, never 0 — an

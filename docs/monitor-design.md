@@ -369,6 +369,20 @@ real HTTP without one.
      `LaneResult.ProcessId`, all additive) and MCP `run_status` (`stalls` always present,
      `progress` nullable, `processId` per lane); rendered by `SupervisorTopology` (progress
      line, pid column, stalled list).
+   - **`track_healed`** (built 2026-11-13, [bobcat#824](https://github.com/JasperFx/bobcat/issues/824)):
+     a gate track's service was recreated after the supervised run degraded -- slow against its
+     known durations, or stalled -- and the run resumed on fresh workers. Posted by
+     `SupervisorRunPublisher` from the `TrackHealed` observer callback, one per track per heal,
+     carrying `track`, `reason` (the `DEGRADED:` sentence), `heal` (which heal of this track in the
+     gate run), `paceBeforeMs` / `paceAfterMs` / `knownPaceMs` (mean milliseconds per test, null
+     where unmeasured -- never zero), `cause` (`SlowTests` / `Stall`, optional) and `at`. **Posted
+     once the pace after the heal is known** -- the next `DegradationWindow` tests with a known
+     duration finished -- or at the run's end over whatever had, because the after pace is the
+     evidence the heal worked and an event without it would say only that something restarted.
+     The heal itself is visible live as the killed lane's `lane_finished` and the fresh
+     `worker_started`s. Additive: a reader that predates it drops it at ingest. Folded on both
+     sides into `heals` (replay-guarded by track + heal number: `RunProjection.Heals`, the runs
+     store's `run.heals`), carried and not yet rendered.
    - `MtpWorkerClient.handleNotification` receives live per-test `testing/testUpdates/tests`
      updates; since #99 it relays them (see item 5) instead of reading only the outcome. A
      supervised run already gets step-level visibility because each worker IS an MTP host

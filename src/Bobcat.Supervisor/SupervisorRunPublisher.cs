@@ -324,6 +324,26 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
             laneOf(worker), worker.ProcessId, DateTimeOffset.UtcNow));
 
     /// <summary>
+    /// A track's service was healed (bobcat#824). Posted when the supervisor announces it — once
+    /// the after pace is known, or at the run's end — so a reader gets the before and the after
+    /// in one event; the heal itself is visible live as the killed lane and the fresh
+    /// <c>worker_started</c>s. Paces travel as mean milliseconds per test, null where unmeasured.
+    /// </summary>
+    public void TrackHealed(TrackHeal heal)
+        => _sink.Post(new TrackHealed(
+            _info.RunId,
+            heal.Track,
+            heal.Reason,
+            heal.Number,
+            paceMs(heal.PaceBefore?.Observed),
+            paceMs(heal.PaceAfter?.Observed),
+            heal.At,
+            Cause: heal.Cause.ToString(),
+            KnownPaceMs: paceMs(heal.PaceBefore?.Known ?? heal.PaceAfter?.Known)));
+
+    private static long? paceMs(TimeSpan? pace) => pace is { } p ? (long)p.TotalMilliseconds : null;
+
+    /// <summary>
     /// The live per-test stream, forwarded (issue #195). This is the ONLY per-test progress a
     /// run whose workers do not publish for themselves ever produces: a plain xUnit worker
     /// publishes nothing, so without this a supervised suite of

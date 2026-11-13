@@ -94,7 +94,8 @@ The rules:
 1. **Preflight every track a unit names**, before anything is built or launched. A failed check is
    reported by track and the gate aborts with exit code 2 -- nothing ran, so nothing is known.
    `Track.Listening` is the cheapest honest "is the container up"; add a `Check` for anything more
-   (a schema, a queue, a compose project name). The gate never starts, stops or resets a container.
+   (a schema, a queue, a compose project name). The gate never starts, stops or resets a container
+   on its own; a track's `Heal` (below) is the one place it does, and only as the build told it to.
 2. **Build once**, then every host runs as built. With a `Solution` that is one
    `dotnet build <Solution> -c <Configuration>` with **no `-f`**, so every project builds its own
    `TargetFrameworks` -- a netstandard2.0 source generator or a net9.0-only library beside the test
@@ -137,6 +138,88 @@ The exit code is the worst unit's in the supervisor's own convention -- **2** (i
 aborted, a unit that never ran or whose supervisor threw) over **1** (failed) over **0**. A pass on
 retry (`~`) is exit 0 and is reported as flaky, never folded into clean.
 
+## Healing a track
+
+A long-lived Docker service degrades without ever failing: Wolverine's Azure Service Bus emulator
+went from ~2 seconds a test to ~2 minutes a test once its SQL backend had piled up state, and a
+5-day-old SQL Server with 313 schemas sat at 328% CPU while every query waited to compile. Both
+answered their health checks, every test still finished inside the 5-minute stall threshold, and
+both had to be recreated by hand ([bobcat#824](https://github.com/JasperFx/bobcat/issues/824)).
+The run was **slow, not stuck** -- a stall threshold cannot see it, and `StallAction.KillAndRetry`
+kills the *worker*, which cannot help when the *service* is the problem.
+
+A track can declare how to heal its service. The unit's supervisor reads the degradation signal; the
+gate, which owns the track, runs the heal:
+
+```csharp
+Track.Listening("sqlserver", "localhost", 1434)
+    .Heal(async (heal, ct) =>
+    {
+        // Recreate the containers with fresh volumes and wait until they answer...
+        await Docker.Compose("-p wolverine up -d --force-recreate --renew-anon-volumes sqlserver", ct);
+        await Docker.WaitHealthy("wolverine-sqlserver-1", TimeSpan.FromMinutes(2), ct);
+
+        // ...then re-run the setup a fresh container has lost: recreating SQL Server drops the
+        // lane catalogs the build created at the start of the run, and without them every
+        // resumed test would fail instantly.
+        await LaneDatabases.SqlServer(SqlClientFactory.Instance, adminConnectionString, "wolverine_w")
+            .EnsureCreated(heal.Unit.Workers, ct: ct);
+    });
+
+Track.Listening("asb", "localhost", 5672)
+    .Heal(ct => Docker.Compose("-p wolverine up -d --force-recreate --renew-anon-volumes asb-sql asb-emulator", ct));
+```
+
+What happens, in order:
+
+1. **The signal.** A test is *slow* when it ran more than `DegradationFactor` (default **10**)
+   times its duration in the supervisor's `KnownTestDurations` -- the ledger the lanes are already
+   balanced on -- and at least `DegradationFloor` (default **1s**, so a 5ms test taking 60ms is
+   jitter, not a signal). The run is **degraded** when the last `DegradationWindow` (default **5**)
+   completed tests with a known duration were all slow, or when a stall fires. Tests with no known
+   duration do not count, so **a first run can never degrade**: there is nothing to be slow
+   against. The supervisor logs `DEGRADED: the last 5 completed test(s) with a known duration each
+   ran more than 10x it: 1m58s against 9.5s known (12.4x over 5 test(s)) -- ...`, fires the
+   `Degraded` observer callback and collects it on `SupervisorResults.Degradations`.
+2. **Report-only unless the track declared a heal.** A track with no `Heal` changes nothing: the
+   run goes on, slow, and its report ends with a `Degraded` section. Same guardrail as a stall under
+   `StallAction.Report`.
+3. **Pause.** With a heal declared, the supervisor kills every live worker (`PAUSING the run to
+   heal`) so nothing is mid-test while the service is recreated. The killed attempts are
+   `HealInduced` -- a sibling of the stall kill's `StallInduced` -- so they never count as flakes,
+   never go to quarantine and never spend the `RetryBudget`: the kill was the supervisor's own act
+   and the service, not the test, was the problem.
+4. **Heal, then preflight again.** Once the killed workers' results are recorded and every lane is
+   torn down, the gate runs the heal of every track the unit holds that declared one, in
+   declaration order (`healing track sqlserver (heal 1 of 2): ...`), then **re-runs that track's
+   preflight**. A recreated service that does not answer is the one state worse than a degraded one,
+   so a failed preflight aborts the unit: `track sqlserver failed its preflight after being healed
+   (heal 1), so the unit is aborted rather than resumed against a service that does not answer`. A
+   heal that throws aborts the same way.
+5. **Resume.** The test that was in flight when the kill landed is retried **alone in a fresh
+   process**; the tests the dying lane never reached resume **in their lane** on a fresh worker.
+   The run then measures the pace of the next `DegradationWindow` tests, which is the evidence the
+   heal worked, and reports both: `Tracks healed: sqlserver (heal 1) -- ...; before: 1m58s against
+   9.5s known (12.4x over 5 test(s)); after: 10s against 9.5s known (1.1x over 5 test(s))`. The
+   unit's gate line says `1 track heal(s)` even when it passed clean.
+6. **Bounded.** `Track.MaxHeals` (default **2**) is per track per gate run -- the service is the
+   track's, and the state that degrades it piles up across every unit that ran on it, so a heal
+   early in the gate and another late in it are both plausible; a third degradation is the service
+   saying something a restart does not fix. Past it, the next degradation aborts the unit with
+   `track sqlserver degraded again after being healed 2 time(s) this gate run (MaxHeals = 2), so
+   the unit is aborted rather than recreating its service a third time: ...`. Other units keep
+   running; the unit is reported as the gate reports any aborted unit (`?`, exit 2).
+
+A stall on a healable track is healed rather than escalated through `StallAction` -- the heal is
+the kill-and-retry-alone with the service recreated in between. A heal never touches another
+track's service: units on one track run one at a time, the heal runs while the degraded unit is
+paused, and the hook is the track's own. Two services one hook would recreate together belong on
+one track. Every heal is published as `track_healed` (see [What a Run Publishes](monitor-design.md)).
+
+The seam, for a build that is not a gate: `Supervisor.OnDegraded` is the callback the supervisor
+awaits with the run paused; `Gate` sets it for a unit whose track declared a heal, and a
+`Supervise` hook that sets it replaces the gate's.
+
 ## Each unit is its own run on the monitor
 
 Every unit publishes to whatever `BOBCAT_MONITOR_URL` names (`PublishToMonitor` is on by default;
@@ -154,4 +237,5 @@ which is how a coordination plan's node becomes one run card per unit under it -
   units, waits for the running ones, and throws.
 - It does not retry anything a project's own policy would not retry, and it does not fail a build
   on a duration.
-- It does not start containers. `./build.sh Docker`, or your compose file, does.
+- It does not start containers. `./build.sh Docker`, or your compose file, does. It recreates one
+  only when a unit on a track degrades and that track declared a `Heal`, and only as that heal says.

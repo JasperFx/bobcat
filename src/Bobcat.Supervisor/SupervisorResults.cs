@@ -37,6 +37,19 @@ public sealed record SupervisorAttempt(
     /// </summary>
     public bool StallInduced { get; init; }
 
+    /// <summary>
+    /// True when this attempt's outcome was manufactured by the supervisor killing its worker to
+    /// heal a degraded track (bobcat#824) — the test that was in flight, or a batch-mate the dying
+    /// lane never reached. A sibling of <see cref="StallInduced"/> rather than a reuse of it,
+    /// because the report says which the supervisor did; the flakiness rule is the same: the
+    /// service was the problem, so such an attempt never makes a test "passed on retry" and never
+    /// puts it in <see cref="SupervisorResults.Quarantine"/>.
+    /// </summary>
+    public bool HealInduced { get; init; }
+
+    /// <summary>The supervisor's own act, whichever: a stall kill or a heal.</summary>
+    public bool InducedBySupervisor => StallInduced || HealInduced;
+
     public bool Succeeded => Outcome.Succeeded;
 }
 
@@ -59,7 +72,7 @@ public sealed class TestReport
     /// reliability.
     /// </summary>
     public bool WasRetriedForFailure
-        => Attempts.Count > 1 && Attempts.Take(Attempts.Count - 1).Any(a => !a.StallInduced);
+        => Attempts.Count > 1 && Attempts.Take(Attempts.Count - 1).Any(a => !a.InducedBySupervisor);
 
     /// <summary>
     /// The honest three-way status. A test that needed retries reports
@@ -185,6 +198,21 @@ public sealed class SupervisorResults
     /// stayed green because a wedged worker was shot is a fact the summary must not hide.
     /// </summary>
     public IReadOnlyList<StallKill> StallKills { get; init; } = [];
+
+    /// <summary>
+    /// Every heal of a track's service during the run (bobcat#824), in heal order, each with the
+    /// pace before and after. Empty unless <see cref="Supervisor.OnDegraded"/> was set and the run
+    /// degraded. Survives into the report on a green run — a run that only stayed green because
+    /// its database was recreated halfway through is a fact the summary must not hide.
+    /// </summary>
+    public IReadOnlyList<TrackHeal> TrackHeals { get; init; } = [];
+
+    /// <summary>
+    /// Every time the run was read as degraded (bobcat#824) — a window of slow tests, or a stall
+    /// — in detection order, healed or not. Empty for a run with no
+    /// <see cref="Supervisor.KnownTestDurations"/> and no stall threshold: nothing could read it.
+    /// </summary>
+    public IReadOnlyList<RunDegradation> Degradations { get; init; } = [];
 
     /// <summary>
     /// Each sampled worker's memory story (issue #149) — first, peak and last resident set.
@@ -342,6 +370,7 @@ public sealed class SupervisorResults
         if (Indeterminate.Count > 0) parts.Add($"{Indeterminate.Count} indeterminate");
         if (Skipped.Count > 0) parts.Add($"{Skipped.Count} skipped");
         if (StallKills.Count > 0) parts.Add($"{StallKills.Count} stall kill(s)");
+        if (TrackHeals.Count > 0) parts.Add($"{TrackHeals.Count} track heal(s)");
         if (Collapsed.Count > 0) parts.Add($"{Collapsed.Count} collapsed theory(ies)");
 
         var summary = string.Join(", ", parts);

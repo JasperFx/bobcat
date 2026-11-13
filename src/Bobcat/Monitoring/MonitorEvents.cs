@@ -29,6 +29,7 @@ namespace Bobcat.Monitoring;
 [JsonDerivedType(typeof(TestStarted), "test_started")]
 [JsonDerivedType(typeof(TestFinished), "test_finished")]
 [JsonDerivedType(typeof(RunProgress), "run_progress")]
+[JsonDerivedType(typeof(TrackHealed), "track_healed")]
 public abstract record MonitorEvent(Guid RunId);
 
 public record RunStarted(
@@ -507,6 +508,31 @@ public record TestStalled(
     int? Lane,
     int? ProcessId,
     DateTimeOffset At) : MonitorEvent(RunId);
+
+// A gate track's service was healed after the supervised run degraded (bobcat#824): the run was
+// slow against its known durations, or a test stalled, the supervisor paused it, the track's heal
+// hook recreated the service and re-ran its preflight, and the run resumed on fresh workers.
+// Posted once per track per heal, when the after pace is known (the next DegradationWindow tests
+// with a known duration finished) or at the run's end — so one event carries the before and the
+// after. Paces are mean milliseconds per test: PaceBeforeMs over the tests that tripped the
+// signal, PaceAfterMs over the tests after the heal, KnownPaceMs what those tests are known to
+// take. Each is null where nothing measured it — unmeasured is never zero. Additive: a reader
+// that predates it drops it at ingest and loses nothing it had.
+public record TrackHealed(
+    Guid RunId,
+    // The track's name, as the gate declared it.
+    string Track,
+    // Why the run was read as degraded — the sentence the supervisor logged as DEGRADED:.
+    string Reason,
+    // Which heal of this track this was, counted per gate run; the gate's MaxHeals bounds it.
+    int Heal,
+    long? PaceBeforeMs,
+    long? PaceAfterMs,
+    // When the heal completed and the run resumed.
+    DateTimeOffset At,
+    // Mirrors DegradationCause: SlowTests / Stall. Optional and additive.
+    string? Cause = null,
+    long? KnownPaceMs = null) : MonitorEvent(RunId);
 
 // The supervisor's live progress (issue #148, bobcat#767) — distinct from run_heartbeat, which is
 // a bare liveness ping. Posted at a bounded cadence while a supervised run is going: at most once

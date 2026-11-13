@@ -26,6 +26,10 @@ public sealed class Gate
     private readonly GateDeclaration _declaration;
     private readonly object _log = new();
 
+    // Heals so far per track, across the whole gate run (bobcat#824): the service is the track's,
+    // and the state that degrades it piles up across every unit that ran on it.
+    private readonly Dictionary<Track, int> _heals = new();
+
     public Gate(GateDeclaration declaration) => _declaration = declaration;
 
     public async Task<GateResults> Run(CancellationToken ct = default)
@@ -312,6 +316,14 @@ public sealed class Gate
             Log = message => log($"[{unit.Name}] {message}")
         };
 
+        // The gate owns the tracks, so the gate heals (bobcat#824): a unit on a track that declared
+        // a heal gets the supervisor's degradation handler; any other unit only reports. Set before
+        // the project's own configuration, which may replace it.
+        if (unit.Tracks.Any(t => t.CanHeal))
+        {
+            supervisor.OnDegraded = (degradation, ct) => healTracks(unit, degradation, ct);
+        }
+
         _declaration.Configure?.Invoke(unit, supervisor);
         unit.Project.Configure?.Invoke(unit, supervisor);
 
@@ -325,6 +337,100 @@ public sealed class Gate
 
         return supervisor;
     }
+
+    /// <summary>
+    /// Heal every track of <paramref name="unit"/> that declared a heal, in declaration order
+    /// (bobcat#824), while the unit's supervisor holds the run paused with nothing in flight.
+    /// Answers the tracks healed, or the reason to abort the unit: a track past its
+    /// <see cref="Track.MaxHeals"/>, a heal that threw, or a preflight that failed after the heal.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The budget is checked for every track before any is healed</b>, so a unit holding two
+    /// healable tracks is never half-healed and then aborted. Other units keep running: the abort
+    /// is the unit's <see cref="SupervisorResults.AbortReason"/>, reported as the gate reports any
+    /// aborted unit, and a unit on another track is not touched.
+    /// </para>
+    /// <para>
+    /// <b>The preflight re-runs after the heal</b> because a recreated service that does not answer
+    /// is the one state worse than a degraded one: every resumed test would fail instantly. The same
+    /// checks that gated the gate's start gate the resume, so a heal need not repeat them.
+    /// </para>
+    /// </remarks>
+    private async Task<DegradationResponse> healTracks(GateUnit unit, RunDegradation degradation, CancellationToken ct)
+    {
+        var healable = unit.Tracks.Where(t => t.CanHeal).ToList();
+
+        List<(Track Track, int Heal)> planned = [];
+        lock (_heals)
+        {
+            foreach (var track in healable)
+            {
+                _heals.TryGetValue(track, out var healed);
+                if (healed >= track.MaxHeals)
+                {
+                    return DegradationResponse.Abort(
+                        $"track {track.Name} degraded again after being healed {healed} time(s) this gate run " +
+                        $"(MaxHeals = {track.MaxHeals}), so the unit is aborted rather than recreating its service " +
+                        $"a {ordinal(healed + 1)} time: {degradation.Reason}");
+                }
+
+                planned.Add((track, healed + 1));
+            }
+        }
+
+        var healedTracks = new List<HealedTrack>();
+        foreach (var (track, number) in planned)
+        {
+            log($"[{unit.Name}] healing track {track.Name} (heal {number} of {track.MaxHeals}): {degradation.Reason}");
+
+            try
+            {
+                await track.Healer!(new TrackHealContext(track, unit, degradation, number), ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                return DegradationResponse.Abort(
+                    $"healing track {track.Name} failed ({e.GetType().Name}: {e.Message}), so the unit is aborted " +
+                    $"rather than resumed against a service in an unknown state: {degradation.Reason}");
+            }
+
+            // Counted once the heal ran, whether or not the preflight then passes: the service was
+            // recreated, and a second degradation after a failed preflight is not a free heal.
+            lock (_heals) _heals[track] = number;
+
+            if (!track.Preflight.IsEmpty)
+            {
+                var outcome = await track.Preflight.Run(ct);
+                if (!outcome.Succeeded())
+                {
+                    var described = Bobcat.Runtime.Preflight.Describe(outcome);
+                    log($"[{unit.Name}] ✗ track {track.Name} failed preflight after being healed:");
+                    log(described);
+                    return DegradationResponse.Abort(
+                        $"track {track.Name} failed its preflight after being healed (heal {number}), so the unit is " +
+                        $"aborted rather than resumed against a service that does not answer: {described.Trim()}");
+                }
+            }
+
+            log($"[{unit.Name}] track {track.Name} healed and its preflight passed");
+            healedTracks.Add(new HealedTrack(track.Name, number));
+        }
+
+        return DegradationResponse.HealedTracks(healedTracks);
+    }
+
+    private static string ordinal(int n) => n switch
+    {
+        1 => "first",
+        2 => "second",
+        3 => "third",
+        _ => $"{n}th"
+    };
 
     private void log(string message)
     {
