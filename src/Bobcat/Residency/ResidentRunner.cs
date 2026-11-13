@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using System.Net.ServerSentEvents;
 using System.Text;
 using Bobcat.Monitoring;
 using Bobcat.Runtime;
@@ -251,7 +250,7 @@ public sealed class ResidentRunner : IAsyncDisposable
     public async Task Listen(CancellationToken token = default)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, RunnerWire.CommandsRoute(_options.RunnerId));
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(ServerSentEvents.MediaType));
 
         // Resume rather than lose whatever arrived while the stream was down.
         if (_lastEventId is { Length: > 0 } resume) request.Headers.TryAddWithoutValidation("Last-Event-ID", resume);
@@ -264,21 +263,20 @@ public sealed class ResidentRunner : IAsyncDisposable
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync(token);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
 
-        // The framework's parser (in the box since net10.0). It never surfaces `retry`: the reconnect
-        // delay is this runner's own backoff, so a monitor cannot make it reconnect in a tight loop.
-        await foreach (var sent in SseParser.Create(stream).EnumerateAsync(token))
+        await foreach (var sent in ServerSentEvents.Read(reader, token))
         {
-            if (sent.EventId is { Length: > 0 } id) _lastEventId = id;
+            if (sent.Id is { Length: > 0 } id) _lastEventId = id;
 
             // A keepalive exists to hold the connection open and says nothing.
-            if (sent.EventType == RunnerWire.KeepaliveType) continue;
+            if (sent.Type == RunnerWire.KeepaliveType) continue;
             if (sent.Data.Length == 0) continue;
 
             var @event = CloudEvent.FromJson(sent.Data);
             if (@event is null)
             {
-                log($"ignored an event that is not a CloudEvent (type '{sent.EventType}')");
+                log($"ignored an event that is not a CloudEvent (type '{sent.Type}')");
                 continue;
             }
 
