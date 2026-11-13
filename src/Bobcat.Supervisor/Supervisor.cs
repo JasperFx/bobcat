@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Bobcat.Engine;
+using Bobcat.Ledger;
 using Bobcat.Monitoring;
 using Bobcat.Resilience;
 using Bobcat.Runtime;
@@ -43,6 +44,9 @@ public sealed class Supervisor
     private readonly Dictionary<string, string> _partitionOfTest = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _partitionRank = new(StringComparer.Ordinal);
     private int? _seed;
+
+    // The leg a sharded run took (bobcat#576), for the report; null when the run was not sharded.
+    private ShardLeg? _shardLeg;
     private readonly object _gate = new();
 
     // What discovery called each test. Written once, before anything runs, and read only when a
@@ -160,6 +164,16 @@ public sealed class Supervisor
     /// the order can be run again. Ignored for a declared order.
     /// </summary>
     public int? Seed { get; set; }
+
+    /// <summary>
+    /// Run one leg of the suite split across machines (bobcat#576): after discovery and any
+    /// selection or filter, the class partitions are balanced over <see cref="RunShard.Count"/> legs
+    /// (<see cref="WorkPlan.Legs"/>) and only leg <see cref="RunShard.Index"/> runs, through the
+    /// ordinary lanes. Each isolated test is a partition of its own, keyed by its ledger key, so it
+    /// lands in exactly one leg too. Deterministic for the same test list and
+    /// <see cref="KnownTestDurations"/> — every leg must be given the same ledger. Null runs everything.
+    /// </summary>
+    public RunShard? Shard { get; set; }
 
     /// <summary>
     /// Disposes the idle lane workers before any fresh-process retry runs, once no pending
@@ -784,6 +798,7 @@ public sealed class Supervisor
             FailOnCollapsed = FailOnCollapsed,
             Order = Order,
             Seed = _seed,
+            ShardLeg = _shardLeg,
             Duration = live.Elapsed,
             WorkerLaunchTime = TimeSpan.FromTicks(Interlocked.Read(ref _launchTicks)),
             WorkerBusyTime = TimeSpan.FromTicks(Interlocked.Read(ref _busyTicks)),
@@ -805,6 +820,7 @@ public sealed class Supervisor
         // run again in the same order (bobcat#578). A declared order has no seed.
         _seed = Order == RunOrder.Random ? Seed ?? Random.Shared.Next() : null;
         if (_seed is { } seed) Log?.Invoke($"Order: random, seed {seed}");
+        _shardLeg = null;
 
         try
         {
@@ -861,6 +877,25 @@ public sealed class Supervisor
                 Log?.Invoke($"Filter kept {tests.Count} of {discovered} discovered test(s)");
             }
 
+            // One leg of a run split across machines (bobcat#576), decided after every narrowing so
+            // each leg splits the same list. An isolated test is a partition of its own, keyed by
+            // what the ledger keys it by (display name, uid only where two share one) — never by
+            // the uid alone, which on xUnit hashes the assembly path and so differs between machines.
+            var emptyLeg = false;
+            if (Shard is { } shard && tests.Count > 0)
+            {
+                var ledgerKeys = LedgerKeys.For(tests.Select(t => (t.Uid, t.DisplayName)).ToList());
+                var classOf = PartitionKey ?? WorkPlan.ClassOf;
+                var leg = WorkPlan.Shard(tests, shard,
+                    test => isIsolated(test.Traits) ? "isolated: " + ledgerKeys[test.Uid] : classOf(test),
+                    KnownTestDurations);
+
+                _shardLeg = leg;
+                Log?.Invoke(leg.ToString());
+                tests = leg.Tests;
+                emptyLeg = tests.Count == 0;
+            }
+
             // The bracket opens with the true post-filter total — something no single
             // worker knows.
             monitor?.RunStarted(tests.Count);
@@ -870,8 +905,13 @@ public sealed class Supervisor
                 return new SupervisorResults
                 {
                     Tests = [],
-                    AbortReason = FailWhenNoTests ? noTestsReason(discoveredCount) : null,
-                    WorkersLaunched = _workersLaunched
+                    // A leg of a sharded run with more legs than classes has nothing to run, and
+                    // that is the split working, not a filter gone stale.
+                    AbortReason = FailWhenNoTests && !emptyLeg ? noTestsReason(discoveredCount) : null,
+                    WorkersLaunched = _workersLaunched,
+                    Order = Order,
+                    Seed = _seed,
+                    ShardLeg = _shardLeg
                 };
             }
 
@@ -957,7 +997,8 @@ public sealed class Supervisor
             LaneElapsed = laneElapsed(),
             FailOnCollapsed = FailOnCollapsed,
             Order = Order,
-            Seed = _seed
+            Seed = _seed,
+            ShardLeg = _shardLeg
         };
     }
 

@@ -145,4 +145,10 @@ internal sealed class LastRunArguments
 
     /// <summary><c>random</c> when the run was <c>--order random</c> (bobcat#578); null otherwise. Its seed is <see cref="LastRun.Seed"/>. Additive.</summary>
     public string? Order { get; set; }
+
+    /// <summary>The leg (<c>i/n</c>) when the run was <c>--shard</c> (bobcat#576); null otherwise. Additive.</summary>
+    public string? Shard { get; set; }
+
+    /// <summary>The <c>--ledger</c> file the lanes and legs were balanced from, as a full path; null otherwise. Additive.</summary>
+    public string? Ledger { get; set; }
 }

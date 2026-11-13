@@ -68,6 +68,13 @@ public static class ResultsFile
     /// <summary>The seed a random <see cref="OrderVariable"/> ran with, beside it in the run header.</summary>
     public const string SeedVariable = "BOBCAT_RUN_SEED";
 
+    /// <summary>
+    /// The leg a supervised run was when it was one shard of a suite split across machines —
+    /// <c>2/4</c> under <c>bobcat run --shard 2/4</c> (bobcat#576) — written into the run header so the
+    /// legs' files, folded together later, each say which leg produced them. Unset for an unsharded run.
+    /// </summary>
+    public const string ShardVariable = "BOBCAT_RUN_SHARD";
+
     /// <summary>The schema's file name, in the package under <c>schemas/</c> and beside every results file.</summary>
     public const string SchemaFileName = "bobcat-results-1.0.schema.json";
 
@@ -81,6 +88,7 @@ public static class ResultsFile
     private static MonitorRunInfo? _run;
     private static DateTimeOffset _startedAt;
     private static (string? Order, int? Seed) _order;
+    private static string? _shard;
 
     /// <summary>The directory <see cref="EnvironmentVariable"/> names, or null when unset.</summary>
     public static string? RequestedDirectory
@@ -102,6 +110,10 @@ public static class ResultsFile
             return (order, seed);
         }
     }
+
+    /// <summary>What <see cref="ShardVariable"/> says (<c>i/n</c>), or null.</summary>
+    internal static string? RequestedShard
+        => Environment.GetEnvironmentVariable(ShardVariable) is { Length: > 0 } shard ? shard.Trim() : null;
 
     /// <summary>
     /// The directory the open bracket writes into, and its run id, or null when no results file was
@@ -134,6 +146,7 @@ public static class ResultsFile
             _run = directory is null ? null : run;
             _startedAt = DateTimeOffset.UtcNow;
             _order = RequestedOrder;
+            _shard = RequestedShard;
 
             if (_run is null || _subscribed) return;
             _subscribed = true;
@@ -153,6 +166,7 @@ public static class ResultsFile
         List<ProjectedScenarioSample> timings;
         DateTimeOffset startedAt;
         (string? Order, int? Seed) order;
+        string? shard;
 
         lock (_gate)
         {
@@ -164,6 +178,7 @@ public static class ResultsFile
             timings = _timings.ToList();
             startedAt = _startedAt;
             order = _order;
+            shard = _shard;
 
             _run = null;
             _directory = null;
@@ -173,7 +188,7 @@ public static class ResultsFile
 
         try
         {
-            var document = Build(run, startedAt, DateTimeOffset.UtcNow, specs, SuiteTiming.ForProjected(timings), order.Order, order.Seed);
+            var document = Build(run, startedAt, DateTimeOffset.UtcNow, specs, SuiteTiming.ForProjected(timings), order.Order, order.Seed, shard);
             return Write(directory, run, document);
         }
         catch (Exception e)
@@ -193,7 +208,7 @@ public static class ResultsFile
 
     /// <summary>The whole file, as the model it is serialized from.</summary>
     internal static JsonResultsOutput Build(MonitorRunInfo run, DateTimeOffset startedAt, DateTimeOffset finishedAt,
-        IReadOnlyList<SpecRender> specs, SuiteTiming? timing, string? order = null, int? seed = null)
+        IReadOnlyList<SpecRender> specs, SuiteTiming? timing, string? order = null, int? seed = null, string? shard = null)
     {
         // Feature, then title -- the console's order, for the same reason: a runner's finishing
         // order changes between runs of an unchanged suite, and two files should diff cleanly.
@@ -223,6 +238,7 @@ public static class ResultsFile
                 Command = run.Command,
                 Order = order,
                 Seed = seed,
+                Shard = shard,
                 StartedAt = startedAt,
                 FinishedAt = finishedAt,
                 DurationMs = (long)(finishedAt - startedAt).TotalMilliseconds
@@ -425,6 +441,9 @@ internal class JsonRunOutput
 
     [System.ComponentModel.Description("The seed a random order ran with; run again with --order random --seed <seed>. Absent unless the order was random.")]
     public int? Seed { get; set; }
+
+    [System.ComponentModel.Description("The leg a supervised run was when the suite was split across machines, as i/n: '2/4' under bobcat run --shard 2/4. Absent for an unsharded run.")]
+    public string? Shard { get; set; }
 
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset FinishedAt { get; set; }

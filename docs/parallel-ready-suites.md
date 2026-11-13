@@ -211,6 +211,75 @@ What the ledger needs to know:
   duration too. When two branches change it and conflict, load both sides, `Merge` them, and save.
   The merge always gives the same file, so the conflict can't be resolved wrongly.
 
+### Splitting a suite across machines: `--shard i/n`
+
+When one machine's lanes are not enough, split the suite over several CI jobs. `bobcat run --shard
+2/4` (or `Supervisor.Shard = new RunShard(2, 4)`) runs leg 2 of 4: the class partitions are balanced
+over four legs exactly as lanes are balanced — heaviest first by the ledger's durations, the median
+for a test the ledger has not seen, test count when there is no ledger — and only leg 2's classes
+run, through the ordinary lanes. Classes are never split between legs, and an `[Isolated]` test is a
+partition of its own, so it too lands in exactly one leg.
+
+**Every leg computes its own share without talking to the others**, so the split is a pure function
+of two things: the test list and the known durations. Discovery order does not enter it; ties are
+broken by class name. That makes the legs disjoint and complete *only if every leg is given the same
+selection and the same ledger*. Download one ledger artifact and hand the same file to every leg.
+Two legs reading different ledgers (one job's own, another job's stale copy) can weigh a class
+differently, and then a class runs on two legs or on none. Each leg's report says what it took:
+
+```text
+Shard 2/4: 17 of 68 class(es) (230 of 912 test(s)), estimated 3m10s of 12m40s (Known durations matched 910/912 test(s))
+```
+
+A GitHub Actions matrix, with the ledger from the newest green run on `main` and every leg's results
+folded onto one page afterwards:
+
+```yaml
+jobs:
+  specs:
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the ledger every leg shares
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id=$(gh run list --workflow "${{ github.workflow }}" --branch main --status success \
+            --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -n "$run_id" ]; then
+            gh run download "$run_id" --name bobcat-ledger --dir artifacts/ledger || echo "no ledger yet"
+          fi
+      - run: bobcat run src/MySpecs --shard ${{ matrix.leg }}/4 --ledger artifacts/ledger/ledger.json --results artifacts/bobcat
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bobcat-results-${{ matrix.leg }}
+          path: artifacts/bobcat
+
+  report:
+    needs: specs
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bobcat-results-*
+          path: artifacts
+      - run: bobcat results-html artifacts/bobcat-results-* --out artifacts/results.html
+```
+
+The tool reads the ledger and never writes it. Writing the next ledger is the job of whatever
+already records one (a Nuke host calling `TestLedger.Record`, as above); with four legs, merge the
+legs' ledgers with `TestLedger.Merge` before uploading. A leg with nothing to run (more legs than
+classes) passes. Each results file carries `run.shard` (`"2/4"`), so the folded page can be read
+back to the leg that ran each specification. `--shard` combines with `--workers` and with
+`--order random`: the leg is taken first, then its classes are planned and ordered. Sharding is not a
+lane: lanes share one run on one machine, legs are separate runs.
+
 ## Step 0 -- be an MTP host
 
 The supervisor drives the test *executable* over Microsoft.Testing.Platform's server mode. It never

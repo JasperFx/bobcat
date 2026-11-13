@@ -388,6 +388,10 @@ public class RunFailedAndRepeatTests : IDisposable
     [InlineData("--workers", "0", "--workers must be 1 or more")]
     [InlineData("--order", "sideways", "--order 'sideways' is not one of declared, random")]
     [InlineData("--seed", "5", "--seed needs --order random")]
+    [InlineData("--shard", "2of4", "--shard '2of4' is not a shard")]
+    [InlineData("--shard", "0/4", "the leg must be between 1 and 4")]
+    [InlineData("--shard", "5/4", "the leg must be between 1 and 4")]
+    [InlineData("--shard", "1/0", "the number of legs must be 1 or more")]
     public async Task a_bad_supervision_flag_is_refused_before_anything_runs(string flag, string value, string message)
     {
         var refused = await bobcat(flag, value);
@@ -395,6 +399,112 @@ public class RunFailedAndRepeatTests : IDisposable
         refused.ExitCode.ShouldNotBe(0);
         refused.Output.ShouldContain(message);
         File.Exists(lastRun).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The features each results file in <paramref name="directory"/> holds, as a sorted set.
+    /// </summary>
+    private static string[] featuresIn(string directory)
+        => Directory.Exists(directory)
+            ? Directory.EnumerateFiles(directory, "*.json")
+                .Where(f => !f.EndsWith(".schema.json", StringComparison.Ordinal))
+                .SelectMany(f =>
+                {
+                    using var document = JsonDocument.Parse(File.ReadAllText(f));
+                    document.RootElement.GetProperty("run").GetProperty("shard").GetString().ShouldNotBeNull();
+                    return document.RootElement.GetProperty("scenarios").EnumerateArray()
+                        .Select(s => s.GetProperty("feature").GetString()!).ToList();
+                })
+                .Distinct()
+                .Order(StringComparer.Ordinal)
+                .ToArray()
+            : [];
+
+    /// <summary>
+    /// bobcat#576: two legs of one selection run disjoint classes that between them are all of it,
+    /// each says which leg it was (console, report, results file, last-run.json), and <c>--repeat</c>
+    /// runs the same leg. With two classes, a third leg has nothing to run, and that passes.
+    /// </summary>
+    [Fact]
+    public async Task two_shards_cover_every_class_once_and_repeat_replays_the_leg()
+    {
+        // Basics holds two of these scenarios and Fussy one, so a count balance puts Basics on leg 1.
+        string[] selection = ["--scenario", "passes", "flaky until second attempt"];
+        var results = Path.Combine(Path.GetTempPath(), "bobcat-run-shard", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var first = await bobcat([.. selection, "--shard", "1/2", "--results", Path.Combine(results, "1")]);
+            first.ExitCode.ShouldBe(0, first.Output);
+            first.Output.ShouldContain("Shard 1/2: 1 of 2 class(es) (2 of 3 test(s)), legs balanced by test count");
+            recorded()["arguments"]!["shard"]!.GetValue<string>().ShouldBe("1/2");
+
+            var second = await bobcat([.. selection, "--shard", "2/2", "--results", Path.Combine(results, "2")]);
+            second.ExitCode.ShouldBe(0, second.Output);
+            second.Output.ShouldContain("Shard 2/2: 1 of 2 class(es) (1 of 3 test(s))");
+
+            featuresIn(Path.Combine(results, "1")).ShouldBe(["Basics"]);
+            featuresIn(Path.Combine(results, "2")).ShouldBe(["Fussy"]);
+
+            // The leg recorded last was 2/2; --repeat runs exactly that leg again.
+            var again = await bobcat("--repeat", "--results", Path.Combine(results, "again"));
+            again.ExitCode.ShouldBe(0, again.Output);
+            again.Output.ShouldContain("Shard 2/2:");
+            featuresIn(Path.Combine(results, "again")).ShouldBe(["Fussy"]);
+
+            // More legs than classes: the third has nothing to run, which is the split working.
+            var third = await bobcat([.. selection, "--shard", "3/3", "--results", Path.Combine(results, "3")]);
+            third.ExitCode.ShouldBe(0, third.Output);
+            third.Output.ShouldContain("Shard 3/3: 0 of 2 class(es) (0 of 3 test(s))");
+            featuresIn(Path.Combine(results, "3")).ShouldBeEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(results)) Directory.Delete(results, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--failed", "--failed reruns what failed in the last run")]
+    [InlineData("--repeat", "--repeat replays the last run's --shard")]
+    public async Task shard_is_refused_with_failed_and_repeat(string flag, string message)
+    {
+        var refused = await bobcat(flag, "--shard", "1/2");
+
+        refused.ExitCode.ShouldNotBe(0);
+        refused.Output.ShouldContain(message);
+        File.Exists(lastRun).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task a_missing_ledger_balances_by_count_and_is_recorded()
+    {
+        var ledger = Path.Combine(Path.GetTempPath(), "bobcat-run-ledger", Guid.NewGuid().ToString("N"), "ledger.json");
+
+        var run = await bobcat("--scenario", "also passes", "--ledger", ledger);
+
+        run.ExitCode.ShouldBe(0, run.Output);
+        run.Output.ShouldContain("balanced by test count");
+        recorded()["arguments"]!["ledger"]!.GetValue<string>().ShouldBe(ledger);
+    }
+
+    [Fact]
+    public async Task an_unreadable_ledger_is_refused()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "bobcat-run-ledger", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var ledger = Path.Combine(directory, "ledger.json");
+        await File.WriteAllTextAsync(ledger, "this is not a ledger");
+        try
+        {
+            var run = await bobcat("--scenario", "also passes", "--ledger", ledger);
+
+            run.ExitCode.ShouldNotBe(0);
+            run.Output.ShouldContain("could not be read");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]

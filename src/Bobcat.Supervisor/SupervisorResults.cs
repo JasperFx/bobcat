@@ -251,6 +251,13 @@ public sealed class SupervisorResults
     public int? Seed { get; init; }
 
     /// <summary>
+    /// The leg this run was when it was one shard of a suite split across machines (bobcat#576,
+    /// <see cref="Supervisor.Shard"/>): its classes and tests beside the whole run's. Null when the
+    /// run was not sharded.
+    /// </summary>
+    public ShardLeg? ShardLeg { get; init; }
+
+    /// <summary>
     /// The per-test durations the lanes were balanced on — <see cref="Supervisor.KnownTestDurations"/>
     /// as it stood when the run began (bobcat#705). Null when none were supplied. Kept so
     /// <see cref="RunTiming"/> can say how fast this runner was against the same tests' history.

@@ -115,6 +115,8 @@ public class ShortFlagTests
         { "run", "--configuration" }, { "run", "--chapter" }, { "run", "--docs" },
         // --order and --seed (bobcat#578) are long-only by decision: -s already went long-only three ways over
         { "run", "--order" }, { "run", "--seed" },
+        // --shard and --ledger (bobcat#576) likewise: -s already went long-only, and supervision flags stay long
+        { "run", "--shard" }, { "run", "--ledger" },
         { "preview", "--framework" }, { "preview", "--feature" }, { "preview", "--configuration" }, { "preview", "--chapter" },
         { "watch", "--scenario" }, { "watch", "--slice" }, { "watch", "--results" },
         // results-schema: --baseline and --baseline-name were both -b

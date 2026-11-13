@@ -17,8 +17,16 @@ namespace Bobcat.Console.Specs;
 /// tool can print it, hand it to the supervisor and record it for <c>--repeat</c> as one value. Null
 /// for a declared order.
 /// </param>
+/// <param name="Shard">
+/// The leg this run is when the suite is split across machines (bobcat#576, <c>--shard i/n</c>); null
+/// runs everything.
+/// </param>
+/// <param name="Ledger">
+/// A test ledger file whose known durations balance the lanes and the legs (<c>--ledger</c>), read and
+/// never written; null balances by test count.
+/// </param>
 internal sealed record Supervision(int Retries, int Workers, TimeSpan Stall, StallAction StallAction,
-    RunOrder Order = RunOrder.Declared, int? Seed = null)
+    RunOrder Order = RunOrder.Declared, int? Seed = null, RunShard? Shard = null, string? Ledger = null)
 {
     /// <summary>
     /// How long a test may be in flight before a supervised run names it, when <c>--stall</c> does not
@@ -35,9 +43,21 @@ internal sealed record Supervision(int Retries, int Workers, TimeSpan Stall, Sta
 
     public static Supervision? From(int? retries, int? workers, string? stall, string? stallAction,
         string? order, int? seed, out string? refusal)
+        => From(retries, workers, stall, stallAction, order, seed, shard: null, ledger: null, out refusal);
+
+    public static Supervision? From(int? retries, int? workers, string? stall, string? stallAction,
+        string? order, int? seed, string? shard, string? ledger, out string? refusal)
     {
         refusal = null;
-        if (retries is null && workers is null && stall is null && stallAction is null && order is null && seed is null) return null;
+        if (retries is null && workers is null && stall is null && stallAction is null && order is null && seed is null
+            && shard is null && ledger is null) return null;
+
+        RunShard? leg = null;
+        if (shard is not null)
+        {
+            leg = RunShard.Parse(shard, out refusal);
+            if (leg is null) return null;
+        }
 
         var runOrder = RunOrder.Declared;
         if (order is not null && !TryParseOrder(order, out runOrder))
@@ -81,7 +101,8 @@ internal sealed record Supervision(int Retries, int Workers, TimeSpan Stall, Sta
         // Minted here, once, so the line at the top of the run, the supervisor's plan, the workers'
         // results files and last-run.json all carry the same seed.
         return new Supervision(retries ?? 0, workers ?? 1, threshold, action, runOrder,
-            runOrder == RunOrder.Random ? seed ?? Random.Shared.Next() : null);
+            runOrder == RunOrder.Random ? seed ?? Random.Shared.Next() : null, leg,
+            ledger is { Length: > 0 } ? Path.GetFullPath(ledger) : null);
     }
 
     public static bool TryParseOrder(string text, out RunOrder order)
@@ -218,6 +239,34 @@ internal static class SupervisedHost
             environment[ResultsFile.SeedVariable] = seed.ToString(CultureInfo.InvariantCulture);
         }
 
+        // And the leg (bobcat#576), so the legs' files folded into one page each say where they came from.
+        if (supervision.Shard is { } shard) environment[ResultsFile.ShardVariable] = shard.ToString();
+
+        // Read, never written (bobcat#576): the ledger balances the lanes and, under --shard, the legs.
+        // A missing file is a first run and balances by count; an unreadable one is refused, because a
+        // leg that silently balanced by count while its siblings read the ledger would split differently.
+        IReadOnlyDictionary<string, TimeSpan>? known = null;
+        if (supervision.Ledger is { } ledgerPath)
+        {
+            if (!File.Exists(ledgerPath))
+            {
+                System.Console.WriteLine($"No ledger at {ledgerPath} yet: balanced by test count.");
+            }
+            else
+            {
+                try
+                {
+                    known = Ledger.TestLedger.Load(ledgerPath).KnownDurations();
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException
+                                              or Engine.BobcatConfigurationException)
+                {
+                    AnsiConsole.MarkupLine($"[red]The ledger at {Markup.Escape(ledgerPath)} could not be read:[/] {Markup.Escape(e.Message)}");
+                    return new RunOutcome(2, [], false);
+                }
+            }
+        }
+
         var launched = 0;
         var factory = new MtpWorkerFactory(project.HostPath, environment)
         {
@@ -239,6 +288,8 @@ internal static class SupervisedHost
             StallAction = supervision.StallAction,
             Order = supervision.Order,
             Seed = supervision.Seed,
+            Shard = supervision.Shard,
+            KnownTestDurations = known,
             Specifications = SpecSelection.Of(identities),
 
             // The supervisor owns the run bracket and every worker publishes under it, so a console
@@ -259,7 +310,8 @@ internal static class SupervisedHost
 
         var outcome = await AnsiConsole.Status().StartAsync(
             $"Running {project.Name} supervised ({lanes}, retries {supervision.Retries}, stall {describe(supervision)}"
-            + (supervision.Seed is { } s ? $", order random seed {s}" : "") + ")…",
+            + (supervision.Seed is { } s ? $", order random seed {s}" : "")
+            + (supervision.Shard is { } leg ? $", shard {leg}" : "") + ")…",
             _ => supervisor.Run(token));
 
         foreach (var file in Directory.EnumerateFiles(renders, "*.ansi").Order(StringComparer.Ordinal))

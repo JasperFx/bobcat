@@ -62,6 +62,7 @@ public static class ResultsFileReader
             Command = run.Command,
             Order = run.Order,
             Seed = run.Seed,
+            Shard = run.Shard,
             StartedAt = run.StartedAt,
             FinishedAt = run.FinishedAt,
             DurationMs = run.DurationMs,
@@ -261,6 +262,9 @@ public sealed class ResultsFileContents
 
     /// <summary>The seed a random <see cref="Order"/> ran with; null otherwise.</summary>
     public int? Seed { get; init; }
+
+    /// <summary>The leg (<c>i/n</c>) when the run was one shard of a suite, <c>bobcat run --shard</c> (bobcat#576); null otherwise.</summary>
+    public string? Shard { get; init; }
 
     public DateTimeOffset StartedAt { get; init; }
     public DateTimeOffset FinishedAt { get; init; }
