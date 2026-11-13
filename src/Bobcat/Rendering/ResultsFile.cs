@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -56,6 +57,17 @@ public static class ResultsFile
     /// <summary>The version of the results file's shape. Additive changes keep it; a breaking one moves it.</summary>
     public const string SchemaVersion = "1.0";
 
+    /// <summary>
+    /// The order a supervised run's class partitions ran in — <c>random</c> under
+    /// <c>bobcat run --order random</c> (bobcat#578) — written into the run header so a file read
+    /// later says which shuffle produced it. Set by the supervisor's host for its workers; unset
+    /// for a plain run, whose order is the test framework's.
+    /// </summary>
+    public const string OrderVariable = "BOBCAT_RUN_ORDER";
+
+    /// <summary>The seed a random <see cref="OrderVariable"/> ran with, beside it in the run header.</summary>
+    public const string SeedVariable = "BOBCAT_RUN_SEED";
+
     /// <summary>The schema's file name, in the package under <c>schemas/</c> and beside every results file.</summary>
     public const string SchemaFileName = "bobcat-results-1.0.schema.json";
 
@@ -68,12 +80,28 @@ public static class ResultsFile
     private static string? _directory;
     private static MonitorRunInfo? _run;
     private static DateTimeOffset _startedAt;
+    private static (string? Order, int? Seed) _order;
 
     /// <summary>The directory <see cref="EnvironmentVariable"/> names, or null when unset.</summary>
     public static string? RequestedDirectory
         => Environment.GetEnvironmentVariable(EnvironmentVariable) is { Length: > 0 } directory
             ? directory.Trim()
             : null;
+
+    /// <summary>
+    /// What <see cref="OrderVariable"/> and <see cref="SeedVariable"/> say, or nulls. A seed that is
+    /// not an integer is left off rather than guessed at.
+    /// </summary>
+    internal static (string? Order, int? Seed) RequestedOrder
+    {
+        get
+        {
+            var order = Environment.GetEnvironmentVariable(OrderVariable) is { Length: > 0 } o ? o.Trim() : null;
+            var seed = int.TryParse(Environment.GetEnvironmentVariable(SeedVariable), NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out var s) ? s : (int?)null;
+            return (order, seed);
+        }
+    }
 
     /// <summary>
     /// The directory the open bracket writes into, and its run id, or null when no results file was
@@ -105,6 +133,7 @@ public static class ResultsFile
             _directory = directory;
             _run = directory is null ? null : run;
             _startedAt = DateTimeOffset.UtcNow;
+            _order = RequestedOrder;
 
             if (_run is null || _subscribed) return;
             _subscribed = true;
@@ -123,6 +152,7 @@ public static class ResultsFile
         List<SpecRender> specs;
         List<ProjectedScenarioSample> timings;
         DateTimeOffset startedAt;
+        (string? Order, int? Seed) order;
 
         lock (_gate)
         {
@@ -133,6 +163,7 @@ public static class ResultsFile
             specs = _specs.ToList();
             timings = _timings.ToList();
             startedAt = _startedAt;
+            order = _order;
 
             _run = null;
             _directory = null;
@@ -142,7 +173,7 @@ public static class ResultsFile
 
         try
         {
-            var document = Build(run, startedAt, DateTimeOffset.UtcNow, specs, SuiteTiming.ForProjected(timings));
+            var document = Build(run, startedAt, DateTimeOffset.UtcNow, specs, SuiteTiming.ForProjected(timings), order.Order, order.Seed);
             return Write(directory, run, document);
         }
         catch (Exception e)
@@ -162,7 +193,7 @@ public static class ResultsFile
 
     /// <summary>The whole file, as the model it is serialized from.</summary>
     internal static JsonResultsOutput Build(MonitorRunInfo run, DateTimeOffset startedAt, DateTimeOffset finishedAt,
-        IReadOnlyList<SpecRender> specs, SuiteTiming? timing)
+        IReadOnlyList<SpecRender> specs, SuiteTiming? timing, string? order = null, int? seed = null)
     {
         // Feature, then title -- the console's order, for the same reason: a runner's finishing
         // order changes between runs of an unchanged suite, and two files should diff cleanly.
@@ -190,6 +221,8 @@ public static class ResultsFile
                 Branch = run.Branch,
                 Tag = run.Tag,
                 Command = run.Command,
+                Order = order,
+                Seed = seed,
                 StartedAt = startedAt,
                 FinishedAt = finishedAt,
                 DurationMs = (long)(finishedAt - startedAt).TotalMilliseconds
@@ -386,6 +419,12 @@ internal class JsonRunOutput
 
     [System.ComponentModel.Description("The resident runner command that asked for the run.")]
     public string? Command { get; set; }
+
+    [System.ComponentModel.Description("The order a supervised run's test classes ran in: 'random' under bobcat run --order random; absent for a plain run, whose order is the test framework's.")]
+    public string? Order { get; set; }
+
+    [System.ComponentModel.Description("The seed a random order ran with; run again with --order random --seed <seed>. Absent unless the order was random.")]
+    public int? Seed { get; set; }
 
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset FinishedAt { get; set; }

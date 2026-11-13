@@ -60,6 +60,8 @@ public static class ResultsFileReader
             Branch = run.Branch,
             Tag = run.Tag,
             Command = run.Command,
+            Order = run.Order,
+            Seed = run.Seed,
             StartedAt = run.StartedAt,
             FinishedAt = run.FinishedAt,
             DurationMs = run.DurationMs,
@@ -253,6 +255,13 @@ public sealed class ResultsFileContents
     public string? Branch { get; init; }
     public string? Tag { get; init; }
     public string? Command { get; init; }
+
+    /// <summary><c>random</c> when the run was <c>bobcat run --order random</c> (bobcat#578); null for a plain run or an older file.</summary>
+    public string? Order { get; init; }
+
+    /// <summary>The seed a random <see cref="Order"/> ran with; null otherwise.</summary>
+    public int? Seed { get; init; }
+
     public DateTimeOffset StartedAt { get; init; }
     public DateTimeOffset FinishedAt { get; init; }
     public long DurationMs { get; init; }

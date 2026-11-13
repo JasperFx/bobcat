@@ -241,6 +241,15 @@ public sealed class SupervisorResults
     /// </summary>
     public DurationCoverage? DurationCoverage { get; init; }
 
+    /// <summary>The order the class partitions ran in (bobcat#578): <see cref="Supervisor.Order"/>.</summary>
+    public RunOrder Order { get; init; }
+
+    /// <summary>
+    /// The seed a random <see cref="Order"/> ran with — given, or minted by the run — so the same
+    /// order can be run again. Null for a declared order.
+    /// </summary>
+    public int? Seed { get; init; }
+
     /// <summary>
     /// The per-test durations the lanes were balanced on — <see cref="Supervisor.KnownTestDurations"/>
     /// as it stood when the run began (bobcat#705). Null when none were supplied. Kept so

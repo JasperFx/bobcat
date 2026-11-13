@@ -281,10 +281,113 @@ public class RunFailedAndRepeatTests : IDisposable
         run.Output.ShouldContain("The run was aborted");
     }
 
+    /// <summary>
+    /// The features each results file in <paramref name="directory"/> holds, in the order the files'
+    /// brackets started. A supervised worker writes one file per request, so under a random order
+    /// (one request per class) this is the order the classes ran in — the rendered console sorts
+    /// by feature and says nothing about it.
+    /// </summary>
+    private static string[] featuresByStart(string directory)
+        => Directory.EnumerateFiles(directory, "*.json")
+            .Where(f => !f.EndsWith(".schema.json", StringComparison.Ordinal))
+            .Select(f =>
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(f));
+                var run = document.RootElement.GetProperty("run");
+                var features = document.RootElement.GetProperty("scenarios").EnumerateArray()
+                    .Select(s => s.GetProperty("feature").GetString()!).Distinct().Single();
+                return (StartedAt: run.GetProperty("startedAt").GetDateTimeOffset(), Feature: features,
+                    Order: run.TryGetProperty("order", out var o) ? o.GetString() : null,
+                    Seed: run.TryGetProperty("seed", out var s) && s.ValueKind == JsonValueKind.Number ? s.GetInt32() : (int?)null);
+            })
+            .OrderBy(x => x.StartedAt)
+            .Select(x => $"{x.Feature} ({x.Order}, {x.Seed})")
+            .ToArray();
+
+    /// <summary>
+    /// bobcat#578: a random order runs the classes in the seed's order (one request per class, so the
+    /// framework's own collection order — <c>Basics</c> before <c>Fussy</c> in this worker — does not
+    /// decide), says its seed, stamps it on every worker's results file, and <c>--repeat</c> runs the
+    /// same order from <c>last-run.json</c>.
+    /// </summary>
+    [Fact]
+    public async Task order_random_runs_the_classes_in_the_seeds_order_and_repeat_reproduces_it()
+    {
+        // Two classes, three scenarios: "passes" matches Basics/passes and Basics/also passes. One
+        // --scenario with two values: a second --scenario flag replaces the first in JasperFx's parser.
+        string[] selection = ["--scenario", "passes", "flaky until second attempt"];
+
+        // A seed that puts Fussy first: the worker's own orderer always runs Basics first, so this
+        // is the case only the supervisor's per-class requests can produce.
+        var seed = Enumerable.Range(1, 100).First(s => WorkPlan.Shuffle(["Basics", "Fussy"], s)[0] == "Fussy");
+        var basicsFirst = Enumerable.Range(1, 100).First(s => WorkPlan.Shuffle(["Basics", "Fussy"], s)[0] == "Basics");
+
+        var results = Path.Combine(Path.GetTempPath(), "bobcat-run-order", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var run = await bobcat([.. selection, "--order", "random", "--seed", seed.ToString(), "--results", Path.Combine(results, "first")]);
+            run.ExitCode.ShouldBe(0, run.Output);
+            run.Output.ShouldContain($"Order: random, seed {seed}");
+            run.Output.ShouldContain("3 passed");
+            featuresByStart(Path.Combine(results, "first")).ShouldBe([$"Fussy (random, {seed})", $"Basics (random, {seed})"]);
+
+            recorded()["seed"]!.GetValue<int>().ShouldBe(seed);
+            recorded()["arguments"]!["order"]!.GetValue<string>().ShouldBe("random");
+
+            var again = await bobcat("--repeat", "--results", Path.Combine(results, "again"));
+            again.ExitCode.ShouldBe(0, again.Output);
+            again.Output.ShouldContain($"Order: random, seed {seed}");
+            featuresByStart(Path.Combine(results, "again")).ShouldBe([$"Fussy (random, {seed})", $"Basics (random, {seed})"]);
+            recorded()["seed"]!.GetValue<int>().ShouldBe(seed);
+
+            // The other way round for a seed that keeps Basics first, so the order is the seed's and not an accident.
+            var reversed = await bobcat([.. selection, "--order", "random", "--seed", basicsFirst.ToString(), "--results", Path.Combine(results, "reversed")]);
+            reversed.ExitCode.ShouldBe(0, reversed.Output);
+            featuresByStart(Path.Combine(results, "reversed")).ShouldBe([$"Basics (random, {basicsFirst})", $"Fussy (random, {basicsFirst})"]);
+
+            // And a declared run is one request, one file, with no order of its own.
+            var declared = await bobcat([.. selection, "--workers", "1", "--results", Path.Combine(results, "declared")]);
+            declared.ExitCode.ShouldBe(0, declared.Output);
+            Directory.EnumerateFiles(Path.Combine(results, "declared"), "*.json").Count(f => !f.EndsWith(".schema.json")).ShouldBe(1);
+            using var document = JsonDocument.Parse(File.ReadAllText(Directory.EnumerateFiles(Path.Combine(results, "declared"), "*.json").Single(f => !f.EndsWith(".schema.json"))));
+            document.RootElement.GetProperty("run").TryGetProperty("order", out var order).ShouldBeFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(results)) Directory.Delete(results, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task order_random_without_a_seed_mints_one_and_records_it()
+    {
+        var run = await bobcat("--scenario", "also passes", "--order", "random");
+
+        run.ExitCode.ShouldBe(0, run.Output);
+        run.Output.ShouldContain("Order: random, seed ");
+
+        var seed = recorded()["seed"]!.GetValue<int>();
+        run.Output.ShouldContain($"seed {seed}");
+        recorded()["arguments"]!["order"]!.GetValue<string>().ShouldBe("random");
+    }
+
+    [Fact]
+    public async Task a_declared_run_records_no_seed_and_no_order()
+    {
+        var run = await bobcat("--scenario", "also passes", "--workers", "1");
+
+        run.ExitCode.ShouldBe(0, run.Output);
+        run.Output.ShouldNotContain("Order:");
+        recorded()["seed"].ShouldBeNull();
+        recorded()["arguments"]!["order"].ShouldBeNull();
+    }
+
     [Theory]
     [InlineData("--stall", "soon", "is not a duration")]
     [InlineData("--stall-action", "explode", "is not one of report, kill-and-retry, abort")]
     [InlineData("--workers", "0", "--workers must be 1 or more")]
+    [InlineData("--order", "sideways", "--order 'sideways' is not one of declared, random")]
+    [InlineData("--seed", "5", "--seed needs --order random")]
     public async Task a_bad_supervision_flag_is_refused_before_anything_runs(string flag, string value, string message)
     {
         var refused = await bobcat(flag, value);

@@ -1,4 +1,5 @@
 using Bobcat.Monitoring;
+using Bobcat.Supervisor;
 using JasperFx.CommandLine;
 using Spectre.Console;
 
@@ -120,9 +121,17 @@ public class SpecRunInput : SpecInput
     [FlagAlias("stall-action", true)]
     public string? StallActionFlag { get; set; }
 
+    [Description("Supervised: the order the test classes run in -- declared (the default), or random: the classes are shuffled and dealt over the lanes, never the tests inside a class")]
+    [FlagAlias("order", true)]
+    public string? OrderFlag { get; set; }
+
+    [Description("Supervised: the seed a random order is reproduced from; printed by every random run and replayed by --repeat. Needs --order random")]
+    [FlagAlias("seed", true)]
+    public int? SeedFlag { get; set; }
+
     /// <summary>The supervision the flags ask for; null for a plain run.</summary>
     internal Supervision? Supervision(out string? refusal)
-        => Specs.Supervision.From(RetriesFlag, WorkersFlag, StallFlag, StallActionFlag, out refusal);
+        => Specs.Supervision.From(RetriesFlag, WorkersFlag, StallFlag, StallActionFlag, OrderFlag, SeedFlag, out refusal);
 }
 
 /// <summary>
@@ -202,6 +211,11 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
             input.WorkersFlag ??= recorded.Workers;
             input.StallFlag ??= recorded.Stall;
             input.StallActionFlag ??= recorded.StallAction;
+
+            // The seed is what makes --repeat of a random run the same run (bobcat#578); a --seed given
+            // now wins, and a different --order now makes the seed moot or refused as it would anywhere.
+            input.OrderFlag ??= recorded.Order;
+            if (input.OrderFlag is not null) input.SeedFlag ??= last!.Seed;
             input.RouteConsole();
 
             project = await input.ProjectAsync();
@@ -214,7 +228,7 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
             // A supervised run writes a results file per worker request, so there is no one file
             // to put on standard output; they all go to --results.
             AnsiConsole.MarkupLine("[red]--json prints one results file, and a supervised run (--retries, --workers, --stall, "
-                                   + "--stall-action) writes one per worker. Use --results <dir> to keep them all.[/]");
+                                   + "--stall-action, --order, --seed) writes one per worker request. Use --results <dir> to keep them all.[/]");
             return false;
         }
 
@@ -277,6 +291,7 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
                 ExitCode = outcome.ExitCode,
                 ResultsRead = outcome.ResultsRead,
                 Failed = outcome.Failed.ToList(),
+                Seed = supervision?.Seed,
                 Arguments = new LastRunArguments
                 {
                     Framework = project.Framework,
@@ -290,7 +305,8 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
                     Retries = supervision?.Retries,
                     Workers = supervision?.Workers,
                     Stall = supervision is null ? null : input.StallFlag,
-                    StallAction = supervision is null ? null : Specs.Supervision.Spell(supervision.StallAction)
+                    StallAction = supervision is null ? null : Specs.Supervision.Spell(supervision.StallAction),
+                    Order = supervision is null || supervision.Order == RunOrder.Declared ? null : RunReport.Spell(supervision.Order)
                 }
             }.Write(path);
         }

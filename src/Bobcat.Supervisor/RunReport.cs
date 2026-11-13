@@ -18,6 +18,16 @@ namespace Bobcat.Supervisor;
 public static partial class RunReport
 {
     /// <summary>The human view.</summary>
+    /// <summary>
+    /// The one sentence a random order is announced with (bobcat#578) — at the top of the run and in
+    /// the report, the same words, so a seed is found by the same eye in either place.
+    /// </summary>
+    public static string OrderLine(int? seed)
+        => $"Order: random, seed {seed} (class partitions shuffled and dealt round-robin over the lanes; tests inside a class keep their order; run again with --order random --seed {seed})";
+
+    /// <summary>The spelling <c>--order</c> takes and the JSON report carries: <c>declared</c> or <c>random</c>.</summary>
+    public static string Spell(RunOrder order) => order == RunOrder.Random ? "random" : "declared";
+
     public static string ToText(SupervisorResults results)
     {
         var report = new StringBuilder();
@@ -39,6 +49,13 @@ public static partial class RunReport
         if (results.DurationCoverage is { } coverage)
         {
             report.AppendLine(coverage.ToString());
+        }
+
+        // The seed is the way back to this order (bobcat#578): a coupling found under one shuffle is
+        // reproduced with `--order random --seed N`, and a run that does not say its seed cannot be.
+        if (results.Order == RunOrder.Random)
+        {
+            report.AppendLine(OrderLine(results.Seed));
         }
 
         // Stalls lead, beside the retries (bobcat#704): a stalled test that eventually passed
@@ -480,6 +497,8 @@ public static partial class RunReport
                     ["tests"] = coverage.Tests,
                     ["balancedBy"] = coverage.BalancedByCount ? "count" : "duration"
                 },
+            ["order"] = Spell(results.Order),
+            ["seed"] = results.Seed,
             ["timing"] = describe(RunTiming.For(results)),
             ["memory"] = describe(RunResources.For(results)),
             ["stalled"] = new JsonArray(results.StalledTests.Select(s => (JsonNode)new JsonObject

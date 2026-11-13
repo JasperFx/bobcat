@@ -200,6 +200,40 @@ Append-only. One entry per discussion: date, candidate ids, who decided, what, a
 - **1.0 hook:** C3's `obj/bobcat/last-run.json` reserves a `seed` field now, so `--repeat` needs no
   format change when this lands.
 
+### 2026-11-13 — C8 decisions, as shipped (bobcat#578)
+
+- **Round-robin, not balanced.** `WorkPlan.Build(…, RunOrder.Random, seed)` sorts the partition keys
+  ordinally (so discovery order cannot leak into the result), Fisher–Yates shuffles them, and deals
+  them round-robin over the lanes. No LPT: balancing would put the shuffled classes back into nearly
+  the same lanes every run. A random run is for finding coupling, not speed, and is documented as
+  slower than a balanced one. Isolated tests are untouched (their own process, as before).
+- **PRNG is Bobcat's own** (`SeededRandom`, SplitMix64), because `System.Random`'s sequence for a
+  seed is not stable across .NET versions and a seed printed on CI has to reproduce on a laptop.
+  `WorkPlanTests.the_shuffle_for_a_seed_is_pinned_and_never_changes` holds literal orders for three
+  seeds; changing the generator breaks every recorded seed and is a breaking change by definition.
+- **One request per class partition, in order (`Supervisor.runPartitionsInOrder`).** Not in the
+  original note. One `testing/runTests` request per lane leaves the order inside it to the test
+  framework — xUnit runs a filtered set in its own collection order, and `Bobcat.Supervisor.ProjectedWorker`
+  always ran `Basics` before `Fussy` whatever the request said — so a one-worker random run would
+  have shuffled nothing. The request is the only unit whose order the supervisor owns. A declared
+  order keeps exactly one request per lane, byte for byte. A worker that dies (or is killed to clear
+  a stall or heal a track) mid-lane ends the lane there; the partitions it never reached are
+  completed `Indeterminate` with the same fault, the shape a crash already produces, so recording
+  and the stall kill's innocent-batch-mate rule read a lane the same way whichever shape it ran in.
+  This is also the seam C7 (lazy distribution) will reuse: successive requests into one live worker.
+- **Seed is minted once, by the tool**, when `--order random` has no `--seed`, so the line at the top
+  of the run, the supervisor's plan, every worker's results file header (`BOBCAT_RUN_ORDER` /
+  `BOBCAT_RUN_SEED`, additive `run.order` / `run.seed` in the schema; `SchemaVersion` unmoved) and
+  `last-run.json` (`seed`, `arguments.order`) carry the same number. `--repeat` passes both back.
+  `Supervisor.Seed = null` mints one in C# too, reported on `SupervisorResults.Seed`.
+- **Refusals:** `--seed` without `--order random` ("a declared order has no seed"); `--order` that is
+  not `declared`/`random`. Both long-only (`-s` had already gone long-only three ways over).
+- **Not on the monitor wire** this pass: the results file and `RunReport` (text `Order: random, seed N
+  (…run again with --order random --seed N)`, JSON `order`/`seed`) carry it; `run_started` gains a
+  field only when `bobcat ui` renders it.
+- **Shard + random (C6):** mix the leg index into the seed, so two legs do not start on the same
+  class at the same moment — still the recommendation, to be done with C6.
+
 ### 2026-10-16 — C9, vocabulary usage (Jeremy) — **post-1.0, with #552**
 
 - Extend `bobcat vocabulary` (#552): `--usage` lists each step helper's calls, specs and p95
