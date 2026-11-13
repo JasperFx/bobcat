@@ -358,6 +358,51 @@ public class RunFailedAndRepeatTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// bobcat#577: <c>--distribution lazy</c> pulls one class per request (so one results file per
+    /// class, each saying it was lazy), says so at the top of the run, and <c>--repeat</c> runs lazy again.
+    /// </summary>
+    [Fact]
+    public async Task distribution_lazy_pulls_one_class_per_request_and_repeat_replays_it()
+    {
+        string[] selection = ["--scenario", "passes", "flaky until second attempt"];
+        var results = Path.Combine(Path.GetTempPath(), "bobcat-run-lazy", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var run = await bobcat([.. selection, "--distribution", "lazy", "--results", Path.Combine(results, "first")]);
+            run.ExitCode.ShouldBe(0, run.Output);
+            run.Output.ShouldContain(RunReport.DistributionLine);
+            run.Output.ShouldContain("3 passed");
+
+            var files = Directory.EnumerateFiles(Path.Combine(results, "first"), "*.json")
+                .Where(f => !f.EndsWith(".schema.json", StringComparison.Ordinal)).ToList();
+            files.Count.ShouldBe(2);
+            foreach (var file in files)
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(file));
+                document.RootElement.GetProperty("run").GetProperty("distribution").GetString().ShouldBe("lazy");
+            }
+
+            recorded()["arguments"]!["distribution"]!.GetValue<string>().ShouldBe("lazy");
+            recorded()["arguments"]!["workers"]!.GetValue<int>().ShouldBe(1);
+
+            var again = await bobcat("--repeat");
+            again.ExitCode.ShouldBe(0, again.Output);
+            again.Output.ShouldContain(RunReport.DistributionLine);
+            recorded()["arguments"]!["distribution"]!.GetValue<string>().ShouldBe("lazy");
+
+            // Eager, the default, says nothing and records nothing.
+            var eager = await bobcat([.. selection, "--workers", "1"]);
+            eager.ExitCode.ShouldBe(0, eager.Output);
+            eager.Output.ShouldNotContain("Distribution:");
+            recorded()["arguments"]!["distribution"].ShouldBeNull();
+        }
+        finally
+        {
+            if (Directory.Exists(results)) Directory.Delete(results, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task order_random_without_a_seed_mints_one_and_records_it()
     {
@@ -392,6 +437,7 @@ public class RunFailedAndRepeatTests : IDisposable
     [InlineData("--shard", "0/4", "the leg must be between 1 and 4")]
     [InlineData("--shard", "5/4", "the leg must be between 1 and 4")]
     [InlineData("--shard", "1/0", "the number of legs must be 1 or more")]
+    [InlineData("--distribution", "sideways", "--distribution 'sideways' is not one of eager, lazy")]
     public async Task a_bad_supervision_flag_is_refused_before_anything_runs(string flag, string value, string message)
     {
         var refused = await bobcat(flag, value);

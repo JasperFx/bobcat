@@ -420,6 +420,58 @@ public class SupervisorEndToEndTests : IDisposable
         results.FailedInBoth.ShouldHaveSingleItem().DisplayName.ShouldEndWith(".Basics.always_fails");
     }
 
+    /// <summary>
+    /// bobcat#577 over real workers: lazy pulls one class per <c>testing/runTests</c> request into each
+    /// lane's long-lived process, and reaches the same verdicts as eager with the same processes.
+    /// </summary>
+    [Fact]
+    public async Task lazy_distribution_reaches_the_same_verdicts_as_eager_on_the_same_number_of_processes()
+    {
+        async Task<SupervisorResults> run(Distribution distribution)
+        {
+            var supervisor = new Supervisor(factory(new Dictionary<string, string>
+            {
+                ["BOBCAT_FLAKY_STATE"] = tempFile()
+            }))
+            {
+                Distribution = distribution,
+                MaxParallelWorkers = 2,
+                RetryBudget = new RetryBudget { MaxAttemptsPerTest = 3 }
+            };
+
+            return await supervisor.Run();
+        }
+
+        var eager = await run(Distribution.Eager);
+        var lazy = await run(Distribution.Lazy);
+
+        // The shape docs/parallel-ready-suites.md shows, over the real worker.
+        var hostPath = workerPath;
+
+        // #region supervisor-lazy
+        var supervisor = new Supervisor(new MtpWorkerFactory(hostPath))
+        {
+            MaxParallelWorkers = 4,
+            Distribution = Distribution.Lazy
+        };
+        // #endregion supervisor-lazy
+
+        (await supervisor.Run()).Distribution.ShouldBe(Distribution.Lazy);
+
+        lazy.Distribution.ShouldBe(Distribution.Lazy);
+        lazy.Tests.Select(t => (t.DisplayName, t.Outcome))
+            .ShouldBe(eager.Tests.Select(t => (t.DisplayName, t.Outcome)));
+        named(lazy, "Fussy.flaky_until_second_attempt").Outcome.ShouldBe(RunOutcome.PassOnRetry);
+
+        // One process per lane however many classes it pulled: no class costs a launch of its own.
+        lazy.WorkersLaunched.ShouldBe(eager.WorkersLaunched);
+
+        // Every batched class was pulled by some lane, whole.
+        var pulled = lazy.LanePlan.SelectMany(l => l.Partitions).ToList();
+        pulled.ShouldBeUnique();
+        pulled.ShouldBe(eager.LanePlan.SelectMany(l => l.Partitions).Order(StringComparer.Ordinal), ignoreOrder: true);
+    }
+
     /// <summary>The smallest host program docs/parallel-ready-suites.md shows, over the real worker.</summary>
     [Fact]
     public async Task the_smallest_host_program_runs_the_suite_on_lanes_with_a_retry_budget()

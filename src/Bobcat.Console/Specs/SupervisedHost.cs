@@ -25,8 +25,12 @@ namespace Bobcat.Console.Specs;
 /// A test ledger file whose known durations balance the lanes and the legs (<c>--ledger</c>), read and
 /// never written; null balances by test count.
 /// </param>
+/// <param name="Distribution">
+/// How the class partitions reach the lanes (bobcat#577, <c>--distribution eager|lazy</c>); eager by default.
+/// </param>
 internal sealed record Supervision(int Retries, int Workers, TimeSpan Stall, StallAction StallAction,
-    RunOrder Order = RunOrder.Declared, int? Seed = null, RunShard? Shard = null, string? Ledger = null)
+    RunOrder Order = RunOrder.Declared, int? Seed = null, RunShard? Shard = null, string? Ledger = null,
+    Distribution Distribution = Distribution.Eager)
 {
     /// <summary>
     /// How long a test may be in flight before a supervised run names it, when <c>--stall</c> does not
@@ -47,10 +51,21 @@ internal sealed record Supervision(int Retries, int Workers, TimeSpan Stall, Sta
 
     public static Supervision? From(int? retries, int? workers, string? stall, string? stallAction,
         string? order, int? seed, string? shard, string? ledger, out string? refusal)
+        => From(retries, workers, stall, stallAction, order, seed, shard, ledger, distribution: null, out refusal);
+
+    public static Supervision? From(int? retries, int? workers, string? stall, string? stallAction,
+        string? order, int? seed, string? shard, string? ledger, string? distribution, out string? refusal)
     {
         refusal = null;
         if (retries is null && workers is null && stall is null && stallAction is null && order is null && seed is null
-            && shard is null && ledger is null) return null;
+            && shard is null && ledger is null && distribution is null) return null;
+
+        var runDistribution = Distribution.Eager;
+        if (distribution is not null && !TryParseDistribution(distribution, out runDistribution))
+        {
+            refusal = $"--distribution '{distribution}' is not one of eager, lazy.";
+            return null;
+        }
 
         RunShard? leg = null;
         if (shard is not null)
@@ -102,7 +117,23 @@ internal sealed record Supervision(int Retries, int Workers, TimeSpan Stall, Sta
         // results files and last-run.json all carry the same seed.
         return new Supervision(retries ?? 0, workers ?? 1, threshold, action, runOrder,
             runOrder == RunOrder.Random ? seed ?? Random.Shared.Next() : null, leg,
-            ledger is { Length: > 0 } ? Path.GetFullPath(ledger) : null);
+            ledger is { Length: > 0 } ? Path.GetFullPath(ledger) : null, runDistribution);
+    }
+
+    public static bool TryParseDistribution(string text, out Distribution distribution)
+    {
+        switch (text.Trim().ToLowerInvariant())
+        {
+            case "eager":
+                distribution = Distribution.Eager;
+                return true;
+            case "lazy":
+                distribution = Distribution.Lazy;
+                return true;
+            default:
+                distribution = Distribution.Eager;
+                return false;
+        }
     }
 
     public static bool TryParseOrder(string text, out RunOrder order)
@@ -242,6 +273,12 @@ internal static class SupervisedHost
         // And the leg (bobcat#576), so the legs' files folded into one page each say where they came from.
         if (supervision.Shard is { } shard) environment[ResultsFile.ShardVariable] = shard.ToString();
 
+        // And a lazy distribution (bobcat#577), whose process sharing depended on timing.
+        if (supervision.Distribution == Distribution.Lazy)
+        {
+            environment[ResultsFile.DistributionVariable] = RunReport.Spell(supervision.Distribution);
+        }
+
         // Read, never written (bobcat#576): the ledger balances the lanes and, under --shard, the legs.
         // A missing file is a first run and balances by count; an unreadable one is refused, because a
         // leg that silently balanced by count while its siblings read the ledger would split differently.
@@ -291,6 +328,7 @@ internal static class SupervisedHost
             Order = supervision.Order,
             Seed = supervision.Seed,
             Shard = supervision.Shard,
+            Distribution = supervision.Distribution,
             KnownTestDurations = known,
             Specifications = SpecSelection.Of(identities),
 
@@ -309,11 +347,13 @@ internal static class SupervisedHost
         // At the top, before anything runs: a run that hangs or is cut short has still said its seed.
         // Plain Console, not Spectre, so the sentence is one greppable line rather than wrapped at the width.
         if (supervision.Seed is { } announced) System.Console.WriteLine(RunReport.OrderLine(announced));
+        if (supervision.Distribution == Distribution.Lazy) System.Console.WriteLine(RunReport.DistributionLine);
 
         var outcome = await AnsiConsole.Status().StartAsync(
             $"Running {project.Name} supervised ({lanes}, retries {supervision.Retries}, stall {describe(supervision)}"
             + (supervision.Seed is { } s ? $", order random seed {s}" : "")
-            + (supervision.Shard is { } leg ? $", shard {leg}" : "") + ")…",
+            + (supervision.Shard is { } leg ? $", shard {leg}" : "")
+            + (supervision.Distribution == Distribution.Lazy ? ", lazy distribution" : "") + ")…",
             _ => supervisor.Run(token));
 
         foreach (var file in Directory.EnumerateFiles(renders, "*.ansi").Order(StringComparer.Ordinal))

@@ -734,6 +734,40 @@ figures as `timing.runnerSpeed` and `timing.lanePlan`. Report, don't act.
 Balancing cannot go below the largest class (see the ceiling under "Measured so far"). The Timing
 section names that class, and that is the class to split or speed up.
 
+### 4. Lazy distribution when the estimates are wrong
+
+`Supervisor.Distribution = Distribution.Lazy` (`bobcat run --distribution lazy`, bobcat#577) plans
+nothing ahead. The classes wait in one queue, longest first by the same estimates, and each lane
+pulls the next class whenever its worker is free, one request per class into the same long-lived
+process. A lane that drew short classes takes more of them, so a first run with no ledger, or a
+ledger from a faster machine, still finishes its lanes close together. Classes are never split, and
+a lazy run launches as many processes as an eager one.
+
+<<< ../src/Bobcat.Supervisor.Tests/SupervisorEndToEndTests.cs#supervisor-lazy{cs}
+
+The trade: **which classes share a process depends on timing**, so two lazy runs of one suite can
+pair different classes. That surfaces coupling between classes, but not reproducibly; reproduce one
+with `--order random --seed N`. The report stays deterministic: results are recorded in the order the
+classes left the queue, never the order they finished, and a same-process retry returns to the lane
+that ran the class. A stall kill or a heal takes down only the class in flight; the lane relaunches
+its worker and keeps pulling, and classes still queued during a heal run after it. The report's
+Timing section heads the lanes "lanes as pulled (distribution: lazy, nothing planned)" and drops the
+predictions, because nothing acted on them.
+
+Measured on this repository's `Bobcat.Tests` (1231 tests, a plain xUnit v3 host) at 4 workers on an
+M-series Mac, two rounds each, wall clock of the whole run:
+
+| | Eager | Lazy |
+|---|---|---|
+| No ledger | 11.0s (lanes 1.4 / 0.5 / 0.8 / 10.5s) | 10.9s (lanes 3.0 / 2.8 / 2.7 / 10.4s) |
+| Ledger from the previous run | 8.8–8.9s (lanes 8.3 / 2.7 / 1.4 / 0.8s) | 8.8s (lanes 8.3 / 3.6 / 3.6 / 3.6s) |
+
+Lazy evened out the lanes it could and the wall clock did not move, because one class of about 8
+seconds sets the floor; without a ledger it is pulled late and the floor rises to 10.5s under either
+distribution. One request per class cost nothing measurable. So lazy is a hedge for wrong estimates
+on a suite with many classes of similar weight, not a speed-up for a suite one class dominates: that
+class is still the one to split. Eager stays the default because its plan is reproducible.
+
 ## Environment checks: run under the supervisor
 
 <!-- JEREMY -->

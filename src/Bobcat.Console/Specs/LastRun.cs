@@ -151,4 +151,7 @@ internal sealed class LastRunArguments
 
     /// <summary>The <c>--ledger</c> file the lanes and legs were balanced from, as a full path; null otherwise. Additive.</summary>
     public string? Ledger { get; set; }
+
+    /// <summary><c>lazy</c> when the run was <c>--distribution lazy</c> (bobcat#577); null for the default (eager). Additive.</summary>
+    public string? Distribution { get; set; }
 }

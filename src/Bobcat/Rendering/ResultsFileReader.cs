@@ -63,6 +63,7 @@ public static class ResultsFileReader
             Order = run.Order,
             Seed = run.Seed,
             Shard = run.Shard,
+            Distribution = run.Distribution,
             StartedAt = run.StartedAt,
             FinishedAt = run.FinishedAt,
             DurationMs = run.DurationMs,
@@ -265,6 +266,9 @@ public sealed class ResultsFileContents
 
     /// <summary>The leg (<c>i/n</c>) when the run was one shard of a suite, <c>bobcat run --shard</c> (bobcat#576); null otherwise.</summary>
     public string? Shard { get; init; }
+
+    /// <summary><c>lazy</c> when the run was <c>bobcat run --distribution lazy</c> (bobcat#577); null for the default (eager), a plain run or an older file.</summary>
+    public string? Distribution { get; init; }
 
     public DateTimeOffset StartedAt { get; init; }
     public DateTimeOffset FinishedAt { get; init; }

@@ -119,7 +119,23 @@ public class ResultsFileReaderTests
 
         contents.Shard.ShouldBe("2/4");
         contents.Order.ShouldBeNull();
+        contents.Distribution.ShouldBeNull();
         json.ShouldContain("\"shard\": \"2/4\"");
+    }
+
+    [Fact]
+    public void a_lazy_distribution_is_read_back_from_the_run_header()
+    {
+        // bobcat#577: a lazy run's process sharing depended on timing, and its files say so.
+        var run = new MonitorRunInfo(Guid.NewGuid(), "My.Specs", "/repo", "main", "xunit");
+        var started = new DateTimeOffset(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
+        var json = ResultsFile.Serialize(ResultsFile.Build(run, started, started.AddSeconds(1), [everything()], null, distribution: "lazy"));
+
+        var contents = ResultsFileReader.Read(json);
+
+        contents.Distribution.ShouldBe("lazy");
+        contents.Shard.ShouldBeNull();
+        json.ShouldContain("\"distribution\": \"lazy\"");
     }
 
     [Fact]

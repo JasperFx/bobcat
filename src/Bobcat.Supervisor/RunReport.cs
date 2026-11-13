@@ -28,6 +28,15 @@ public static partial class RunReport
     /// <summary>The spelling <c>--order</c> takes and the JSON report carries: <c>declared</c> or <c>random</c>.</summary>
     public static string Spell(RunOrder order) => order == RunOrder.Random ? "random" : "declared";
 
+    /// <summary>The spelling <c>--distribution</c> takes and the JSON report carries: <c>eager</c> or <c>lazy</c> (bobcat#577).</summary>
+    public static string Spell(Distribution distribution) => distribution == Distribution.Lazy ? "lazy" : "eager";
+
+    /// <summary>
+    /// The sentence a lazy run is announced with (bobcat#577), at the top of the run and in the report.
+    /// </summary>
+    public const string DistributionLine =
+        "Distribution: lazy (lanes pulled class partitions from a longest-first queue; which classes shared a process depended on timing; results recorded in queue order)";
+
     public static string ToText(SupervisorResults results)
     {
         var report = new StringBuilder();
@@ -63,6 +72,13 @@ public static partial class RunReport
         if (results.ShardLeg is { } leg)
         {
             report.AppendLine(leg.ToString());
+        }
+
+        // A lazy run's process sharing depended on timing (bobcat#577); a reader comparing two runs'
+        // lane sections has to know they were not planned.
+        if (results.Distribution == Distribution.Lazy)
+        {
+            report.AppendLine(DistributionLine);
         }
 
         // Stalls lead, beside the retries (bobcat#704): a stalled test that eventually passed
@@ -239,7 +255,7 @@ public static partial class RunReport
                               $"{RunTiming.Humanize(speed.Known)} known; above 1 is slower)");
         }
 
-        lanePlan(report, timing);
+        lanePlan(report, timing, results.Distribution);
 
         report.AppendLine("  Slowest:");
         foreach (var test in slowest)
@@ -259,15 +275,20 @@ public static partial class RunReport
     /// The first pass's lanes, predicted against realised (bobcat#705). Report, don't act: this is
     /// the evidence for whether duration balancing helped, with the runner's speed taken out.
     /// </summary>
-    private static void lanePlan(StringBuilder report, RunTiming timing)
+    private static void lanePlan(StringBuilder report, RunTiming timing, Distribution distribution)
     {
         if (timing.LanePlan.Count < 2) return;
 
-        var line = new StringBuilder(timing.BalancedByDuration
-            ? $"  • lane plan (balanced by duration): predicted makespan {RunTiming.Humanize(timing.PredictedMakespan!.Value)}"
-            : "  • lane plan (balanced by test count, so no predicted time)");
+        // A lazy run planned nothing (bobcat#577): its lanes are what each one pulled, and the
+        // estimates summed over them are not a prediction anyone acted on.
+        var line = new StringBuilder(distribution == Distribution.Lazy
+            ? "  • lanes as pulled (distribution: lazy, nothing planned)"
+            : timing.BalancedByDuration
+                ? $"  • lane plan (balanced by duration): predicted makespan {RunTiming.Humanize(timing.PredictedMakespan!.Value)}"
+                : "  • lane plan (balanced by test count, so no predicted time)");
 
-        if (timing.SpeedAdjustedMakespan is { } adjusted)
+        var lazy = distribution == Distribution.Lazy;
+        if (!lazy && timing.SpeedAdjustedMakespan is { } adjusted)
         {
             line.Append($" ({RunTiming.Humanize(adjusted)} at this runner's speed)");
         }
@@ -275,7 +296,7 @@ public static partial class RunReport
         line.Append($", realised {RunTiming.Humanize(timing.RealisedMakespan!.Value)} of test time");
         if (timing.RealisedLaneWallClock is { } wall) line.Append($" in {RunTiming.Humanize(wall)} of lane wall clock");
 
-        if (timing.PredictedImbalance is { } predicted && timing.RealisedImbalance is { } realised)
+        if (!lazy && timing.PredictedImbalance is { } predicted && timing.RealisedImbalance is { } realised)
         {
             line.Append($"; slowest lane over the mean {ratio(predicted)} planned, {ratio(realised)} realised");
         }
@@ -286,7 +307,7 @@ public static partial class RunReport
         {
             report.AppendLine(
                 $"    • lane {lane.Index}: {lane.Tests} test(s)" +
-                (lane.Predicted is { } p ? $", predicted {RunTiming.Humanize(p)}" : "") +
+                (!lazy && lane.Predicted is { } p ? $", predicted {RunTiming.Humanize(p)}" : "") +
                 $", test time {RunTiming.Humanize(lane.TestTime)}" +
                 (lane.Elapsed is { } e ? $", wall clock {RunTiming.Humanize(e)}" : ""));
         }
@@ -506,6 +527,7 @@ public static partial class RunReport
                 },
             ["order"] = Spell(results.Order),
             ["seed"] = results.Seed,
+            ["distribution"] = Spell(results.Distribution),
             ["shard"] = results.ShardLeg is not { } leg
                 ? null
                 : new JsonObject
