@@ -92,6 +92,56 @@ public class RunnerSpecificationsTests
         (RunnerEndpoints.Specifications("nobody", new RunnerRegistry()) as Microsoft.AspNetCore.Http.IStatusCodeHttpResult)!
             .StatusCode.ShouldBe(404);
     }
+
+    [Fact]
+    public void a_steps_constant_table_rides_beside_the_steps_keyed_by_index()
+    {
+        // bobcat#827: the runner page draws it as a grid under the step
+        var runners = new RunnerRegistry();
+        runners.Register(new RunnerRegistered("r-1", "/code/loans", "main", "Loans.Specs", "projected", null,
+            ["Underwriting/the rules", "Underwriting/a plain one"],
+            [
+                new RunnerSpecOutline("Underwriting/the rules", ["Given a policy", "Then the decisions are"],
+                    [new RunnerSpecTable(1, ["Credit Score", "Decision"], [["579", "Decline"], ["580", "Approve"]])]),
+                new RunnerSpecOutline("Underwriting/a plain one", ["Then the total is {total}"])
+            ]), null);
+
+        var listed = runners.SpecificationsOf("r-1").ShouldNotBeNull();
+
+        var tabled = listed.Single(x => x.Scenario == "the rules");
+        var table = tabled.Tables.ShouldNotBeNull().Single();
+        table.Step.ShouldBe(1);
+        table.Headers.ShouldBe(["Credit Score", "Decision"]);
+        table.Rows[1].ShouldBe(["580", "Approve"]);
+
+        listed.Single(x => x.Scenario == "a plain one").Tables.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_registration_from_bobcat_reads_its_tables_and_one_from_before_them_reads_as_before()
+    {
+        // The shape Bobcat's RunnerWireContractTests pin, read through this side's options
+        const string withTables = """
+            {"runnerId":"r1","repository":"/repo","branch":"main","suite":"Orders.Specs","lane":"projected",
+             "modes":["cold"],"specs":["Orders/the rules"],
+             "outline":[{"identity":"Orders/the rules","steps":["Given a policy","Then the decisions are"],
+                         "tables":[{"step":1,"headers":["Credit Score","Decision"],"rows":[["579","Decline"]]}]}]}
+            """;
+        const string before = """
+            {"runnerId":"r1","repository":"/repo","branch":"main","suite":"Orders.Specs","lane":"projected",
+             "modes":["cold"],"specs":["Orders/the rules"],
+             "outline":[{"identity":"Orders/the rules","steps":["Given a policy"]}]}
+            """;
+
+        var read = JsonSerializer.Deserialize<RunnerRegistered>(withTables, RunnerWire.Json).ShouldNotBeNull();
+        var table = read.Outline.ShouldNotBeNull().Single().Tables.ShouldNotBeNull().Single();
+        table.Step.ShouldBe(1);
+        table.Headers.ShouldBe(["Credit Score", "Decision"]);
+        table.Rows.Single().ShouldBe(["579", "Decline"]);
+
+        JsonSerializer.Deserialize<RunnerRegistered>(before, RunnerWire.Json).ShouldNotBeNull()
+            .Outline.ShouldNotBeNull().Single().Tables.ShouldBeNull();
+    }
 }
 
 /// <summary>

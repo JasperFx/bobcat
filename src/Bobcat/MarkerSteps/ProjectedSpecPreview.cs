@@ -130,7 +130,12 @@ public static class ProjectedSpecPreview
 
             // No arguments: a call site's argument VALUES are runtime facts, and the preview's job
             // is to say which grammar the step resolves to, not to guess what it will be handed.
-            Binding = new StepBinding(type, method, planned.Template)
+            Binding = new StepBinding(type, method, planned.Template),
+
+            // ...except a table written as a constant at the call site (bobcat#827), which is as much
+            // a build fact as the template is: the rows are the specification, and they are read
+            // through the same parser the run uses.
+            Table = planned.ParsedTable()
         };
     }
 }

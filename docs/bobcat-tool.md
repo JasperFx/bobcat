@@ -48,7 +48,11 @@ All green in 0.6s · host log: /var/folders/…/bobcat-tool/Bobcat.Xunit.Samples
 ```
 
 `bobcat preview` prints every specification with the steps it declares, each step's template with
-its placeholders unfilled, and the helper it binds to, because nothing has run:
+its placeholders unfilled, and the helper it binds to, because nothing has run. The one argument it
+does show is a table written as a constant at the call site — a raw string literal, or a `nameof`
+interpolation — because that is a build fact like the template, and for a table step the rows are
+the specification. It is drawn as a grid under the step with no verdict column; a table built at run
+time or passed through a variable previews as the sentence only (bobcat#827):
 
 ```
 $ bobcat preview src/Bobcat.Xunit.Samples
@@ -81,6 +85,20 @@ Feature: Withdrawals
         ↳ ShouldBeBooleanExtensions.ShouldBeFalse
       ○ Then  account.Balance should be 100
         ↳ ShouldBeTestExtensions.ShouldBe
+  …
+Feature: Tables
+════════════════
+  a decision table with a wrong answer
+  ──────────────────────────────────────────────
+      ○ Then  adding numbers together
+        ↳ RosterGrammar.AddingNumbersTogether
+╭───┬───┬───┬─────╮
+│ # │ x │ y │ sum │
+├───┼───┼───┼─────┤
+│ 1 │ 1 │ 1 │ 2   │
+│ 2 │ 3 │ 4 │ 7   │
+│ 3 │ 2 │ 2 │ 5   │
+╰───┴───┴───┴─────╯
   …
 ```
 

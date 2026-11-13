@@ -69,4 +69,28 @@ describe('RunnerView', () => {
 
     expect(wrapper.find('[data-testid="no-outline"]').exists()).toBe(true)
   })
+
+  it("draws a step's constant table as a grid under that step, and nothing under a step without one (bobcat#827)", async () => {
+    specs = [
+      {
+        identity: 'Underwriting/the underwriting rules', feature: 'Underwriting', scenario: 'the underwriting rules',
+        steps: ['Given a policy', 'Then the underwriting decisions are'],
+        tables: [{ step: 1, headers: ['Credit Score', 'Decision'], rows: [['579', 'Decline'], ['580', 'Approve']] }],
+      },
+      { identity: 'Underwriting/a plain one', feature: 'Underwriting', scenario: 'a plain one', steps: ['Then the total is {total}'] },
+    ]
+    const wrapper = render()
+    await flushPromises()
+
+    const tables = wrapper.findAll('[data-testid="spec-table"]')
+    expect(tables).toHaveLength(1)
+    expect(tables[0]!.findAll('th').map((th) => th.text())).toEqual(['Credit Score', 'Decision'])
+    expect(tables[0]!.findAll('tbody tr')).toHaveLength(2)
+    expect(tables[0]!.findAll('tbody tr')[1]!.findAll('td').map((td) => td.text())).toEqual(['580', 'Approve'])
+
+    // Under its own step, not the first one
+    const steps = wrapper.findAll('[data-testid="spec"]')[0]!.findAll('li')
+    expect(steps[0]!.find('[data-testid="spec-table"]').exists()).toBe(false)
+    expect(steps[1]!.find('[data-testid="spec-table"]').exists()).toBe(true)
+  })
 })

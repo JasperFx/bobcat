@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import RunButton from '@/components/RunButton.vue'
-import { loadRunner, loadRunnerSpecs, runnerState, type RunnerSpecView, type RunnerView } from '@/lib/runners'
+import { loadRunner, loadRunnerSpecs, runnerState, tableFor, type RunnerSpecView, type RunnerView } from '@/lib/runners'
 import { useRunnersStore } from '@/stores/runners-store'
 
 /**
@@ -90,7 +90,23 @@ function where(found: RunnerView): string {
           <RunButton :target="{ specs: [spec.identity] }" label="Run" text />
         </div>
         <ol v-if="spec.steps.length > 0" class="bm-spec-steps">
-          <li v-for="(step, index) in spec.steps" :key="index">{{ step }}</li>
+          <li v-for="(step, index) in spec.steps" :key="index">
+            {{ step }}
+            <!-- bobcat#827: a table written as a constant at the call site is shown as the grid it is,
+                 unjudged — nothing has run, so there is no verdict column. -->
+            <table v-if="tableFor(spec, index)" class="bm-spec-table" data-testid="spec-table">
+              <thead>
+                <tr>
+                  <th v-for="(header, h) in tableFor(spec, index)!.headers" :key="h">{{ header }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, r) in tableFor(spec, index)!.rows" :key="r">
+                  <td v-for="(cell, c) in row" :key="c">{{ cell }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </li>
         </ol>
       </div>
     </section>
@@ -147,5 +163,24 @@ function where(found: RunnerView): string {
   margin: 4px 0 0;
   padding-left: 20px;
   font-size: 13px;
+}
+
+.bm-spec-table {
+  margin: 4px 0 6px;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.bm-spec-table th,
+.bm-spec-table td {
+  padding: 2px 8px;
+  border: 1px solid var(--bm-state-unreached);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.bm-spec-table th {
+  font-weight: 600;
 }
 </style>

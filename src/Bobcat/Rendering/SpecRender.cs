@@ -754,6 +754,30 @@ public class SetVerificationRender
         return new SetVerificationRender { Columns = columns, Rows = rows };
     }
 
+    /// <summary>
+    /// A table as written, before anything has been compared (bobcat#827): one <c>ok</c> cell per
+    /// (row, column), so <c>ShowsStatusColumn</c> is false and the grid reads as data rather than as
+    /// verdicts. What a preview shows for a step whose table is a constant at the call site — the same
+    /// shape <c>ScenarioRecorder.RecordTable</c> gives an arrange table at run time, so the two
+    /// render alike.
+    /// </summary>
+    public static SetVerificationRender FromTable(StepTable table)
+    {
+        var columns = table.Headers.ToList();
+        var rows = table.Rows.Select(row => new SetVerificationRowRender
+        {
+            RowType = SetVerificationRowType.Matched,
+            Cells = columns.Select((column, i) => new SetVerificationCellRender
+            {
+                Column = column,
+                Status = ResultStatus.ok,
+                DisplayText = i < row.Count ? row[i] : ""
+            }).ToList()
+        }).ToList();
+
+        return new SetVerificationRender { Columns = columns, Rows = rows };
+    }
+
     /// <summary>Whether a cell is one of a grid's rows rather than the step's own.</summary>
     internal static bool BelongsToARow(int rowIndex, string name)
         => rowIndex >= 0

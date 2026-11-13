@@ -24,7 +24,15 @@ namespace Bobcat.Runtime;
 /// has been evaluated (<see cref="ProjectedSpecPreview"/>'s rule).
 /// </para>
 /// </remarks>
-public sealed record SpecOutline(string Identity, IReadOnlyList<string> Steps)
+/// <param name="Identity">The specification's <c>{Feature}/{Scenario}</c>.</param>
+/// <param name="Steps">Each planned step as a line.</param>
+/// <param name="Tables">
+/// The table a step hands its helper, when it is a constant at the call site (bobcat#827), keyed by
+/// the step's index in <paramref name="Steps"/>. Trailing and optional, and null when no step has
+/// one, so a console that predates it reads the registration exactly as before and <c>steps</c> stays
+/// a list of lines.
+/// </param>
+public sealed record SpecOutline(string Identity, IReadOnlyList<string> Steps, IReadOnlyList<SpecOutlineTable>? Tables = null)
 {
     /// <summary>
     /// The file a listing writes the suite's outlines to, at process exit. Set by a resident runner
@@ -43,8 +51,21 @@ public sealed record SpecOutline(string Identity, IReadOnlyList<string> Steps)
                 string.IsNullOrEmpty(spec.FeatureTitle) ? spec.Title : $"{spec.FeatureTitle}/{spec.Title}",
                 spec.Steps
                     .Select(step => string.IsNullOrWhiteSpace(step.Keyword) ? step.StepText : $"{step.Keyword} {step.StepText}")
-                    .ToList()))
+                    .ToList(),
+                tablesOf(spec.Steps)))
             .ToList();
+
+    // bobcat#827: null rather than empty when no step has a table, so the member is left off the wire
+    private static IReadOnlyList<SpecOutlineTable>? tablesOf(IReadOnlyList<Rendering.PreviewStepRender> steps)
+    {
+        var tables = steps
+            .Select((step, index) => (step.Table, index))
+            .Where(x => x.Table is not null)
+            .Select(x => new SpecOutlineTable(x.index, x.Table!.Headers, x.Table.Rows))
+            .ToList();
+
+        return tables.Count > 0 ? tables : null;
+    }
 
     /// <summary>
     /// When <see cref="PathVariable"/> names a file, write <see cref="All"/> to it as the process exits.
@@ -90,3 +111,9 @@ public sealed record SpecOutline(string Identity, IReadOnlyList<string> Steps)
         }
     }
 }
+
+/// <summary>
+/// A step's table in an outline (bobcat#827): the headers and rows exactly as the call site wrote them,
+/// and the index of the step in <see cref="SpecOutline.Steps"/> it belongs under.
+/// </summary>
+public sealed record SpecOutlineTable(int Step, IReadOnlyList<string> Headers, IReadOnlyList<IReadOnlyList<string>> Rows);

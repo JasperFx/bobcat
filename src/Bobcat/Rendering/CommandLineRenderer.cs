@@ -319,6 +319,10 @@ public class CommandLineRenderer
             output.MarkupLine(
                 $"{indent}  [dim]↳[/] [cyan]{Markup.Escape(binding.DeclaringTypeName)}.{Markup.Escape(binding.Method)}[/]"
                 + expression);
+
+            // A constant table at the call site is a build fact like the template (bobcat#827), and
+            // for a table step it is the specification. Unjudged, so no verdict column: nothing ran.
+            if (step.TableGrid is { } grid) RenderSetVerification(grid);
         }
     }
 
