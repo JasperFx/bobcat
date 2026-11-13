@@ -165,6 +165,14 @@ internal static class StepInterceptors
 
         /// <summary>The step method's own declaration, where BOBCAT039 points; null when it is not in source.</summary>
         public Location? Declaration;
+
+        /// <summary>
+        /// The table literal handed to the helper's <c>StepTable</c> parameter, when the argument is a
+        /// compile-time constant (bobcat#827): a raw string literal, or an interpolation whose holes are
+        /// all constants. Carried on the planned step so a preview can show the rows. Null for a table
+        /// built at run time or passed through a variable — the preview then shows the sentence only.
+        /// </summary>
+        public string? Table;
     }
 
     public static InterceptedCall? Extract(SemanticModel model, InvocationExpressionSyntax invocation, CancellationToken ct)
@@ -264,9 +272,23 @@ internal static class StepInterceptors
         // reaches the recorder because it is a word in the sentence; a StepTable is the step's DATA,
         // which renders as a grid under the sentence and never inside it — so a template that
         // mentions it is not the trigger, having one is.
-        foreach (var parameter in method.Parameters)
+        for (var i = 0; i < method.Parameters.Length; i++)
         {
+            var parameter = method.Parameters[i];
             if (parameter.Type.ToDisplayString().TrimEnd('?') != "Bobcat.StepTable") continue;
+
+            // A table written as a constant at the call site is a build fact, like the template, and
+            // for a table step it is the specification (bobcat#827). Read with the same constant
+            // evaluation BOBCAT032 uses, and only when the text has a header row — the one thing the
+            // run-time parser would refuse. The first such parameter: a helper takes one table.
+            if (call.Table is null
+                && TableCallChecks.argumentFor(invocation, method, i) is { } argument
+                && TableCallChecks.constantString(argument.Expression, model, ct) is { } text
+                && TableColumns.ColumnsOf(text) is not null)
+            {
+                call.Table = text;
+            }
+
             if (call.RuntimeArguments.Contains(parameter.Name)) continue;
 
             call.RuntimeArguments.Add(parameter.Name);
@@ -603,7 +625,10 @@ internal static class StepInterceptors
                 + $"{Quote(call.Keyword)}, {Quote(call.Template)}, "
                 + $"{Quote(ShortTypeName(call.DeclaringType) + "." + call.MethodName)}, "
                 + (call.DeclaredIndex >= 0 ? (call.DeclaredIndex + 1).ToString() : "null")
-                + $", {call.Line})"));
+                + $", {call.Line}"
+                // The trailing optional table (bobcat#827), written only when there is one
+                + (call.Table is null ? "" : $", {Quote(call.Table)}")
+                + ")"));
 
             sb.AppendLine($"            global::Bobcat.PlannedSteps.Register({Quote(scenario.Key)}, {steps});");
         }

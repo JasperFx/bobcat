@@ -41,4 +41,17 @@ public class PreviewStepRender
     public string StepText { get; init; } = "";
     public StepBinding? Binding { get; init; }
 
+    /// <summary>
+    /// The table the call hands this step, when its <see cref="StepTable"/> argument is a compile-time
+    /// constant (bobcat#827). Rendered as an unjudged grid under the step — the rows ARE the
+    /// specification of a table step, and a preview that showed only the sentence said almost nothing.
+    /// Null when the table is built at run time: the preview then shows the sentence only.
+    /// </summary>
+    public StepTable? Table { get; init; }
+
+    /// <summary>
+    /// <see cref="Table"/> as the grid every renderer draws: every cell <c>ok</c> and no verdict
+    /// column, because nothing has been compared. Null when there is no table.
+    /// </summary>
+    public SetVerificationRender? TableGrid => Table is null ? null : SetVerificationRender.FromTable(Table);
 }

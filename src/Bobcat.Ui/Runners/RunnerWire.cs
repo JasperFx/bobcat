@@ -26,7 +26,12 @@ public record RunnerRegistered(
     DateTimeOffset? BuiltAt = null);
 
 /// <summary>One specification's planned steps, each a line (<c>Given a customer</c>), as a runner registers it.</summary>
-public record RunnerSpecOutline(string Identity, IReadOnlyList<string> Steps);
+/// <param name="Tables">A step's table when it is a constant at the call site (bobcat#827), keyed by the
+/// step's index in <paramref name="Steps"/>. Null from a runner that predates it, or a spec with none.</param>
+public record RunnerSpecOutline(string Identity, IReadOnlyList<string> Steps, IReadOnlyList<RunnerSpecTable>? Tables = null);
+
+/// <summary>A step's table as the call site wrote it (bobcat#827): headers, rows, and which step it sits under.</summary>
+public record RunnerSpecTable(int Step, IReadOnlyList<string> Headers, IReadOnlyList<IReadOnlyList<string>> Rows);
 
 /// <summary>The runner took a command, or refused it and said why.</summary>
 /// <param name="Reason">The human sentence.</param>

@@ -28,7 +28,8 @@ public record RunnerView(
 /// and its planned steps when the runner registered them — empty for a runner that predates the
 /// outline, or a data row whose steps are its method's.
 /// </summary>
-public record RunnerSpecView(string Identity, string Feature, string Scenario, IReadOnlyList<string> Steps);
+public record RunnerSpecView(string Identity, string Feature, string Scenario, IReadOnlyList<string> Steps,
+    IReadOnlyList<RunnerSpecTable>? Tables = null);
 
 /// <summary>One command and where it got to. <c>State</c> is queued / sent / accepted / rejected.
 /// <c>RunId</c> is the run it produced, once that run's <c>run_started</c> names it.</summary>
@@ -468,9 +469,9 @@ public sealed class RunnerRegistry
         {
             if (find(runnerId) is not { } runner) return null;
 
-            var steps = (runner.Registration.Outline ?? [])
+            var outlines = (runner.Registration.Outline ?? [])
                 .GroupBy(x => x.Identity, StringComparer.Ordinal)
-                .ToDictionary(g => g.Key, g => g.First().Steps, StringComparer.Ordinal);
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
             return runner.Registration.Specs
                 .Distinct(StringComparer.Ordinal)
@@ -483,7 +484,9 @@ public sealed class RunnerRegistry
                         identity,
                         slash > 0 ? identity[..slash] : "",
                         slash > 0 ? identity[(slash + 1)..] : identity,
-                        steps.TryGetValue(identity, out var planned) ? planned : []);
+                        outlines.TryGetValue(identity, out var planned) ? planned.Steps : [],
+                        // bobcat#827: a step's constant table rides beside the lines, by step index
+                        planned is { Tables.Count: > 0 } ? planned.Tables : null);
                 })
                 .OrderBy(x => x.Feature, StringComparer.Ordinal)
                 .ThenBy(x => x.Scenario, StringComparer.Ordinal)

@@ -49,6 +49,23 @@ export interface RunnerSpecView {
   feature: string
   scenario: string
   steps: string[]
+  /**
+   * A step's table when it is a constant at the call site (bobcat#827), keyed by the step's index in
+   * `steps`. Absent from a runner that predates it, and for a spec whose tables are built at run time.
+   */
+  tables?: RunnerSpecTable[] | null
+}
+
+/** A step's table as the call site wrote it (bobcat#827): the rows are the specification of a table step. */
+export interface RunnerSpecTable {
+  step: number
+  headers: string[]
+  rows: string[][]
+}
+
+/** The table under step `index` of a spec, if its runner sent one (bobcat#827). */
+export function tableFor(spec: RunnerSpecView, index: number): RunnerSpecTable | undefined {
+  return (spec.tables ?? []).find((t) => t.step === index)
 }
 
 /** What a runner can run, spec by spec: the runner page, before anything has run (bobcat#644). */

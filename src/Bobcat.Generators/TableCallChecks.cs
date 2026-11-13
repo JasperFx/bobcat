@@ -232,7 +232,7 @@ internal static class TableCallChecks
         return constant.HasValue ? constant.Value as string : null;
     }
 
-    private static ArgumentSyntax? argumentFor(InvocationExpressionSyntax invocation, IMethodSymbol method, int index)
+    internal static ArgumentSyntax? argumentFor(InvocationExpressionSyntax invocation, IMethodSymbol method, int index)
     {
         var parameter = method.Parameters[index];
         var arguments = invocation.ArgumentList.Arguments;

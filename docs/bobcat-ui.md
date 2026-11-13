@@ -235,7 +235,10 @@ and a **Run all** button that runs its whole project; the status strip names the
 page. The row's `runner` link opens its page, at
 `/runners/{runnerId}`: every specification it can run, by feature, with the steps each one plans,
 and a run button for each feature and each specification. It is the UI's `bobcat preview`, and like
-it shows templates (`{amount}`) rather than values, because nothing has run. A run page's **Run again** runs every
+it shows templates (`{amount}`) rather than values, because nothing has run — except a table written
+as a constant at the call site (a raw string literal, or a `nameof` interpolation), which is a build
+fact like the template and is drawn as a grid under its step, with no verdict column (bobcat#827). A
+table built at run time or passed through a variable shows the sentence only. A run page's **Run again** runs every
 specification that run ran, whatever happened to them. Over the API, a command can name `"all": true`
 in place of `specs` or `feature`: the UI resolves it to every identity the runner registered.
 

@@ -838,7 +838,7 @@ no package, the wire shape is the contract, and the shapes are pinned by `Runner
 
 | `type` | Direction | Transport | `data` |
 |---|---|---|---|
-| `bobcat.runner.registered` | runner → monitor | `POST /api/runners/events` | `{ runnerId, repository, branch, suite, lane, modes[], specs[] }` |
+| `bobcat.runner.registered` | runner → monitor | `POST /api/runners/events` | `{ runnerId, repository, branch, suite, lane, modes[], specs[], outline?[], builtAt? }` — an outline entry is `{ identity, steps[], tables?[] }`, where `steps` are lines and a table (bobcat#827) is `{ step, headers[], rows[][] }` keyed by the step's index, present only for a step whose table is a constant at the call site |
 | `bobcat.runner.command.acknowledged` | runner → monitor | `POST /api/runners/events` | `{ runnerId, commandId, accepted, reason? }` |
 | `stoat.runner.command.run` | monitor → runner | SSE on `GET /api/runners/{runnerId}/commands` | `{ commandId, specs[], mode }` |
 | `stoat.runner.command.restart` | monitor → runner | same stream | `{ commandId }` |

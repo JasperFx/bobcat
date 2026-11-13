@@ -197,6 +197,34 @@ public class RunnerWireContractTests
     }
 
     [Fact]
+    public void an_outline_carries_a_steps_constant_table_as_a_trailing_optional_keyed_by_step_index()
+    {
+        // bobcat#827: the rows of a table step, for the runner page. `steps` stays a list of lines, so a
+        // console that predates `tables` reads the registration exactly as before.
+        var root = parse(JsonSerializer.Serialize(
+            new RunnerRegistration("r1", "/repo", "main", "Orders.Specs", "projected",
+                ["cold"], ["Orders/the underwriting rules"],
+                [new SpecOutline("Orders/the underwriting rules",
+                    ["Given a policy", "Then the underwriting decisions are"],
+                    [new SpecOutlineTable(1, ["Credit Score", "Decision"], [["579", "Decline"], ["580", "Approve"]])])]),
+            RunnerWire.Json));
+
+        var outline = root.GetProperty("outline").EnumerateArray().Single();
+        outline.GetProperty("steps").GetArrayLength().ShouldBe(2);
+
+        var table = outline.GetProperty("tables").EnumerateArray().Single();
+        table.GetProperty("step").GetInt32().ShouldBe(1);
+        table.GetProperty("headers").EnumerateArray().Select(x => x.GetString()).ShouldBe(["Credit Score", "Decision"]);
+        table.GetProperty("rows").EnumerateArray()
+            .Select(row => string.Join("|", row.EnumerateArray().Select(x => x.GetString())))
+            .ShouldBe(["579|Decline", "580|Approve"]);
+
+        var none = parse(JsonSerializer.Serialize(
+            new SpecOutline("Orders/places an order", ["Given a customer"]), RunnerWire.Json));
+        (!none.TryGetProperty("tables", out var missing) || missing.ValueKind == JsonValueKind.Null).ShouldBeTrue();
+    }
+
+    [Fact]
     public void an_acknowledgement_carries_the_command_it_answers_and_a_reason_when_it_refuses()
     {
         var root = parse(JsonSerializer.Serialize(

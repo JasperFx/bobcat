@@ -74,12 +74,40 @@ public static class PlannedSteps
 /// null when it sits under none.
 /// </param>
 /// <param name="Line">1-based line of the call site, so a preview can point at the source.</param>
+/// <param name="Table">
+/// The table literal the call hands its <see cref="StepTable"/> parameter, exactly as written, when
+/// that argument is a compile-time constant (bobcat#827) — a raw string literal, or an interpolation
+/// whose holes are all constants such as <c>nameof(Order.Total)</c>. Null when the step takes no
+/// table, or when its table is built at run time or passed through a variable: a preview then shows
+/// the sentence only, by design, because a table it cannot read is not one it should invent.
+/// The TEXT rather than parsed rows, so that <see cref="StepTable.Parse"/> stays the one reader of a
+/// table literal: what the preview shows is what the run will hand the helper.
+/// </param>
 public sealed record PlannedStep(
     string Keyword,
     string Template,
     string Grammar,
     int? DeclaredStepNumber,
-    int Line)
+    int Line,
+    string? Table = null)
 {
     public override string ToString() => Keyword.Length > 0 ? $"{Keyword} {Template}" : Template;
+
+    /// <summary>
+    /// <see cref="Table"/> read as a table, or null when there is none or the text is not one. Never
+    /// throws: a preview must not fail over a literal the run itself would refuse.
+    /// </summary>
+    public StepTable? ParsedTable()
+    {
+        if (string.IsNullOrWhiteSpace(Table)) return null;
+
+        try
+        {
+            return StepTable.Parse(Table!);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
 }
