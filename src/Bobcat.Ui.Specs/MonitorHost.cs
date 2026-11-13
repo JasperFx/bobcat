@@ -63,7 +63,7 @@ public sealed class MonitorHost : IAsyncLifetime
         _host = await boot();
     }
 
-    private Task<IAlbaHost> boot()
+    private async Task<IAlbaHost> boot()
     {
         // The same composition `bobcat ui` runs (BobcatUiHost), over Alba's TestServer.
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -88,7 +88,8 @@ public sealed class MonitorHost : IAsyncLifetime
 
         BobcatUiHost.Configure(builder, idleShutdown: false);
 
-        return global::Alba.AlbaHost.For(builder, app => BobcatUiHost.Map(app));
+        // Alba 9 bootstraps asynchronously only: For(...) returns an awaitable AlbaHostBuilder (bobcat#823).
+        return await global::Alba.AlbaHost.For(builder, app => BobcatUiHost.Map(app));
     }
 
     /// <summary>
