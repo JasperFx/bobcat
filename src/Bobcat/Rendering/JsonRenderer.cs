@@ -157,8 +157,10 @@ public static class JsonRenderer
             Logs = step.Logs.Count > 0 ? step.Logs : null,
             SuppressedLogs = step.SuppressedLogs > 0 ? step.SuppressedLogs : null,
             Diagnostics = step.Diagnostics.Count > 0 ? step.Diagnostics : null,
+            // A step-level cell carries no row; one that belongs to the step's grid carries its row
+            // (bobcat#553), so a reader of the file can tell the two apart as the renderers do.
             Cells = step.Cells.Count > 0
-                ? step.Cells.Select(c => cellToJson(c.Name, null, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
+                ? step.Cells.Select(c => cellToJson(c.Name, c.RowIndex >= 0 ? c.RowIndex : null, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
                 : null,
             SetVerification = step.SetVerification != null ? svToJson(step.SetVerification) : null,
             Attachments = attachmentsToJson(step.Attachments)

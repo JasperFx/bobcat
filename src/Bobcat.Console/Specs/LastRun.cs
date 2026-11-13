@@ -127,6 +127,9 @@ internal sealed class LastRunArguments
     /// <summary>The HTML results page <c>--html</c> wrote (bobcat#541), as a full path.</summary>
     public string? Html { get; set; }
 
+    /// <summary>The directory <c>--docs</c> wrote living documentation into (bobcat#553), as a full path. Additive; an older file reads as a run without it.</summary>
+    public string? Docs { get; set; }
+
     public bool Json { get; set; }
     public bool Verbose { get; set; }
 

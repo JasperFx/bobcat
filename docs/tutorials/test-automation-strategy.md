@@ -534,7 +534,8 @@ slow ones once the first is green.
 - **Keep the JSON results file.** `BOBCAT_RESULTS` writes every scenario's steps, cells and tables,
   with a JSON Schema, for CI to archive ([The results file](../bobcat-tool.md#results-file)), and
   `bobcat results-html` turns it into one self-contained page a person opens from the artifact
-  ([The HTML results page](../bobcat-tool.md#results-page)).
+  ([The HTML results page](../bobcat-tool.md#results-page)), and `bobcat results-docs` turns it into
+  the documentation's own pages ([Living Documentation](../living-docs.md)).
 
 ### 15. Testability is an architectural concern
 

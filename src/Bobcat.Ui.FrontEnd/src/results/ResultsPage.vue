@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import AttachmentList from '@/components/AttachmentList.vue'
-import SpecificationView from '@/components/SpecificationView.vue'
+import ResultsScenarioBody from './ResultsScenarioBody.vue'
 import {
   failsTheRun,
   featuresOf,
+  scenarioNamed,
   summaryOf,
   type ResultsPageData,
   type ResultsScenarioView,
@@ -18,14 +18,23 @@ import type { ResultsScenarioTiming } from '@/messages/results-file'
  * Every scenario renders through the board's own `SpecificationView`, so what a reader sees here is
  * what `bobcat ui` showed while the run was live. A failing scenario starts open; the rest start
  * closed, because a page of a thousand passing specifications is read for its failures first.
+ *
+ * With `focus` (bobcat#553: `?spec=<identity>`, or `#spec=`) the page is ONE specification, open,
+ * with no header and no filter bar — what a documentation page embeds in an iframe. An identity the
+ * page does not hold says so in one line, with the link to the whole page.
  */
-const props = defineProps<{ data: ResultsPageData; error: string | null }>()
+const props = withDefaults(defineProps<{ data: ResultsPageData; error: string | null; focus?: string | null; fullPage?: string }>(), {
+  focus: null,
+  fullPage: 'results.html',
+})
 
 const features = computed(() => featuresOf(props.data))
 const summary = computed(() => summaryOf(props.data))
 const runs = computed(() => props.data.files.map((f) => f.results.run).filter((r) => r !== undefined))
 const suite = computed(() => [...new Set(runs.value.map((r) => r.suite).filter(Boolean))].join(', ') || 'Bobcat')
 const schemaVersion = computed(() => props.data.files[0]?.results.schemaVersion ?? null)
+
+const focused = computed(() => (props.focus ? scenarioNamed(props.data, props.focus) : null))
 
 const failingOnly = ref(false)
 const search = ref('')
@@ -75,15 +84,33 @@ function seconds(ms: number | null): string {
   if (ms === null) return ''
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
 }
-
-function describe(cell: { expected: string | null; actual: string | null; value: string | null; note: string | null }): string {
-  if (cell.expected != null || cell.actual != null) return `expected '${cell.expected ?? ''}', got '${cell.actual ?? ''}'`
-  return cell.value ?? cell.note ?? ''
-}
 </script>
 
 <template>
-  <div class="bm-results">
+  <div v-if="focus !== null" class="bm-results bm-results-focused" data-testid="focused-page">
+    <article v-if="focused" class="bm-scenario bm-focused" :data-status="focused.status" data-testid="focused-scenario">
+      <header class="bm-focused-head">
+        <h1>
+          <span class="bm-scenario-glyph" aria-hidden="true">{{ glyphOf(focused) }}</span>
+          {{ focused.title }}
+        </h1>
+        <p class="bm-focused-facts">
+          <span v-if="focused.feature" class="bm-focused-feature">{{ focused.feature }}</span>
+          <span class="bm-scenario-verdict">{{ focused.verdict }}</span>
+          <span class="bm-scenario-duration">{{ seconds(focused.durationMs) }}</span>
+        </p>
+      </header>
+      <ResultsScenarioBody :scenario="focused" />
+    </article>
+    <p v-else class="bm-results-empty" data-testid="focus-missing">
+      No specification named “{{ focus }}” in this results page.
+    </p>
+    <p class="bm-results-footer">
+      <a :href="fullPage" data-testid="full-page-link">All specifications in this run</a>
+    </p>
+  </div>
+
+  <div v-else class="bm-results">
     <header class="bm-results-header">
       <h1>{{ suite }}</h1>
       <div
@@ -166,26 +193,7 @@ function describe(cell: { expected: string | null; actual: string | null; value:
           <span class="bm-scenario-duration">{{ seconds(scenario.durationMs) }}</span>
         </summary>
 
-        <div class="bm-scenario-body">
-          <SpecificationView :scenario="scenario" />
-
-          <ul v-if="scenario.scenarioFailureCells.length" class="bm-failure-cells" data-testid="scenario-failure-cells">
-            <li v-for="(cell, i) in scenario.scenarioFailureCells" :key="i">
-              <strong>{{ cell.name }}:</strong> {{ describe(cell) }}
-            </li>
-          </ul>
-
-          <ul v-if="scenario.logs.length" class="bm-scenario-logs" data-testid="scenario-logs">
-            <li v-for="(line, i) in scenario.logs" :key="i">{{ line }}</li>
-            <li v-if="scenario.suppressedLogs">…and {{ scenario.suppressedLogs }} more</li>
-          </ul>
-
-          <AttachmentList
-            v-if="scenario.attachments.length || scenario.suppressedAttachments"
-            :attachments="scenario.attachments"
-            :suppressed="scenario.suppressedAttachments"
-          />
-        </div>
+        <ResultsScenarioBody :scenario="scenario" />
       </details>
     </section>
 
@@ -235,10 +243,30 @@ body {
   padding: 16px 24px 48px;
 }
 
+.bm-results-focused {
+  padding: 8px 12px 16px;
+}
+
 .bm-results-header h1 {
   margin: 0 0 4px;
   font-size: 22px;
   color: var(--bc-coat);
+}
+
+.bm-focused-head h1 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--bc-coat);
+}
+
+.bm-focused-facts {
+  margin: 2px 0 6px;
+  font-size: 12px;
+  color: var(--bm-menu-text);
+}
+
+.bm-focused-feature {
+  color: var(--bc-neutral-300);
 }
 
 .bm-results-verdict {
@@ -357,27 +385,6 @@ body {
   color: var(--bm-menu-text);
 }
 
-.bm-scenario-body {
-  padding: 6px 0 4px;
-}
-
-.bm-failure-cells,
-.bm-scenario-logs {
-  list-style: none;
-  padding-left: 8px;
-  font-size: 12px;
-}
-
-.bm-failure-cells {
-  color: var(--bm-state-failed);
-}
-
-.bm-scenario-logs {
-  font-family: ui-monospace, monospace;
-  font-size: 11px;
-  color: var(--bm-menu-text);
-}
-
 .bm-timing {
   margin-top: 24px;
   font-size: 12px;
@@ -404,5 +411,13 @@ body {
   margin-top: 32px;
   font-size: 11px;
   color: var(--bm-menu-text);
+}
+
+.bm-results-focused .bm-results-footer {
+  margin-top: 12px;
+}
+
+.bm-results-footer a {
+  color: var(--bm-link);
 }
 </style>

@@ -371,6 +371,51 @@ User docs: `docs/marker-steps.md` ("Not yet passing"); wire: `docs/monitor-desig
 - The page's TypeScript types are generated from the results file's schema (`results-file.ts`,
   `./build.sh UiContracts`), so the page reads the shape the file publishes.
 
+### 2026-11-13 — G14, living docs built (bobcat#553, at implementation)
+
+Storyteller's `dotnet stdocs` answered over the results file (G2), in three forms, in this order of
+priority: Markdown per specification (must), the HTML results page focused on one specification
+(must), a `<bobcat-spec>` web component (should). All three shipped. Decisions:
+
+- **Rendered by core, written by the tool.** `Bobcat.Rendering.MarkdownSpecText` renders one scenario
+  from `SpecRender`, beside `CommandLineRenderer`, `JsonRenderer` and `PlainSpecText`, so the four
+  outputs share one model and one phrasing (`CellRender.DisplayText`, `SpecRender.Verdict`,
+  `CommandLineRenderer.ShowsStatusColumn` / `VerdictColumnHeader`, `StepLog.MoreLine`). No reader of
+  the results file existed in .NET (`LastRun.FailedIn` reads two properties through `JsonDocument`),
+  so **`ResultsFileReader` (core) reads a results file back into `SpecRender`** rather than into a
+  second read model: `PlainSpecText`, `MarkdownSpecText` and `JsonRenderer` over a read-back scenario
+  give the run's own output byte for byte (pinned). The file layout, slugs, the fold of several files,
+  attempts, indexes and stale clean-up are the tool's (`Bobcat.Console/LivingDocs/ResultsDocs`), like
+  `ResultsPage`; `bobcat run --docs <dir>` and `bobcat results-docs <paths> --out <dir>` are the two
+  entry points, on the `--html` / `results-html` pattern, and `--repeat` replays `--docs`.
+- **One change to the results file, additive:** a step's grid cells now carry their `row` (the schema
+  already had the property), because without it a read-back step listed its grid a second time. An
+  older file is read with a name-based fallback. `schemaVersion` unchanged.
+- **What the file lacks, the page lacks**, said rather than papered over: no stack (type and message
+  only), no value spans (prose plus cells on their own lines), no comparison word (a non-equality cell
+  reads back in the equality shape — a results-file limit worth its own issue), passing reports only
+  with `--verbose`, no skipped tests.
+- **Slugs** are lower-case letters and digits with `-` between runs, capped at 100, `-2`/`-3` on a
+  collision in title order; a data row keeps its row part. **Deterministic and idempotent**: no clock,
+  unchanged files not rewritten. **Stale clean-up is marker-gated**: every generated file starts with
+  one HTML comment and only files carrying it are ever removed, so `--out` can sit inside a docs tree.
+- **Attempts**: several results files fold by `finishedAt`; a retried specification's page shows the
+  latest attempt first (`attempt 2 of 2`) and the earlier ones under *Earlier attempts*.
+- **Attachments stay files**, linked from each page relative to the page (Markdown's rule), as the
+  HTML page links them; copying them into `--out` was considered and declined to keep one rule.
+- **The focused results page** is `?spec=` with a `#spec=` fallback and a `fullPage` link back; the
+  scenario body (`SpecificationView` plus failure cells, logs, attachments) was extracted to
+  `ResultsScenarioBody.vue` so the page, the focused page and the element render one body.
+- **The web component** was feasible without a second renderer: `SpecificationView` and its children
+  use no Element Plus component and no store at run time, which the results page's own build had
+  already proved. `vite.config.embed.ts` compiles every component in custom-element mode so child
+  styles land in the shadow root (Vue 3.5), re-addresses the board's `:root` / `html.dark` tokens to
+  `:host`, and fails if more than `bobcat-spec.js` comes out. It fetches only `src`; `results.json` is
+  written in the results page's `{files:[…]}` shape so one reader (`pageDataOf`) serves the page, the
+  focused page and the element. Embedded in `Bobcat.Ui` as `Bobcat.Ui.bobcat-spec.js` beside the
+  results template, under the same `EmbedFrontend` gate, and checked by the UI smoke.
+- **Living docs always show a run's result.** A page without a verdict is `bobcat preview`.
+
 ### 2026-10-16/18: placeholder binding, value aliases, Event Model inference (Jeremy)
 
 - **Step placeholders bind by parameter name only** (#602, #608). Storyteller-style named templates

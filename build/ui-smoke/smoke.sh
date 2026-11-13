@@ -118,6 +118,21 @@ grep -qE '<(script|link)[^>]*(src|href)=' "$results_page" && fail "the results p
 grep -q 'Bobcat.Xunit.Samples' "$results_page" || fail "the results page does not carry the run's results"
 echo "ok   bobcat results-html writes a self-contained page"
 
+# --- Living docs (bobcat#553): the packed tool writes Markdown per specification, the indexes, the folded
+#     results and the <bobcat-spec> web component from the same results directory.
+docs_dir="$work/docs"
+"$bobcat" results-docs "$results_dir" --out "$docs_dir" > "$work/results-docs.log" 2>&1 \
+  || { cat "$work/results-docs.log" >&2; fail "bobcat results-docs exited non-zero"; }
+[[ -f "$docs_dir/index.md" ]] || fail "bobcat results-docs wrote no index.md"
+[[ -f "$docs_dir/sets/a-set-of-names-missing-one-and-expecting-one-that-is-not-there.md" ]] || fail "bobcat results-docs wrote no page for the Sets specification"
+grep -q 'MISSING' "$docs_dir/sets/a-set-of-names-missing-one-and-expecting-one-that-is-not-there.md" || fail "the Sets page does not show its missing row"
+[[ -f "$docs_dir/results.json" ]] || fail "bobcat results-docs wrote no results.json"
+[[ -f "$docs_dir/bobcat-spec.js" ]] || fail "bobcat results-docs wrote no bobcat-spec.js — was the web component embedded?"
+grep -q 'customElements' "$docs_dir/bobcat-spec.js" || fail "bobcat-spec.js does not define a custom element"
+grep -q ':host' "$docs_dir/bobcat-spec.js" || fail "bobcat-spec.js carries no theme for its shadow root"
+grep -qE 'process\.env\.NODE_ENV' "$docs_dir/bobcat-spec.js" && fail "bobcat-spec.js still reads process.env, which a page has no"
+echo "ok   bobcat results-docs writes the living docs and the web component"
+
 # --- A second UI on the same port refuses, clearly, rather than hanging or dying with a stack trace.
 "$bobcat" ui --no-browser --port "$port" > "$work/second.log" 2>&1 &
 second_pid=$!

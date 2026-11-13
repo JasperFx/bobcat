@@ -104,6 +104,10 @@ artifact with no server. Write it from the results files before the upload:
 
 (`bobcat run --results artifacts/bobcat --html artifacts/bobcat/results.html` does both in one step.)
 
+The same results files feed the documentation: `bobcat results-docs artifacts/bobcat --out docs/specs`
+writes one Markdown page per specification with its last result, for the site to include or the
+repository to commit ([Living Documentation](../living-docs.md)).
+
 Anything a step attached with `SpecAttachment` -- a screenshot, a response body -- lands under the
 same directory when its scenario fails, and the HTML page shows it under its step
 ([Failure evidence](../marker-steps.md#attachments)).

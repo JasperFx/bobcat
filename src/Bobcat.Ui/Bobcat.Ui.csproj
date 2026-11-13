@@ -68,6 +68,14 @@
     <ItemGroup>
       <EmbeddedResource Include="../Bobcat.Ui.FrontEnd/dist-results/results.html" LogicalName="Bobcat.Ui.results.html" />
     </ItemGroup>
+
+    <!-- The <bobcat-spec> web component (bobcat#553): one script from the same build
+         (vite.config.embed.ts), written by `bobcat results-docs` beside the Markdown it generates. -->
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)../Bobcat.Ui.FrontEnd/dist-embed/bobcat-spec.js')"
+           Text="EmbedFrontend=true but the frontend build produced no dist-embed/bobcat-spec.js" />
+    <ItemGroup>
+      <EmbeddedResource Include="../Bobcat.Ui.FrontEnd/dist-embed/bobcat-spec.js" LogicalName="Bobcat.Ui.bobcat-spec.js" />
+    </ItemGroup>
   </Target>
 
   <ItemGroup>

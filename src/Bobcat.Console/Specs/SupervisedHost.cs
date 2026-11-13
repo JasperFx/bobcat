@@ -221,6 +221,7 @@ internal static class SupervisedHost
 
         // Every worker's file on one page; a retried specification is there once per attempt.
         if (options.HtmlFile is { } html) SpecHost.WriteHtml(html, written, attachmentsKept: !ownResults);
+        if (options.DocsDirectory is { } docs) SpecHost.WriteDocs(docs, written, attachmentsKept: !ownResults);
 
         IReadOnlyList<string> failed = [];
         var resultsRead = false;

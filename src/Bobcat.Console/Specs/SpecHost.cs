@@ -8,9 +8,11 @@ namespace Bobcat.Console.Specs;
 /// <summary>
 /// How a run reports beyond the terminal (issue #540): a results directory for the JSON results
 /// file, the file itself on standard output, whether passing scenarios' reports are written, and
-/// a file for the HTML results page rendered from the results (bobcat#541).
+/// a file for the HTML results page rendered from the results (bobcat#541), and a directory for
+/// living documentation rendered from them (bobcat#553).
 /// </summary>
-internal record RunOptions(string? ResultsDirectory = null, bool Json = false, bool Verbose = false, string? HtmlFile = null)
+internal record RunOptions(string? ResultsDirectory = null, bool Json = false, bool Verbose = false, string? HtmlFile = null,
+    string? DocsDirectory = null)
 {
     public static RunOptions Default { get; } = new();
 }
@@ -109,6 +111,7 @@ internal static class SpecHost
         }
 
         if (options.HtmlFile is { } html) WriteHtml(html, written, attachmentsKept: !ownResults);
+        if (options.DocsDirectory is { } docs) WriteDocs(docs, written, attachmentsKept: !ownResults);
 
         IReadOnlyList<string> failed = [];
         var resultsRead = false;
@@ -163,6 +166,35 @@ internal static class SpecHost
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
             AnsiConsole.MarkupLine($"[yellow]Could not write the HTML results page to {Markup.Escape(path)}: {Markup.Escape(e.Message)}[/]");
+        }
+    }
+
+    /// <summary>
+    /// Living documentation for the run (bobcat#553), from the results files it just wrote, the way
+    /// <see cref="WriteHtml"/> writes the page. Never fails the run.
+    /// </summary>
+    internal static void WriteDocs(string directory, IReadOnlyList<string> written, bool attachmentsKept)
+    {
+        if (written.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]No results file was written, so there is no living documentation.[/]");
+            return;
+        }
+
+        var script = Bobcat.Ui.ResultsPages.SpecEmbed.Script();
+        if (script is null)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(Bobcat.Ui.ResultsPages.SpecEmbed.NotEmbeddedMessage)}[/]");
+        }
+
+        try
+        {
+            var outcome = LivingDocs.ResultsDocs.Write(written, directory, attachmentsKept, script);
+            AnsiConsole.MarkupLine($"[dim]living docs: {Markup.Escape(outcome.Directory)} ({outcome.Specifications} specification{(outcome.Specifications == 1 ? "" : "s")})[/]");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException)
+        {
+            AnsiConsole.MarkupLine($"[yellow]Could not write living documentation to {Markup.Escape(directory)}: {Markup.Escape(e.Message)}[/]");
         }
     }
 
