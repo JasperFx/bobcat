@@ -518,6 +518,36 @@ public class ContractRoundTripTests
     }
 
     [Fact]
+    public void track_healed_round_trips()
+    {
+        // bobcat#824: a gate healed a track's service after the run degraded, with the pace before
+        // and after as mean milliseconds per test.
+        var at = DateTimeOffset.UtcNow;
+        var wire = roundTrip(new Client.TrackHealed(runId, "sqlserver",
+                "the last 5 completed test(s) with a known duration each ran more than 10x it", 1,
+                118_000, 2_100, at, Cause: "SlowTests", KnownPaceMs: 9_500))
+            .ShouldBeOfType<Wire.TrackHealed>();
+
+        wire.Track.ShouldBe("sqlserver");
+        wire.Reason.ShouldContain("each ran more than 10x");
+        wire.Heal.ShouldBe(1);
+        wire.PaceBeforeMs.ShouldBe(118_000);
+        wire.PaceAfterMs.ShouldBe(2_100);
+        wire.KnownPaceMs.ShouldBe(9_500);
+        wire.Cause.ShouldBe("SlowTests");
+        wire.At.ShouldBe(at);
+
+        // A stall-caused heal on a test with no known duration measured no pace on either side:
+        // unmeasured travels as null, never zero.
+        var stall = roundTrip(new Client.TrackHealed(runId, "rabbit", "Suite.hangs stalled: 31s in flight", 2, null, null, at))
+            .ShouldBeOfType<Wire.TrackHealed>();
+        stall.PaceBeforeMs.ShouldBeNull();
+        stall.PaceAfterMs.ShouldBeNull();
+        stall.KnownPaceMs.ShouldBeNull();
+        stall.Cause.ShouldBeNull();
+    }
+
+    [Fact]
     public void run_progress_round_trips_with_null_memory_staying_null()
     {
         var at = DateTimeOffset.UtcNow;

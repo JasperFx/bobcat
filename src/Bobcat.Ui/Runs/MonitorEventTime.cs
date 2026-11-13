@@ -26,6 +26,7 @@ public static class MonitorEventTime
         TestStarted e => e.At,
         TestFinished e => e.At,
         RunProgress e => e.At,
+        TrackHealed e => e.At,
         _ => null
     };
 }

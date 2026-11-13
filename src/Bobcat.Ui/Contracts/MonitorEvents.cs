@@ -40,6 +40,7 @@ namespace Bobcat.Ui.Contracts;
 [JsonDerivedType(typeof(TestStarted), "test_started")]
 [JsonDerivedType(typeof(TestFinished), "test_finished")]
 [JsonDerivedType(typeof(RunProgress), "run_progress")]
+[JsonDerivedType(typeof(TrackHealed), "track_healed")]
 public abstract record MonitorEvent(Guid RunId) : WebSocketMessage;
 
 /// <summary>
@@ -443,6 +444,26 @@ public record TestStalled(
     int? Lane,
     int? ProcessId,
     DateTimeOffset At) : MonitorEvent(RunId);
+
+/// <summary>
+/// A gate track's service was healed after the supervised run degraded (bobcat#824) — the run was
+/// slow against its known durations (or a test stalled), the supervisor paused it, the track's heal
+/// hook recreated the service, and the run resumed on fresh workers. One event per track per heal,
+/// posted once the pace after the heal is known or at the run's end, so it carries both sides.
+/// Paces are mean milliseconds per test — before the heal, after it, and what those tests are known
+/// to take — each null where nothing measured it. Cause mirrors Bobcat's DegradationCause
+/// (SlowTests / Stall); null from a publisher that predates it.
+/// </summary>
+public record TrackHealed(
+    Guid RunId,
+    string Track,
+    string Reason,
+    int Heal,
+    long? PaceBeforeMs,
+    long? PaceAfterMs,
+    DateTimeOffset At,
+    string? Cause = null,
+    long? KnownPaceMs = null) : MonitorEvent(RunId);
 
 /// <summary>
 /// The supervisor's live progress (issue #148, bobcat#767) — distinct from run_heartbeat,

@@ -38,6 +38,65 @@ public sealed class Track
     /// <summary>The checks run once for this track before the gate launches anything.</summary>
     public Preflight Preflight { get; } = new();
 
+    /// <summary>
+    /// How to heal this track's service when a unit running on it degrades (bobcat#824), or null
+    /// for a track that only reports. Set through <see cref="Heal(Func{CancellationToken,Task})"/>.
+    /// </summary>
+    public Func<TrackHealContext, CancellationToken, Task>? Healer { get; private set; }
+
+    /// <summary>Whether this track declared a heal.</summary>
+    public bool CanHeal => Healer is not null;
+
+    /// <summary>
+    /// How many times this track may be healed in one gate run before the next degradation aborts
+    /// the unit instead. Default 2.
+    /// </summary>
+    /// <remarks>
+    /// Two, not one, because a gate runs several units on one track one after the other and the
+    /// state that degrades a service piles up across all of them: a heal early in the gate (state
+    /// the service carried in from before — Wolverine's 5-day-old SQL Server) and a heal late in it
+    /// (state the gate's own units added — the emulator's 50-queue limit) are both plausible in one
+    /// run. A third degradation within one gate run is the service saying something a restart
+    /// does not fix, and recreating it a third time would hide that behind a longer wall clock.
+    /// Counted per track per gate run, not per unit, because the service is the track's.
+    /// </remarks>
+    public int MaxHeals { get; set; } = 2;
+
+    /// <summary>
+    /// Declare how to heal this track's service when a unit on it degrades (bobcat#824): recreate
+    /// the containers, wait until they answer, and re-run whatever setup the service needs — the
+    /// lane catalogs a build creates at the start of a run, which recreating the container drops.
+    /// The gate re-runs this track's <see cref="Preflight"/> afterwards, so the heal need not
+    /// repeat it. Throw to fail the heal, which aborts the unit naming this track.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Opt-in, and the only opt-in.</b> A track with no heal only ever reports a degradation —
+    /// the supervisor logs <c>DEGRADED:</c> and goes on, exactly as a stall is reported under
+    /// <see cref="StallAction.Report"/>. A gate without tracks changes nothing at all.
+    /// </para>
+    /// <para>
+    /// <b>A heal never touches another track's service</b>, by construction: units on one track run
+    /// one at a time, a heal runs while the degraded unit is paused with nothing in flight, and the
+    /// hook is the track's own. Two services one hook would recreate together belong on one track.
+    /// </para>
+    /// </remarks>
+    public Track Heal(Func<TrackHealContext, CancellationToken, Task> heal)
+    {
+        Healer = heal ?? throw new ArgumentNullException(nameof(heal));
+        return this;
+    }
+
+    /// <summary>
+    /// <see cref="Heal(Func{TrackHealContext,CancellationToken,Task})"/> for a heal that does not
+    /// need to know why it was asked.
+    /// </summary>
+    public Track Heal(Func<CancellationToken, Task> heal)
+    {
+        if (heal is null) throw new ArgumentNullException(nameof(heal));
+        return Heal((_, ct) => heal(ct));
+    }
+
     /// <summary>Add a check; throw to fail.</summary>
     public Track Check(string description, Action check)
     {
@@ -83,3 +142,10 @@ public sealed class Track
 
     public override string ToString() => Name;
 }
+
+/// <summary>
+/// What a track's heal is told (bobcat#824): the track, the unit whose run degraded, why, and
+/// which heal of this track in the gate run this is.
+/// </summary>
+/// <param name="Heal">1-based; <see cref="Track.MaxHeals"/> bounds it.</param>
+public sealed record TrackHealContext(Track Track, GateUnit Unit, RunDegradation Degradation, int Heal);

@@ -107,23 +107,32 @@ internal sealed class InFlightLedger
     /// test's entry with a fresh start time — a new attempt is a new wait, so its stall clock
     /// and its once-per-attempt reporting both reset. Anything else closes the entry.
     /// </summary>
-    public void Apply(WorkerLaunchContext worker, WorkerTestUpdate update)
+    /// <returns>
+    /// How long the test was in flight, for a closing update whose start was seen — the
+    /// measurement the degradation signal reads (bobcat#824). Null for an opening update and for
+    /// a close whose start this ledger never saw: unmeasured is never zero.
+    /// </returns>
+    public TimeSpan? Apply(WorkerLaunchContext worker, WorkerTestUpdate update)
     {
         lock (_gate)
         {
             if (update.InProgress)
             {
                 _inFlight[update.Uid] = new Entry(update.DisplayName, worker, _time.GetTimestamp());
+                return null;
             }
-            else
-            {
-                _inFlight.Remove(update.Uid);
-                // Keyed, not counted: a retried test is still one test done (the heartbeat's
-                // "done" figure must never exceed its total), and the latest verdict heard is
-                // what a snapshot falls back on when the lane never returns (issue #150).
-                _completed[update.Uid] = new ProvisionalVerdict(
-                    update.Uid, update.DisplayName, update.State, worker);
-            }
+
+            var measured = _inFlight.Remove(update.Uid, out var entry)
+                ? _time.GetElapsedTime(entry.StartedAt)
+                : (TimeSpan?)null;
+
+            // Keyed, not counted: a retried test is still one test done (the heartbeat's
+            // "done" figure must never exceed its total), and the latest verdict heard is
+            // what a snapshot falls back on when the lane never returns (issue #150).
+            _completed[update.Uid] = new ProvisionalVerdict(
+                update.Uid, update.DisplayName, update.State, worker);
+
+            return measured;
         }
     }
 

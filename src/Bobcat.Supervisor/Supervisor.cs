@@ -87,6 +87,19 @@ public sealed class Supervisor
     private bool _aloneStallKilled;
     private string? _stallAbort;
 
+    // The degradation books (bobcat#824), all behind _recordGate like the stall escalation's:
+    // written from a worker's I/O thread (a slow window) or the ticker (a stall), consumed on the
+    // run's own flow when the killed workers' results are recorded and the heal runs.
+    private DegradationDetector? _degradation;
+    private RunDegradation? _pendingHeal;
+    private bool _healing;
+    private readonly HashSet<int> _healKilledLanes = [];
+    private bool _aloneHealKilled;
+    private readonly HashSet<string> _healInFlight = new(StringComparer.Ordinal);
+    private readonly List<TrackHeal> _trackHeals = [];
+    private readonly HashSet<TrackHeal> _announcedHeals = [];
+    private readonly List<RunDegradation> _degradations = [];
+
     // The one worker currently running a test alone (isolated / recycled / stall retry), so the
     // ticker can find it to kill — lanes are addressable through _lanes, this one was not.
     private IWorkerClient? _aloneWorker;
@@ -278,6 +291,78 @@ public sealed class Supervisor
     /// worker at a time through that just burns the budget producing misleading failures.
     /// </summary>
     public int MaxStallKills { get; set; } = 3;
+
+    /// <summary>
+    /// How many consecutive completed tests must each run past <see cref="DegradationFactor"/>
+    /// times their known duration before the run is <b>degraded</b> (bobcat#824). Default 5. Zero
+    /// turns the signal off. Only tests with an entry in <see cref="KnownTestDurations"/> count,
+    /// so a run with no durations — every first run — can never degrade.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A stall is a test that is stuck; this is a run that is <em>slow</em>. Wolverine's Azure
+    /// Service Bus emulator suite went from ~2 seconds a test to ~2 minutes a test while every test
+    /// still finished under its 5-minute stall threshold, and a 5-day-old SQL Server did the same
+    /// at 328% CPU — neither was a stall, and <see cref="StallAction.KillAndRetry"/> kills the
+    /// worker, which cannot help when the service is the problem.
+    /// </para>
+    /// <para>
+    /// <b>Report-only by default</b>, the same guardrail as stalls: the signal is logged
+    /// (<c>DEGRADED:</c>), announced through <see cref="ISupervisorObserver.Degraded"/> and
+    /// collected on <see cref="SupervisorResults.Degradations"/>. Acting on it is
+    /// <see cref="OnDegraded"/>, which a gate wires for a track that declared how to heal its
+    /// service (<see cref="Track.Heal(Func{TrackHealContext,CancellationToken,Task})"/>). Five
+    /// rather than one because a single slow test is a slow test; five in a row is the environment.
+    /// </para>
+    /// </remarks>
+    public int DegradationWindow { get; set; } = 5;
+
+    /// <summary>
+    /// A completed test is slow when it ran more than this many times its known duration. Default
+    /// 10: the degradations this exists for were 30-60x, and ten leaves an ordinary noisy runner
+    /// (2-3x on a busy box) well clear of it.
+    /// </summary>
+    public double DegradationFactor { get; set; } = 10;
+
+    /// <summary>
+    /// A completed test shorter than this is never slow, whatever its known duration. Default one
+    /// second: a 5ms test taking 60ms is 12x and means nothing, and without a floor a fast suite's
+    /// jitter would read as a degraded service.
+    /// </summary>
+    public TimeSpan DegradationFloor { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// What the supervisor does when the run degrades (bobcat#824) — the narrow seam between the
+    /// supervisor, which watches tests, and whoever owns the service they run against (a gate's
+    /// <see cref="Track"/>). Null, the default, means report only.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The supervisor pauses, the handler heals, the supervisor resumes.</b> On the signal the
+    /// supervisor kills every live worker (so nothing is mid-test while the service is recreated),
+    /// books the killed attempts as <see cref="SupervisorAttempt.HealInduced"/>, and — on its own
+    /// flow, once those results are recorded — awaits this handler with every lane torn down.
+    /// The handler recreates the service, re-runs whatever setup the service needs (lane catalogs)
+    /// and re-checks the track's preflight; it answers with the tracks it healed, or with a reason
+    /// to abort (a heal budget spent, a preflight that failed after the heal), and a throw is an
+    /// abort too. Then the supervisor resumes: the test that was in flight is retried alone in a
+    /// fresh process, its batch-mates resume in their lane on a fresh worker, and nothing is charged
+    /// to the <see cref="RetryBudget"/> or counted as a flake — the kill was the supervisor's own act,
+    /// the same rule stall kills follow.
+    /// </para>
+    /// <para>
+    /// <b>A stall is a degradation too</b> when this is set: the stall is reported as it always was,
+    /// then healed instead of escalated through <see cref="StallAction"/> — the heal is the
+    /// kill-and-retry-alone with the service recreated in between. Without a handler stalls follow
+    /// <see cref="StallAction"/> exactly as before.
+    /// </para>
+    /// <para>
+    /// A callback the supervisor awaits, rather than a pause/resume pair the owner drives, because
+    /// only the supervisor knows when nothing is in flight; a seam that let a caller reach into the
+    /// lanes would have to re-create that knowledge outside the type that has it.
+    /// </para>
+    /// </remarks>
+    public Func<RunDegradation, CancellationToken, Task<DegradationResponse>>? OnDegraded { get; set; }
 
     /// <summary>
     /// Sample each live worker's resident set this often while the run is in flight — RunTiming
@@ -664,6 +749,8 @@ public sealed class Supervisor
             Recyclings = recyclings,
             StalledTests = ledger.Stalled,
             StallKills = stallKills(),
+            TrackHeals = trackHeals(),
+            Degradations = degradations(),
             WorkerMemory = _sampler?.Workers ?? [],
             TargetMemory = _sampler?.Targets ?? [],
             TestMemory = _sampler?.Tests ?? [],
@@ -774,6 +861,14 @@ public sealed class Supervisor
 
             _ledger.TotalTests = tests.Count;
 
+            // The degradation signal (bobcat#824) reads each finished test against its known
+            // duration, through the same join the planner uses — so a ledger that matched nothing
+            // (bobcat#663) also degrades nothing, and a first run never can.
+            _degradation = KnownTestDurations is not null && DegradationWindow > 0
+                ? new DegradationDetector(DegradationWindow, DegradationFactor, DegradationFloor,
+                    WorkPlan.KnownDurationsByUid(tests.Select(t => (t.Uid, t.DisplayName)), KnownTestDurations))
+                : null;
+
             // Isolation is decided from discovery metadata, before anything runs. That is the
             // point of Q4 in the #43 spike: traits arrive early enough to plan scheduling.
             var isolated = tests.Where(t => isIsolated(t.Traits)).Select(t => t.Uid).ToList();
@@ -798,6 +893,10 @@ public sealed class Supervisor
             ticker?.Dispose();
             await disposeLanes();
             if (_sampler is { } sampler) await sampler.FinishTargets();
+
+            // A heal whose after-pace window never filled is announced now, with whatever the
+            // run measured after it — never left unannounced because the run was short.
+            announceHeals(_degradation?.PartialAfterPace());
         }
 
         return new SupervisorResults
@@ -817,6 +916,8 @@ public sealed class Supervisor
             Recyclings = _recyclings,
             StalledTests = _ledger.Stalled,
             StallKills = stallKills(),
+            TrackHeals = trackHeals(),
+            Degradations = degradations(),
             WorkerMemory = _sampler?.Workers ?? [],
             TargetMemory = _sampler?.Targets ?? [],
             TestMemory = _sampler?.Tests ?? [],
@@ -842,6 +943,16 @@ public sealed class Supervisor
     private IReadOnlyList<StallKill> stallKills()
     {
         lock (_recordGate) return _stallKills.ToList();
+    }
+
+    private IReadOnlyList<TrackHeal> trackHeals()
+    {
+        lock (_recordGate) return _trackHeals.ToList();
+    }
+
+    private IReadOnlyList<RunDegradation> degradations()
+    {
+        lock (_recordGate) return _degradations.ToList();
     }
 
     private async Task<string?> runPreflight(CancellationToken ct)
@@ -1049,14 +1160,19 @@ public sealed class Supervisor
                 lock (_recordGate) _laneElapsed[index] = elapsed;
                 if (result.Crashed) invalidateLane(index, result.Fault!);
 
-                // A death the supervisor ordered over a stall (issue #173) is not a worker
-                // fault — it is the supervisor's own action, reported on StallKills.
-                var stallKilled = consumeStallKill(index);
-                if (!stallKilled) recordFault(result, index);
+                // A death the supervisor ordered over a stall (issue #173) or to heal a degraded
+                // track (bobcat#824) is not a worker fault — it is the supervisor's own action,
+                // reported on StallKills / TrackHeals.
+                var killed = consumeKill(index);
+                if (killed is null) recordFault(result, index);
 
-                var abort = record(result, AttemptPlacement.Batched, traits, attempts, stallKilled);
+                var abort = record(result, AttemptPlacement.Batched, traits, attempts, killed);
                 if (abort is not null) return abort;
             }
+
+            // Every lane has returned: if the run degraded while they ran, heal before anything
+            // else is launched against the service.
+            if (await healIfPending(ct) is { } healAbort) return healAbort;
         }
 
         foreach (var uid in isolated)
@@ -1064,10 +1180,11 @@ public sealed class Supervisor
             ct.ThrowIfCancellationRequested();
 
             Log?.Invoke($"running alone: {nameOf(uid)}");
-            var (result, stallKilled) = await runAlone(uid, WorkerPurpose.Isolated, ct);
+            var (result, killed) = await runAlone(uid, WorkerPurpose.Isolated, ct);
 
-            var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts, stallKilled);
+            var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts, killed);
             if (abort is not null) return abort;
+            if (await healIfPending(ct) is { } healAbort) return healAbort;
         }
 
         return null;
@@ -1085,6 +1202,10 @@ public sealed class Supervisor
         while (true)
         {
             ct.ThrowIfCancellationRequested();
+
+            // A degradation the previous pass's last result left pending is healed before this
+            // pass launches anything — the heal always runs with nothing in flight.
+            if (await healIfPending(ct) is { } pendingHealAbort) return pendingHealAbort;
 
             var sameProcess = new List<string>();
             var freshProcess = new List<string>();
@@ -1149,12 +1270,14 @@ public sealed class Supervisor
                 {
                     if (result.Crashed) invalidateLane(index, result.Fault!);
 
-                    var stallKilled = consumeStallKill(index);
-                    if (!stallKilled) recordFault(result, index);
+                    var killed = consumeKill(index);
+                    if (killed is null) recordFault(result, index);
 
-                    var abort = record(result, AttemptPlacement.SameProcess, traits, attempts, stallKilled);
+                    var abort = record(result, AttemptPlacement.SameProcess, traits, attempts, killed);
                     if (abort is not null) return abort;
                 }
+
+                if (await healIfPending(ct) is { } healAbort) return healAbort;
             }
 
             foreach (var uid in freshProcess)
@@ -1162,10 +1285,11 @@ public sealed class Supervisor
                 ct.ThrowIfCancellationRequested();
 
                 Log?.Invoke($"retrying alone in a fresh process: {nameOf(uid)}{failedWith(attempts, uid)}");
-                var (result, stallKilled) = await runAlone(uid, WorkerPurpose.Isolated, ct);
+                var (result, killed) = await runAlone(uid, WorkerPurpose.Isolated, ct);
 
-                var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts, stallKilled);
+                var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts, killed);
                 if (abort is not null) return abort;
+                if (await healIfPending(ct) is { } healAbort) return healAbort;
             }
 
             foreach (var (uid, resources) in afterRecycle)
@@ -1178,16 +1302,17 @@ public sealed class Supervisor
                 if (recycleFailure is not null) return recycleFailure;
 
                 Log?.Invoke($"retrying after recycling [{string.Join(", ", resources)}]: {nameOf(uid)}{failedWith(attempts, uid)}");
-                var (result, stallKilled) = await runAlone(uid, WorkerPurpose.Recycled, ct);
+                var (result, killed) = await runAlone(uid, WorkerPurpose.Recycled, ct);
 
-                var abort = record(result, AttemptPlacement.RecycledProcess, traits, attempts, stallKilled);
+                var abort = record(result, AttemptPlacement.RecycledProcess, traits, attempts, killed);
                 if (abort is not null) return abort;
+                if (await healIfPending(ct) is { } healAbort) return healAbort;
             }
         }
     }
 
     /// <summary>A dedicated process running exactly one test, then thrown away.</summary>
-    private async Task<(WorkerRunResult Result, bool StallKilled)> runAlone(
+    private async Task<(WorkerRunResult Result, InducedKill? Killed)> runAlone(
         string uid, WorkerPurpose purpose, CancellationToken ct)
     {
         // Lane 0: these never run while the pool is running, so reusing the first slot's
@@ -1214,30 +1339,41 @@ public sealed class Supervisor
             Volatile.Write(ref _aloneWorker, null);
         }
 
-        var stallKilled = consumeStallKill(lane: null);
+        var killed = consumeKill(lane: null);
 
         // Not a lane: this process ran one test alone and is about to be thrown away. A death
-        // the supervisor itself ordered over a stall is not a fault — it is on StallKills.
-        if (!stallKilled) recordFault(result, lane: null);
-        return (result, stallKilled);
+        // the supervisor itself ordered — over a stall, or to heal — is not a fault.
+        if (killed is null) recordFault(result, lane: null);
+        return (result, killed);
+    }
+
+    /// <summary>Why the supervisor killed a worker of its own accord, when it did.</summary>
+    private enum InducedKill
+    {
+        /// <summary>The stall escalation (issue #173).</summary>
+        Stall,
+
+        /// <summary>Pausing a degraded run so its track can be healed (bobcat#824).</summary>
+        Heal
     }
 
     /// <summary>
     /// Records outcomes and asks the policy what to do next. Returns an abort reason when a
     /// policy said to stop the whole run — or when the stall escalation did (issue #173).
     /// </summary>
-    /// <param name="stallKilled">
-    /// True when this result came from a worker the supervisor itself killed over a stall. Its
-    /// indeterminate outcomes are then the supervisor's own doing — the stalled test and the
-    /// batch-mates that died alongside it — so they take the stall dispositions directly
-    /// instead of consulting the policy or spending the retry budget.
+    /// <param name="killed">
+    /// Set when this result came from a worker the supervisor itself killed — over a stall, or
+    /// to heal a degraded track. Its indeterminate outcomes are then the supervisor's own doing —
+    /// the test that was in flight and the batch-mates that died alongside it — so they take the
+    /// stall or heal dispositions directly instead of consulting the policy or spending the
+    /// retry budget.
     /// </param>
     private string? record(
         WorkerRunResult result,
         AttemptPlacement placement,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> traits,
         Dictionary<string, List<SupervisorAttempt>> attempts,
-        bool stallKilled = false)
+        InducedKill? killed = null)
     {
         foreach (var reported in result.Outcomes)
         {
@@ -1253,23 +1389,30 @@ public sealed class Supervisor
                 }
 
                 // A real verdict supersedes a pending stall retry — the race where the test
-                // finished in the instant between detection and the kill landing.
-                if (outcome.State != WorkerTestState.Indeterminate) _pendingStallRetry.Remove(outcome.Uid);
+                // finished in the instant between detection and the kill landing. Same for a
+                // test the heal's kill was aimed at.
+                if (outcome.State != WorkerTestState.Indeterminate)
+                {
+                    _pendingStallRetry.Remove(outcome.Uid);
+                    _healInFlight.Remove(outcome.Uid);
+                }
             }
 
             var attemptNumber = history.Count + 1;
             var testTraits = traitsFor(traits, outcome.Uid);
 
-            if (stallKilled && outcome.State == WorkerTestState.Indeterminate)
+            if (killed is { } cause && outcome.State == WorkerTestState.Indeterminate)
             {
-                var stallAttempt = new SupervisorAttempt(
-                    attemptNumber, outcome, placement, stallDisposition(outcome))
+                var induced = new SupervisorAttempt(
+                    attemptNumber, outcome, placement,
+                    cause == InducedKill.Stall ? stallDisposition(outcome) : healDisposition(outcome))
                 {
-                    StallInduced = true
+                    StallInduced = cause == InducedKill.Stall,
+                    HealInduced = cause == InducedKill.Heal
                 };
 
-                lock (_recordGate) history.Add(stallAttempt);
-                notify(observer => observer.AttemptRecorded(outcome.Uid, stallAttempt));
+                lock (_recordGate) history.Add(induced);
+                notify(observer => observer.AttemptRecorded(outcome.Uid, induced));
                 continue;
             }
 
@@ -1543,9 +1686,17 @@ public sealed class Supervisor
                 notify(observer =>
                     observer.TestStalled(report.Worker, report.Uid, report.DisplayName, report.InFlight));
 
-                // Detection always reports (above, unchanged); acting on it is the opt-in
-                // second decision (issue #173).
-                if (StallAction != StallAction.Report) escalate(stalled);
+                // A stall is a degradation too (bobcat#824): reported as one, and healed instead
+                // of escalated when a handler owns the response. Otherwise detection reports
+                // (above, unchanged) and acting on it is the opt-in second decision (issue #173).
+                var healed = degrade(new RunDegradation(
+                    DegradationCause.Stall,
+                    $"{stalled.DisplayName} stalled: {(int)stalled.InFlight.TotalSeconds}s in flight, past its stall threshold",
+                    _degradation?.PaceOf(stalled.Uid, stalled.InFlight),
+                    [],
+                    DateTimeOffset.UtcNow));
+
+                if (!healed && StallAction != StallAction.Report) escalate(stalled);
             }
 
             if (HeartbeatInterval is { } interval && ledger.HeartbeatDue(interval))
@@ -1680,18 +1831,227 @@ public sealed class Supervisor
     }
 
     /// <summary>
-    /// Whether the just-returned result came from a worker this run killed over a stall —
-    /// consumed exactly once, on the run's own flow, right before the result is recorded.
+    /// Whether the just-returned result came from a worker this run killed itself — over a stall
+    /// or to heal — consumed exactly once, on the run's own flow, right before the result is
+    /// recorded. A heal wins where both are booked: it is the broader response, and the stall's
+    /// own retry is inside it.
     /// </summary>
-    private bool consumeStallKill(int? lane)
+    private InducedKill? consumeKill(int? lane)
     {
         lock (_recordGate)
         {
-            if (lane is { } index) return _stallKilledLanes.Remove(index);
+            if (lane is { } index)
+            {
+                var heal = _healKilledLanes.Remove(index);
+                var stall = _stallKilledLanes.Remove(index);
+                return heal ? InducedKill.Heal : stall ? InducedKill.Stall : null;
+            }
 
-            var was = _aloneStallKilled;
+            var aloneHeal = _aloneHealKilled;
+            var aloneStall = _aloneStallKilled;
+            _aloneHealKilled = false;
             _aloneStallKilled = false;
-            return was;
+            return aloneHeal ? InducedKill.Heal : aloneStall ? InducedKill.Stall : null;
+        }
+    }
+
+    /// <summary>
+    /// The run degraded (bobcat#824). Always reported — logged, announced, collected. When
+    /// <see cref="OnDegraded"/> is set, also acted on: every live worker is killed so nothing is
+    /// mid-test while the service is recreated, and the heal is booked for the run's own flow
+    /// (<see cref="healIfPending"/>). Returns true when the heal path owns the response, so a
+    /// stall's escalation stands down.
+    /// </summary>
+    /// <remarks>
+    /// Runs on whichever thread read the signal — a worker's I/O thread or the ticker — so, like
+    /// <see cref="escalate"/>, it writes its books under <c>_recordGate</c> and does nothing that
+    /// waits. A second signal while a heal is pending is swallowed: the tests finishing now ran
+    /// against the degraded service, and the detector is suspended until the heal resumes it.
+    /// </remarks>
+    private bool degrade(RunDegradation degradation)
+    {
+        var heal = false;
+        List<string> inFlight = [];
+
+        lock (_recordGate)
+        {
+            if (OnDegraded is not null && (_pendingHeal is not null || _healing)) return true;
+
+            _degradations.Add(degradation);
+
+            if (OnDegraded is not null)
+            {
+                heal = true;
+                _pendingHeal = degradation;
+                _degradation?.Suspend();
+
+                // The tests in flight right now are the ones the kill lands on; they are retried
+                // alone once the track is healed. Everything else a dying lane never reached
+                // resumes in its lane.
+                if (_ledger is { } ledger)
+                {
+                    foreach (var test in ledger.Snapshot().InFlight)
+                    {
+                        _healInFlight.Add(test.Uid);
+                        inFlight.Add(test.DisplayName);
+                    }
+                }
+
+                lock (_gate)
+                {
+                    for (var index = 0; index < _lanes.Count; index++)
+                    {
+                        if (_lanes[index] is not null) _healKilledLanes.Add(index);
+                    }
+                }
+
+                if (Volatile.Read(ref _aloneWorker) is not null) _aloneHealKilled = true;
+            }
+        }
+
+        Log?.Invoke($"DEGRADED: {degradation.Reason}");
+        notify(observer => observer.Degraded(degradation));
+
+        if (!heal) return false;
+
+        Log?.Invoke("PAUSING the run to heal: killing its worker(s)" +
+                    (inFlight.Count > 0 ? $" — in flight: {string.Join(", ", inFlight)}" : ""));
+        killLiveWorkers($"the run degraded and its track is being healed ({degradation.Reason})");
+        return true;
+    }
+
+    /// <summary>
+    /// Run the heal a <see cref="degrade"/> booked, on the run's own flow, with nothing in flight:
+    /// every lane is torn down first (a worker that survived the kill still holds connections to
+    /// the service about to be recreated), then <see cref="OnDegraded"/> is awaited. Returns the
+    /// abort reason when the handler refused or threw; null when the run may resume.
+    /// </summary>
+    private async Task<string?> healIfPending(CancellationToken ct)
+    {
+        RunDegradation? degradation;
+        lock (_recordGate)
+        {
+            degradation = _pendingHeal;
+            _pendingHeal = null;
+            if (degradation is null) return null;
+
+            _healing = true;
+            // Every result the kill produced has been recorded by the time a sync point is
+            // reached, so a lane the kill never reached (its Run had already returned) must not
+            // carry the mark into its next retry.
+            _healKilledLanes.Clear();
+            _aloneHealKilled = false;
+        }
+
+        try
+        {
+            await disposeLanes();
+
+            Log?.Invoke($"HEALING: {degradation.Reason}");
+
+            DegradationResponse response;
+            try
+            {
+                response = await OnDegraded!(degradation, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                // An abort rather than a throw, so everything learned so far survives — the
+                // same manners as a failed recycle.
+                var failed = $"Healing the run after it degraded failed: {e.Message} ({degradation.Reason})";
+                Log?.Invoke($"ABORTING: {failed}");
+                return failed;
+            }
+
+            if (response.AbortReason is { } refused)
+            {
+                Log?.Invoke($"ABORTING: {refused}");
+                return refused;
+            }
+
+            var at = DateTimeOffset.UtcNow;
+            lock (_recordGate)
+            {
+                foreach (var healed in response.Healed)
+                {
+                    _trackHeals.Add(new TrackHeal(healed.Track, healed.Number, degradation.Cause, degradation.Reason, degradation.Pace, at));
+                }
+
+                _healInFlight.Clear();
+            }
+
+            foreach (var healed in response.Healed)
+            {
+                Log?.Invoke($"HEALED track {healed.Track} (heal {healed.Number}); resuming on fresh workers");
+            }
+
+            if (response.Healed.Count == 0) Log?.Invoke("nothing was healed; resuming on fresh workers");
+
+            return null;
+        }
+        finally
+        {
+            lock (_recordGate) _healing = false;
+            _degradation?.Resume();
+        }
+    }
+
+    /// <summary>
+    /// Stamp the after-heal pace on every heal still waiting for one and announce them — through
+    /// <see cref="ISupervisorObserver.TrackHealed"/>, which is where <c>track_healed</c> comes
+    /// from. Deferred to this moment because the after pace is the evidence the heal worked, and
+    /// an event without it would say only that something was restarted.
+    /// </summary>
+    private void announceHeals(Pace? after)
+    {
+        List<TrackHeal> announce = [];
+        lock (_recordGate)
+        {
+            for (var i = 0; i < _trackHeals.Count; i++)
+            {
+                var heal = _trackHeals[i];
+                if (_announcedHeals.Contains(heal)) continue;
+
+                var stamped = heal with { PaceAfter = after };
+                _trackHeals[i] = stamped;
+                _announcedHeals.Add(stamped);
+                announce.Add(stamped);
+            }
+        }
+
+        foreach (var heal in announce)
+        {
+            Log?.Invoke($"track {heal.Track} after heal {heal.Number}: " +
+                        (heal.PaceAfter is { } pace ? $"pace {pace}" : "no test with a known duration finished"));
+            notify(observer => observer.TrackHealed(heal));
+        }
+    }
+
+    /// <summary>
+    /// The disposition for an outcome the supervisor manufactured by killing its worker to heal
+    /// a degraded track (bobcat#824). Same rule as <see cref="stallDisposition"/>: the policy and
+    /// the retry budget have no say, because the kill was the supervisor's own act and the
+    /// service, not the test, was the problem.
+    /// </summary>
+    private Disposition healDisposition(WorkerOutcome outcome)
+    {
+        lock (_recordGate)
+        {
+            if (_healInFlight.Remove(outcome.Uid))
+            {
+                return Disposition.RetryInFreshProcess(
+                    "was in flight when the run degraded and its worker was killed so the track could " +
+                    "be healed — retried alone in a fresh process against the healed service (not " +
+                    "charged to the retry budget)");
+            }
+
+            return Disposition.RetryInProcess(
+                "its worker was killed to heal the degraded track before it ran; resuming in its lane " +
+                "on a fresh worker (not charged to the retry budget)");
         }
     }
 
@@ -1745,6 +2105,16 @@ public sealed class Supervisor
                 Log?.Invoke($"a supervisor observer threw and was ignored: {e.Message}");
             }
         }
+    }
+
+    /// <summary>One finished test, fed to the degradation detector; fires the signal or the after pace.</summary>
+    private void observeCompleted(string uid, string displayName, TimeSpan inFlight)
+    {
+        if (_degradation is not { } detector) return;
+
+        var (degraded, after) = detector.Observe(uid, displayName, inFlight, DateTimeOffset.UtcNow);
+        if (after is not null) announceHeals(after);
+        if (degraded is not null) degrade(degraded);
     }
 
     /// <summary>Runs one lane's tests in that lane's own long-lived worker.</summary>
@@ -1877,12 +2247,21 @@ public sealed class Supervisor
                 {
                     // The in-flight table folds every update in before anyone is notified, so
                     // an observer reacting to an update always sees a ledger that includes it.
-                    _ledger?.Apply(launch, update);
+                    var inFlight = _ledger?.Apply(launch, update);
 
                     // Boundary samples: the attempt's start and verdict bracket its RSS delta.
                     _sampler?.Apply(worker, update);
 
                     notify(observer => observer.TestUpdated(launch, update));
+
+                    // The degradation signal (bobcat#824) reads the finished test's time in
+                    // flight on the supervisor's own clock — the one measurement every front-end
+                    // supports, since TUnit erases durations on the wire — against its known
+                    // duration. Indeterminate is absence of evidence and measures nothing.
+                    if (inFlight is { } measured && update.State is { } state && state != WorkerTestState.Indeterminate)
+                    {
+                        observeCompleted(update.Uid, update.DisplayName, measured);
+                    }
                 });
             }
 

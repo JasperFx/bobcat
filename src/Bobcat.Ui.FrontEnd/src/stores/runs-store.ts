@@ -23,6 +23,7 @@ import type {
   TestStalled,
   TestStarted,
   TouchedType,
+  TrackHealed,
   WorkerFaulted,
   WorkerStarted,
 } from '@/messages/monitor-events'
@@ -376,6 +377,22 @@ export interface StallState {
 }
 
 /**
+ * A gate track's service healed after the run degraded (bobcat#824): which track, which heal of
+ * it, why, and the mean pace per test before and after against what those tests are known to
+ * take. Null paces were not measured. Carried for the run; not rendered yet.
+ */
+export interface HealState {
+  track: string
+  heal: number
+  reason: string
+  cause: string | null
+  paceBeforeMs: number | null
+  paceAfterMs: number | null
+  knownPaceMs: number | null
+  at: string
+}
+
+/**
  * The supervisor's latest progress heartbeat (issue #148) — the only live progress a
  * foreign-framework worker (xUnit, tUnit) gives, since it streams no scenario events. The
  * longest-running trio is null when nothing is in flight; peakWorkerRssBytes is null unless
@@ -459,6 +476,8 @@ export interface RunState {
   faults: WorkerFaultState[]
   /** Tests the supervisor reported as stalled (issue #145), in detection order. */
   stalls: StallState[]
+  /** Tracks the gate healed after the run degraded (bobcat#824), in heal order. */
+  heals: HealState[]
   /** The supervisor's latest progress heartbeat (issue #148); null until one arrives. */
   progress: RunProgressState | null
 }
@@ -559,6 +578,7 @@ export const useRunsStore = defineStore('runs', () => {
         recycles: [],
         faults: [],
         stalls: [],
+        heals: [],
         progress: null,
       }
       runs.value[runId] = run
@@ -996,6 +1016,22 @@ export const useRunsStore = defineStore('runs', () => {
     })
   }
 
+  function handleTrackHealed(e: TrackHealed) {
+    const run = ensureRun(e.runId, e.at)
+    // Replay guard: one heal of one track is one entry, however often the archive re-announces it.
+    if (run.heals.some((h) => h.track === e.track && h.heal === e.heal)) return
+    run.heals.push({
+      track: e.track,
+      heal: e.heal,
+      reason: e.reason,
+      cause: e.cause ?? null,
+      paceBeforeMs: e.paceBeforeMs,
+      paceAfterMs: e.paceAfterMs,
+      knownPaceMs: e.knownPaceMs ?? null,
+      at: e.at,
+    })
+  }
+
   /**
    * The supervisor's forwarding of a worker's live per-test stream (issue #195) — the only
    * per-test progress a run whose workers are not Bobcat runners produces, and what makes a
@@ -1142,6 +1178,7 @@ export const useRunsStore = defineStore('runs', () => {
     handleWorkerFaulted,
     handleWorkerStarted,
     handleTestStalled,
+    handleTrackHealed,
     handleTestStarted,
     handleTestFinished,
     handleRunProgress,

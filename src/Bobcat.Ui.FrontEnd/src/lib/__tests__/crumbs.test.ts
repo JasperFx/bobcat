@@ -31,6 +31,7 @@ function run(overrides: Partial<RunState> = {}): RunState {
     recycles: [],
     faults: [],
     stalls: [],
+    heals: [],
     progress: null,
     ...overrides,
   }
