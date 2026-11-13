@@ -138,16 +138,21 @@ How a value reads:
 | a sequence | its items, comma-joined, capped at five |
 | a type that overrides `ToString()` | that text -- a `ClusterNode` whose `ToString()` is `"node 2"` reads `node 2` |
 | anything else | its **type** name -- `new ConfirmAppointment(id)` is `ConfirmAppointment` |
-| `null`, an empty string, an empty sequence | nothing: `{name}` stays as written |
+| `null` | `NULL`, the spelling a null cell has everywhere else (bobcat#826) |
+| an empty string, an empty sequence | nothing: `{name}` stays as written |
 
 A step's text is a sentence on a canvas, which is why an object renders as its type rather than its
 `ToString()` -- the data belongs in a table, not in the prose. A record's compiler-generated
 `ToString()` is exactly that kind of dump, so a record renders by its type name unless it writes its
 own `ToString()`; so does any type whose `ToString()` spans lines, is blank, or throws, and an
 exception. A type that does write its own has said how it reads, so a domain handle can be a step
-argument without converting it to an `int` or a `string` first (bobcat#668). And a value with nothing to say leaves
-the placeholder standing, because a reader can see that something did not resolve, where a blank or
-the word "null" would be believed.
+argument without converting it to an `int` or a `string` first (bobcat#668). A value with nothing to
+say -- an empty string, an empty sequence -- leaves the placeholder standing, because a reader can see
+that something did not resolve where a blank would be believed. A `null` is not that: it is a value the
+specification stated (a `decimal?` rate of `null`, a `NULL` cell in an examples table), so it reads
+`NULL` like a null cell does, and a `SpecAssert.Check` named for the parameter folds into the sentence
+there rather than reporting on a line underneath (bobcat#826). A `{name}` that survives in a rendered
+step is therefore always a placeholder nothing filled, never a null.
 
 **A placeholder that names no parameter is a warning** -- BOBCAT027, once per helper -- so a
 template typo can't render as `{thread}` forever with nothing reported.

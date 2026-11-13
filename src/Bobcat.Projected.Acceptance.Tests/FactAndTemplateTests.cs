@@ -1,4 +1,5 @@
 using Bobcat.Engine;
+using Bobcat.Rendering;
 
 namespace Bobcat.Projected.Acceptance.Tests;
 
@@ -45,6 +46,15 @@ public class FactAndTemplateTests
 
         [Then("the label should read {label}")]
         internal void TheLabelShouldRead(string label) => SpecAssert.Check("label", "Hello there World", label);
+
+        /// <summary>bobcat#826's shape: a nullable parameter whose check is named for it.</summary>
+        [Then("the decision is {decision} at {rate} with guarantor {guarantor}")]
+        internal void TheDecisionIs(string decision, decimal? rate, bool guarantor)
+        {
+            SpecAssert.Check("decision", decision, decision);
+            SpecAssert.Check("rate", (decimal?)null, rate);
+            SpecAssert.Check("guarantor", guarantor, guarantor);
+        }
 
         [Then("the calculator is at zero")]
         internal bool IsAtZero() => Value == 0;
@@ -98,6 +108,29 @@ public class FactAndTemplateTests
         step.Text.ShouldBe("5 added to 3 should be 8");
         step.Cells.Single().Expected.ShouldBe("8");
         step.Status.ShouldBe(ResultStatus.success);
+    }
+
+    [Fact]
+    public void a_null_argument_reads_NULL_and_its_check_folds_into_the_sentence()
+    {
+        // bobcat#826: called with rate: null the step read "at {rate}", as if the placeholder had never
+        // resolved, and the rate check — right in itself — sat as a loose "rate: NULL" line underneath
+        // because no span had been recorded for it to land on.
+        var (recording, render) = Projected.Run("Null argument",
+            () => _grammar.TheDecisionIs("Decline", rate: null, guarantor: false));
+
+        var recorded = recording.Steps.Single();
+        recorded.Text.ShouldBe("the decision is Decline at NULL with guarantor false");
+        recorded.Status.ShouldBe(ResultStatus.success);
+
+        var span = recorded.ValueSpans.Single(x => x.Name == "rate");
+        recorded.Text.Substring(span.Start, span.Length).ShouldBe("NULL");
+
+        // All three checks render where their word is, the null one included; none keeps a line.
+        var step = render.Step("at NULL");
+        CommandLineRenderer.CellsRenderedInline(step)
+            .ShouldBe(["decision", "rate", "guarantor"], ignoreOrder: true);
+        CommandLineRenderer.Sentence(step).ShouldContain("at [green]NULL[/]");
     }
 
     [Fact]

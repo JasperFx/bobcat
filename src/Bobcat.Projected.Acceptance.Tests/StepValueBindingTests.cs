@@ -107,9 +107,20 @@ public class StepValueBindingTests
     [Fact]
     public void a_value_that_renders_to_nothing_leaves_the_placeholder_standing()
     {
-        // The floor is today's behaviour: a reader can see that something was not resolved.
-        stepsOf(() => ThenEmitted(null!), "a value that renders to nothing leaves the placeholder standing")
-            .ShouldBe(["Then {event} is emitted"]);
+        // The floor: a reader can see that something was not resolved. An empty string is such a
+        // value; a null is not any more (bobcat#826, below).
+        stepsOf(() => WhenPosted(new ConfirmAppointment(Guid.NewGuid()), ""),
+                "a value that renders to nothing leaves the placeholder standing")
+            .ShouldBe(["When ConfirmAppointment is posted to \"{route}\""]);
+    }
+
+    [Fact]
+    public void a_null_argument_reads_NULL_through_a_real_interceptor()
+    {
+        // bobcat#826: the interceptor hands the recorder a bound argument that is null, and that is a
+        // value the specification stated — it reads as a null cell does, not as a template typo.
+        stepsOf(() => ThenEmitted(null!), "a null argument reads NULL")
+            .ShouldBe(["Then NULL is emitted"]);
     }
 
     [Fact]
