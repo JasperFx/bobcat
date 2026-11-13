@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Bobcat.Engine;
+using Bobcat.Engine.Verification;
 
 namespace Bobcat;
 
@@ -51,10 +52,22 @@ public readonly record struct StepArgument(string Name, object? Value);
 /// <c>ToString</c> is the state dump this rule exists to keep out, so it does not count.
 /// </para>
 /// <para>
-/// <b>The placeholder is the floor.</b> A value that renders to nothing — null, an empty sequence
-/// — leaves <c>{name}</c> as written, which is today's behaviour and the honest one: a reader can
-/// see that something was not resolved, rather than being shown a blank or the word "null" and
-/// believing it.
+/// <b>The placeholder is the floor for a placeholder nothing resolved.</b> A <c>{name}</c> naming no
+/// argument, or an argument whose value renders to nothing — an empty string, an empty sequence, a
+/// table — is left as written, which is the honest outcome: a reader can see that something did not
+/// resolve, rather than being shown a blank and believing it. (The generator reports the first case
+/// as BOBCAT027, so at run time a surviving placeholder is a template typo or a value with nothing
+/// to say, never a null.)
+/// </para>
+/// <para>
+/// <b>A present-but-null argument reads <c>NULL</c> (bobcat#826).</b> An argument that was bound and
+/// is null is a value the specification stated — a <c>decimal?</c> rate of null, a <c>NULL</c> cell
+/// in an examples table — and it reads the way a null reads in every cell and table in Bobcat:
+/// <see cref="CellTokens.Null"/>. Leaving the placeholder standing made <c>at {rate}</c> look
+/// unresolved when it was resolved to nothing, and because no span was recorded for it, a
+/// <c>Check("rate", …)</c> named for the parameter could not fold into the sentence and sat as a
+/// loose <c>rate: NULL</c> line underneath. The null is rendered and given a span like any other
+/// value, so the check lands where the word is.
 /// </para>
 /// </remarks>
 public static class StepText
@@ -111,8 +124,8 @@ public static class StepText
 
             if (rendered is null)
             {
-                // The placeholder is the floor: a reader can see that something did not resolve,
-                // rather than being shown a blank and believing it.
+                // The placeholder is the floor for an unresolved placeholder: a reader can see that
+                // something did not resolve, rather than being shown a blank and believing it.
                 text.Append(template, i, close - i + 1);
             }
             else
@@ -127,11 +140,23 @@ public static class StepText
         return new RenderedStepText(text.ToString(), values);
     }
 
+    /// <summary>
+    /// The rendering of the argument a placeholder names, or null when the placeholder should stand:
+    /// no argument carries the name, or the one that does has nothing to say.
+    /// </summary>
+    /// <remarks>
+    /// A bound argument that is null is distinguished here, not in <see cref="Value"/>: <c>Value</c>'s
+    /// null answer for a null is what a cell producer relies on to fall back to its own description
+    /// (<c>AssertionRun</c>), and this is the one place that knows whether the null was an argument
+    /// or the absence of one (bobcat#826).
+    /// </remarks>
     private static string? resolve(string name, IReadOnlyList<StepArgument> arguments)
     {
         foreach (var argument in arguments)
         {
-            if (argument.Name == name) return Value(argument.Value);
+            if (argument.Name != name) continue;
+
+            return argument.Value is null ? CellTokens.Null : Value(argument.Value);
         }
 
         return null;
@@ -139,7 +164,8 @@ public static class StepText
 
     /// <summary>
     /// How one value reads inside a step sentence, or null when it has nothing to say and the
-    /// placeholder should stand.
+    /// placeholder should stand. A null value answers null here; whether that null was a bound
+    /// argument (which renders <c>NULL</c>) or no argument at all is <c>RenderWithValues</c>'s call.
     /// </summary>
     /// <remarks>
     /// Culture-invariant on purpose: a step's text travels to a report, a canvas and a wire event,

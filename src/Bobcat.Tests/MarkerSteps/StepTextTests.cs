@@ -1,4 +1,5 @@
 using Bobcat.Engine;
+using Bobcat.Engine.Verification;
 using Shouldly;
 
 namespace Bobcat.Tests.MarkerSteps;
@@ -134,19 +135,53 @@ public class StepTextTests
     [Fact]
     public void a_value_with_nothing_to_say_leaves_the_placeholder_standing()
     {
-        // Today's behaviour is the floor: a reader can see that something was not resolved,
-        // rather than being shown a blank or the word "null" and believing it.
-        render("{event} is emitted", ("event", null)).ShouldBe("{event} is emitted");
+        // The floor: a reader can see that something was not resolved, rather than being shown a
+        // blank and believing it. Null is deliberately not in this list any more (bobcat#826, below).
         render("{name} exists", ("name", "")).ShouldBe("{name} exists");
         render("{events} are emitted", ("events", Array.Empty<int>())).ShouldBe("{events} are emitted");
+    }
+
+    [Fact]
+    public void a_null_argument_reads_NULL_the_way_a_null_cell_does()
+    {
+        // bobcat#826: the argument is present and null, which is a value the specification stated,
+        // not a placeholder nothing filled. It reads as every other null in Bobcat does.
+        render("the decision is {decision} at {rate}", ("decision", "Decline"), ("rate", null))
+            .ShouldBe("the decision is Decline at NULL");
+    }
+
+    [Fact]
+    public void a_null_argument_gets_a_span_so_a_check_named_for_it_can_fold_into_the_sentence()
+    {
+        // Without the span, Check("rate", …) had nowhere to land and sat as a loose "rate: NULL" line
+        // under a step that still read "at {rate}".
+        var rendered = StepText.RenderWithValues("the decision is {decision} at {rate}",
+            [new StepArgument("decision", "Decline"), new StepArgument("rate", null)]);
+
+        rendered.Text.ShouldBe("the decision is Decline at NULL");
+
+        var span = rendered.Values.Single(x => x.Name == "rate");
+        rendered.Text.Substring(span.Start, span.Length).ShouldBe(CellTokens.Null);
+    }
+
+    [Fact]
+    public void Value_still_answers_null_for_a_null()
+    {
+        // A cell producer relies on this to fall back to its own description of a null (AssertionRun);
+        // the NULL spelling is RenderWithValues's decision about a BOUND argument, not Value's about a
+        // value.
+        StepText.Value(null).ShouldBeNull();
     }
 
     [Fact]
     public void a_placeholder_no_argument_names_is_left_alone()
     {
         // The generator warns about this at build time (BOBCAT027); at run time it is simply
-        // never substituted.
+        // never substituted. This is the one case a surviving {name} means now that a null reads NULL.
         render("the {thing} is {other}", ("thing", "wallet")).ShouldBe("the wallet is {other}");
+
+        StepText.RenderWithValues("the {thing} is {other}", [new StepArgument("thing", "wallet")])
+            .Values.ShouldNotContain(x => x.Name == "other");
     }
 
     [Fact]

@@ -183,6 +183,23 @@ public class PlannedStepRenderTests : IDisposable
     [Fact]
     public void an_unresolved_placeholder_is_not_italicised()
     {
+        // A placeholder no argument names is the one thing left on the floor; it is prose, not a
+        // value, so it gets no span. (This used a null argument as its stand-in until bobcat#826 made
+        // a bound null a value that reads NULL.)
+        using var recording = begin();
+        using (ScenarioRecorder.Step("Then", "{event} is emitted", -1, -1,
+                   [new StepArgument("command", "ConfirmAppointment")]))
+        {
+        }
+
+        CommandLineRenderer.Sentence(SpecRender.FromRecording(recording).Steps.Single())
+            .ShouldBe("{event} is emitted");
+    }
+
+    [Fact]
+    public void a_null_argument_is_a_value_and_is_italicised_as_one()
+    {
+        // bobcat#826: a bound null reads NULL and is as much the step's data as any other argument.
         using var recording = begin();
         using (ScenarioRecorder.Step("Then", "{event} is emitted", -1, -1,
                    [new StepArgument("event", null)]))
@@ -190,7 +207,7 @@ public class PlannedStepRenderTests : IDisposable
         }
 
         CommandLineRenderer.Sentence(SpecRender.FromRecording(recording).Steps.Single())
-            .ShouldBe("{event} is emitted");
+            .ShouldBe("[italic]NULL[/] is emitted");
     }
 
     [Fact]
