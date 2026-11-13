@@ -49,10 +49,12 @@ internal sealed class SpecProject
         if (_suiteName is not null) return _suiteName;
 
         var (exitCode, output) = await Shell.RunAsync("dotnet",
-            ["msbuild", ProjectPath, "-getProperty:AssemblyName", $"-p:TargetFramework={Framework}", $"-p:Configuration={Configuration}"]);
+            ["msbuild", ProjectPath, "-getProperty:AssemblyName", $"-p:TargetFramework={Framework}", $"-p:Configuration={Configuration}"],
+            MsBuildQuery.Environment);
 
-        var assemblyName = output.Trim();
-        _suiteName = exitCode == 0 && assemblyName.Length > 0 && !assemblyName.Contains('\n') ? assemblyName : Name;
+        // The last line, not the whole output: the CLI can print a notice ahead of the value (MsBuildQuery).
+        var assemblyName = MsBuildQuery.Property(output);
+        _suiteName = exitCode == 0 && assemblyName.Length > 0 ? assemblyName : Name;
         return _suiteName;
     }
 
@@ -132,9 +134,12 @@ internal sealed class SpecProject
     public async Task<(string Host, bool Exists)> ExpectedHostAsync()
     {
         var (_, targetPath) = await Shell.RunAsync("dotnet",
-            ["msbuild", ProjectPath, "-getProperty:TargetPath", $"-p:TargetFramework={Framework}", $"-p:Configuration={Configuration}"]);
+            ["msbuild", ProjectPath, "-getProperty:TargetPath", $"-p:TargetFramework={Framework}", $"-p:Configuration={Configuration}"],
+            MsBuildQuery.Environment);
 
-        var dll = targetPath.Trim();
+        // The last line, not the whole output: an "MSBuild server unavailable … Falling back to" notice
+        // printed ahead of the path once became the "test host" bobcat resident reported missing (bobcat#830).
+        var dll = MsBuildQuery.Property(targetPath);
         var host = OperatingSystem.IsWindows() ? Path.ChangeExtension(dll, ".exe") : Path.ChangeExtension(dll, null);
 
         return (host, File.Exists(host));
@@ -252,11 +257,14 @@ internal sealed class SpecProject
     private static async Task<IReadOnlyList<string>> frameworksOf(string project)
     {
         var (_, output) = await Shell.RunAsync("dotnet",
-            ["msbuild", project, "-getProperty:TargetFramework", "-getProperty:TargetFrameworks"]);
+            ["msbuild", project, "-getProperty:TargetFramework", "-getProperty:TargetFrameworks"],
+            MsBuildQuery.Environment);
 
         try
         {
-            using var json = JsonDocument.Parse(output);
+            // From the first `{`: several -getProperty switches answer as JSON, and the CLI can print a
+            // notice ahead of it that is not JSON (MsBuildQuery).
+            using var json = JsonDocument.Parse(MsBuildQuery.Json(output));
             var properties = json.RootElement.GetProperty("Properties");
             var all = properties.GetProperty("TargetFrameworks").GetString();
             var single = properties.GetProperty("TargetFramework").GetString();
