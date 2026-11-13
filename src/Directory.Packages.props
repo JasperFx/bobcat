@@ -40,7 +40,9 @@
     <!-- Bobcat.Supervisor.ProjectedWorker only (a test host): its connection-string probe. -->
     <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.0" />
 
-    <PackageVersion Include="Alba" Version="8.5.2" />
+    <!-- Bobcat.Ui.Specs only: the console's end-to-end suite drives BobcatUiHost over Alba's TestServer.
+         Alba 9 targets net10.0+, so no net9.0 library may take it (bobcat#823). -->
+    <PackageVersion Include="Alba" Version="9.0.0" />
     <!-- Bobcat.Tests only. AlbaContentRoot reads [WebApplicationFactoryContentRoot] reflectively
          by type name so the shipped package needs no ASP.NET reference; the test assembly carries
          the real attribute so the reflective read is proved against the real type. -->
