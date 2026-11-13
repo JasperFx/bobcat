@@ -259,4 +259,79 @@ public class ForeignTestProgressPublishingTests
 
         sink.Events.OfType<TestFinished>().ShouldHaveSingleItem().SpecId.ShouldBeNull();
     }
+
+    [Fact]
+    public async Task a_supervised_failure_never_reaches_the_wire_without_its_reason()
+    {
+        // bobcat#825. The Marten gate's 232 LinqTests failures arrived as "Failed" and nothing
+        // else — five distinct clusters a person had to rerun by hand to tell apart — because the
+        // supervisor had the worker's message in its WorkerOutcome and test_finished had no field
+        // for it. A Bobcat spec's own scenario_finished always carried its message; only this
+        // forwarded stream dropped it.
+        var sink = new RecordingSink();
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("A.passes"), FakeWorkerFactory.Test("A.fails"), FakeWorkerFactory.Test("A.errors")],
+            Outcome = (uid, _, _) => uid switch
+            {
+                "A.passes" => WorkerTestState.Passed,
+                "A.fails" => WorkerTestState.Failed,
+                _ => WorkerTestState.Error
+            },
+            ErrorType = (uid, _) => uid == "A.fails" ? "Shouldly.ShouldAssertException" : null,
+            ErrorMessageFor = (uid, _) => uid == "A.fails"
+                ? "Shouldly.ShouldAssertException : total should be 6 but was 8"
+                : "System.InvalidOperationException : the fixture never started",
+            // tUnit sends no stack at all; the message still travels on its own.
+            StackTraceFor = (uid, _) => uid == "A.fails" ? "   at Acme.OrderTests.pays() in OrderTests.cs:line 42" : null
+        };
+
+        await supervised(factory, sink).Run();
+
+        var finished = sink.Events.OfType<TestFinished>().ToDictionary(e => e.Uid);
+
+        finished["A.fails"].State.ShouldBe("Failed");
+        finished["A.fails"].ErrorMessage.ShouldBe("Shouldly.ShouldAssertException : total should be 6 but was 8");
+        finished["A.fails"].StackTrace.ShouldBe("   at Acme.OrderTests.pays() in OrderTests.cs:line 42");
+
+        finished["A.errors"].State.ShouldBe("Error");
+        finished["A.errors"].ErrorMessage.ShouldBe("System.InvalidOperationException : the fixture never started");
+        finished["A.errors"].StackTrace.ShouldBeNull();
+
+        // The refusal in the name: no non-passing verdict on the wire without a reason.
+        sink.Events.OfType<TestFinished>()
+            .Where(e => e.State is not ("Passed" or "Skipped"))
+            .ShouldAllBe(e => e.ErrorMessage != null);
+
+        // And a pass carries none — the field is a reason, not a slot to fill.
+        finished["A.passes"].ErrorMessage.ShouldBeNull();
+        finished["A.passes"].StackTrace.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task a_long_stack_trace_is_capped_on_the_wire_and_says_so()
+    {
+        // One fixture failing to start fails every test in its class with the same hundred-frame
+        // trace; a hundred such tests must not make the reason the bulk of the run's ndjson. The
+        // cut keeps the top of the trace — the throw site — and never happens silently.
+        var trace = string.Join("\n", Enumerable.Range(1, 200).Select(i => $"   at Acme.Fixture.Frame{i}() in Fixture.cs:line {i}"));
+        var sink = new RecordingSink();
+        var factory = new FakeWorkerFactory
+        {
+            Tests = [FakeWorkerFactory.Test("A.fails")],
+            Outcome = (_, _, _) => WorkerTestState.Failed,
+            StackTraceFor = (_, _) => trace
+        };
+
+        await supervised(factory, sink).Run();
+
+        var finished = sink.Events.OfType<TestFinished>().ShouldHaveSingleItem();
+        var lines = finished.StackTrace.ShouldNotBeNull().Split('\n');
+
+        lines.Length.ShouldBe(WireStackTrace.MaxLines + 1);
+        lines[0].ShouldContain("Frame1()");
+        lines[WireStackTrace.MaxLines - 1].ShouldContain($"Frame{WireStackTrace.MaxLines}()");
+        lines[^1].ShouldBe(WireStackTrace.TruncationMarker);
+        finished.StackTrace.ShouldBe(WireStackTrace.Cap(trace));
+    }
 }

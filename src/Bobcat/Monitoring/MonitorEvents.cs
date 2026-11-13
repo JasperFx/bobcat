@@ -584,4 +584,17 @@ public record TestFinished(
     DateTimeOffset At,
     // As on TestStarted (issue #515): the spec identity when the supervisor could name it, null
     // otherwise.
-    string? SpecId = null) : MonitorEvent(RunId);
+    string? SpecId = null,
+    // Why the test did not pass (bobcat#825): the worker's own failure message, read off the
+    // terminal MTP node (xUnit formats it "Namespace.ExceptionType : message"; TUnit sends the
+    // message alone). Null on a passing or skipped verdict, and from a publisher that predates the
+    // field — so a consumer that reads nothing here sees the event exactly as it always did.
+    // A Bobcat spec's own scenario_finished always carried its message; only this forwarded
+    // stream had nowhere to put one, which is how 232 failures reached a board as "Failed" and
+    // nothing else.
+    string? ErrorMessage = null,
+    // The failure's stack trace, capped by the supervisor (Bobcat.Supervisor's WireStackTrace: the
+    // FIRST 40 lines or 4 KB, the throw site being at the top of a .NET trace) and ending in a
+    // "… (truncated)" line when it was cut — never a silent truncation. Null on a passing or
+    // skipped verdict, and for a framework that sends none (TUnit erases it, as it erases the type).
+    string? StackTrace = null) : MonitorEvent(RunId);

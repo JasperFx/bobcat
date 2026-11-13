@@ -400,9 +400,16 @@ internal sealed class SupervisorRunPublisher : ISupervisorObserver, IAsyncDispos
             (_, failedChanged) = setVerdict(update.Uid, verdictOf(state));
         }
 
+        // The reason travels with the verdict (bobcat#825) — only on one that needs it, and the
+        // stack bounded here, at the wire, so WorkerTestUpdate keeps the whole trace for anything
+        // in process that wants it.
+        var failed = verdictOf(state) == ProgressVerdict.Failed;
+        var errorMessage = failed && !string.IsNullOrWhiteSpace(update.ErrorMessage) ? update.ErrorMessage : null;
+        var stackTrace = failed ? WireStackTrace.Cap(update.StackTrace) : null;
+
         _sink.Post(new TestFinished(
             _info.RunId, update.Uid, update.DisplayName, state.ToString(), durationMs, laneOf(worker), at,
-            specIdOf(update.Uid)));
+            specIdOf(update.Uid), errorMessage, stackTrace));
 
         progressChanged(failedChanged);
     }

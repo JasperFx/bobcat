@@ -590,4 +590,27 @@ public class ContractRoundTripTests
         roundTrip(new Client.TestFinished(runId, "t", "t", "Passed", null, null, at))
             .ShouldBeOfType<Wire.TestFinished>().DurationMs.ShouldBeNull();
     }
+
+    [Fact]
+    public void test_finished_carries_the_failures_reason_and_a_publisher_that_predates_it_reads_as_none()
+    {
+        // bobcat#825: trailing and optional, so a consumer that ignores both is exactly as correct
+        // as it was, and a publisher that never sends them is read as a failure with no reason —
+        // which is what every supervised failure was until this.
+        var at = DateTimeOffset.UtcNow;
+        var wire = roundTrip(new Client.TestFinished(
+                runId, "Acme.OrderTests.pays", "pays", "Failed", 120, 0, at, null,
+                "Shouldly.ShouldAssertException : total should be 6 but was 8",
+                "   at Acme.OrderTests.pays() in OrderTests.cs:line 42\n… (truncated)"))
+            .ShouldBeOfType<Wire.TestFinished>();
+
+        wire.ErrorMessage.ShouldBe("Shouldly.ShouldAssertException : total should be 6 but was 8");
+        wire.StackTrace.ShouldBe("   at Acme.OrderTests.pays() in OrderTests.cs:line 42\n… (truncated)");
+
+        var older = """{"runId":"9a1f1a1e-0000-0000-0000-000000000825","uid":"t","displayName":"t","state":"Failed","durationMs":10,"lane":0,"at":"2026-11-10T18:45:27.616017+00:00","specId":null}""";
+        var read = JsonSerializer.Deserialize<Wire.TestFinished>(older, options).ShouldNotBeNull();
+        read.State.ShouldBe("Failed");
+        read.ErrorMessage.ShouldBeNull();
+        read.StackTrace.ShouldBeNull();
+    }
 }

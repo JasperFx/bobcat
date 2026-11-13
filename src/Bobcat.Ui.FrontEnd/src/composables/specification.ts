@@ -96,14 +96,15 @@ export interface Specification {
 
 /**
  * What a specification is rendered from: a live scenario, or one read from a results file. The
- * reports (bobcat#408) are optional because a source may predate them; the viewer renders what it
- * is given.
+ * reports (bobcat#408) are optional because a source may predate them, and the scenario-level
+ * stack trace (bobcat#825) because only a supervised foreign test has one; the viewer renders
+ * what it is given.
  */
 export type SpecSource = Pick<
   ScenarioState,
   'status' | 'steps' | 'declaredSteps' | 'plannedSteps' | 'errorMessage'
 > &
-  Partial<Pick<ScenarioState, 'reports'>>
+  Partial<Pick<ScenarioState, 'reports' | 'stackTrace'>>
 
 function statusOfStep(step: StepState): LineStatus {
   if (step.status === 'running') return 'running'
@@ -296,13 +297,30 @@ export function specificationFor(scenario: SpecSource): Specification {
     (line) => line.kind === 'step' && (line.status === 'failed' || line.status === 'errored'),
   )
   const failedScenario = scenario.status === 'failed' || scenario.status === 'aborted'
+  const unexplained = failedScenario && !explained
+
+  // A supervised foreign test (bobcat#825) has no steps to hang its exception on: its message is
+  // the scenario failure and its capped stack gets the one panel a step's exception would.
+  const exceptions = exceptionsOf(lines)
+  if (unexplained && scenario.stackTrace) {
+    exceptions.push({
+      key: 'scenario',
+      title: scenario.errorMessage ?? 'The test failed',
+      type: null,
+      shortType: null,
+      message: null,
+      frames: [],
+      hiddenFrames: 0,
+      stackTrace: scenario.stackTrace,
+    })
+  }
 
   return {
     rows,
     outside,
     items: itemsOf(rows, outside, scenario.declaredSteps, scenario.plannedSteps),
-    exceptions: exceptionsOf(lines),
-    scenarioFailure: failedScenario && !explained ? scenario.errorMessage : null,
+    exceptions,
+    scenarioFailure: unexplained ? scenario.errorMessage : null,
   }
 }
 

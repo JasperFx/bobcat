@@ -41,6 +41,7 @@ function forwarded(name: string, status: ScenarioStatus): ScenarioState {
     touchedTypes: [],
     finishedAt: null,
     state: null,
+    stackTrace: null,
     workerPublished: false,
     forwarded: true,
     displayName: name,

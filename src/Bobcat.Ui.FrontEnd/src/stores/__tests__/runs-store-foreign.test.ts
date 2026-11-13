@@ -27,8 +27,15 @@ function testStarted(store: Store, uid: string, at: string, lane: number | null 
   store.handleTestStarted({ runId: RUN, uid, displayName: uid, lane, at })
 }
 
-function testFinished(store: Store, uid: string, state: string, at: string, durationMs: number | null = 10) {
-  store.handleTestFinished({ runId: RUN, uid, displayName: uid, state, durationMs, lane: 0, at })
+function testFinished(
+  store: Store,
+  uid: string,
+  state: string,
+  at: string,
+  durationMs: number | null = 10,
+  reason: { errorMessage?: string | null; stackTrace?: string | null } = {},
+) {
+  store.handleTestFinished({ runId: RUN, uid, displayName: uid, state, durationMs, lane: 0, at, ...reason })
 }
 
 function scenarios(store: Store) {
@@ -209,5 +216,39 @@ describe('foreign per-test progress', () => {
 
     expect(scenarios(store)[0].outcome).toBeNull()
     expect(finishedCount(store)).toBe(0)
+  })
+
+  it('folds a forwarded failure’s reason into the slot a Bobcat scenario’s own message takes (bobcat#825)', () => {
+    supervisedRun(store)
+    testFinished(store, 'Acme.OrderTests.pays', 'Failed', '2026-09-01T10:00:03Z', 120, {
+      errorMessage: 'Shouldly.ShouldAssertException : total should be 6 but was 8',
+      stackTrace: '   at Acme.OrderTests.pays() in OrderTests.cs:line 42\n… (truncated)',
+    })
+
+    const scenario = scenarios(store)[0]
+    expect(scenario.status).toBe('failed')
+    expect(scenario.errorMessage).toBe('Shouldly.ShouldAssertException : total should be 6 but was 8')
+    expect(scenario.stackTrace).toBe('   at Acme.OrderTests.pays() in OrderTests.cs:line 42\n… (truncated)')
+  })
+
+  it('reads a publisher that predates the reason, and a pass, as no reason', () => {
+    supervisedRun(store)
+    // An older publisher sends neither member at all — not null, absent.
+    testFinished(store, 'A.old', 'Failed', '2026-09-01T10:00:03Z')
+    testFinished(store, 'A.ok', 'Passed', '2026-09-01T10:00:04Z', 10, { errorMessage: null, stackTrace: null })
+
+    const byUid = Object.fromEntries(scenarios(store).map((s) => [s.uid, s]))
+    expect(byUid['A.old'].errorMessage).toBeNull()
+    expect(byUid['A.old'].stackTrace).toBeNull()
+    expect(byUid['A.ok'].errorMessage).toBeNull()
+  })
+
+  it('starts a retry of a foreign test without the last attempt’s reason', () => {
+    supervisedRun(store)
+    testFinished(store, 't', 'Failed', '2026-09-01T10:00:03Z', 10, { errorMessage: 'the broker refused', stackTrace: '   at T.t()' })
+    testStarted(store, 't', '2026-09-01T10:00:09Z', null)
+
+    expect(scenarios(store)[0].errorMessage).toBeNull()
+    expect(scenarios(store)[0].stackTrace).toBeNull()
   })
 })

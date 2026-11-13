@@ -194,6 +194,14 @@ public record ScenarioResult(
     /// <see cref="Outcome"/>'s. Additive.
     /// </summary>
     public string? State { get; init; }
+
+    /// <summary>
+    /// The failure's stack trace for a forwarded test (bobcat#825), as the publisher capped it
+    /// (a "… (truncated)" last line says when). Its message is in <see cref="ErrorMessage"/>, the
+    /// same slot a Bobcat scenario's takes. Null for a Bobcat scenario, whose exceptions ride its
+    /// steps, and on a pass. Additive.
+    /// </summary>
+    public string? StackTrace { get; init; }
 }
 
 public record StepResult(string StepId, string Kind, string Text, string Status, long? DurationMs, string? ErrorMessage)
@@ -306,6 +314,7 @@ public static class RunEndpoints
                     TouchedTypes = s.TouchedTypes.ToArray(),
                     FinishedAt = s.FinishedAt,
                     State = s.State,
+                    StackTrace = s.StackTrace,
                     DeclaredSteps = s.DeclaredSteps.ToArray(),
                     PlannedSteps = s.PlannedSteps.ToArray()
                 })

@@ -89,21 +89,29 @@ public sealed class FakeWorker : IWorkerClient
 
             if (state is null) continue; // withheld — models a worker that died before reporting
 
-            outcomes.Add(new WorkerOutcome(uid, displayName, state.Value)
+            var passed = state == WorkerTestState.Passed;
+            var outcome = new WorkerOutcome(uid, displayName, state.Value)
             {
                 Traits = traits,
-                ErrorType = state == WorkerTestState.Passed ? null : _factory.ErrorTypeFor(uid, attempt),
-                ErrorMessage = state == WorkerTestState.Passed
+                ErrorType = passed ? null : _factory.ErrorTypeFor(uid, attempt),
+                ErrorMessage = passed
                     ? null
                     : _factory.ErrorMessageFor(uid, attempt) ?? $"{uid} attempt {attempt}",
+                StackTrace = passed ? null : _factory.StackTraceFor(uid, attempt),
                 Duration = _factory.DurationFor(uid, attempt),
                 CollapsedDisplayNames = _factory.CollapsedRows(uid)
-            });
+            };
+            outcomes.Add(outcome);
 
+            // The terminal update carries the same reason the outcome does (bobcat#825), as the
+            // real client reads it off the node.
             relay(new WorkerTestUpdate(uid, displayName, state.Value.ToString().ToLowerInvariant())
             {
                 State = state,
-                Traits = traits
+                Traits = traits,
+                ErrorType = outcome.ErrorType,
+                ErrorMessage = outcome.ErrorMessage,
+                StackTrace = outcome.StackTrace
             });
         }
 
@@ -174,6 +182,12 @@ public sealed class FakeWorkerFactory : IWorkerFactory
     /// "{uid} attempt {n}".
     /// </summary>
     public Func<string, int, string?> ErrorMessageFor { get; init; } = (_, _) => null;
+
+    /// <summary>
+    /// The stack trace a failing test reports on an attempt. Null by default — tUnit sends none,
+    /// and most tests here have no opinion about it.
+    /// </summary>
+    public Func<string, int, string?> StackTraceFor { get; init; } = (_, _) => null;
 
     /// <summary>
     /// The name a run-time result carries, when it differs from the discovered one. MTP node

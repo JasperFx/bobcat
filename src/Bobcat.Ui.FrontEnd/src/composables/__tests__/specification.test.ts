@@ -214,6 +214,34 @@ describe('specificationFor', () => {
 
     expect(specificationFor(source({ status: 'passed', errorMessage: 'stale' })).scenarioFailure).toBeNull()
   })
+
+  it('shows a supervised foreign test’s reason as the scenario failure and its capped stack as the one panel (bobcat#825)', () => {
+    // A test the supervisor forwarded has no steps to hang anything on: the message is the
+    // failure line, and the stack — already capped by the publisher — is the exception panel a
+    // step's exception would have been, titled with the message a reader scans the panels by.
+    const spec = specificationFor({
+      ...source({ errorMessage: 'System.InvalidOperationException : the fixture never started' }),
+      stackTrace: '   at Marten.Fixture..ctor() in Fixture.cs:line 12\n… (truncated)',
+    })
+
+    expect(spec.scenarioFailure).toBe('System.InvalidOperationException : the fixture never started')
+    expect(spec.exceptions).toEqual([
+      {
+        key: 'scenario',
+        title: 'System.InvalidOperationException : the fixture never started',
+        type: null,
+        shortType: null,
+        message: null,
+        frames: [],
+        hiddenFrames: 0,
+        stackTrace: '   at Marten.Fixture..ctor() in Fixture.cs:line 12\n… (truncated)',
+      },
+    ])
+
+    // No stack, no panel — the message alone is the line. And a pass never shows a stale one.
+    expect(specificationFor(source({ errorMessage: 'why' })).exceptions).toEqual([])
+    expect(specificationFor({ ...source({ status: 'passed' }), stackTrace: 'stale' }).exceptions).toEqual([])
+  })
 })
 
 describe('specificationFor — source order and nesting (bobcat#810)', () => {

@@ -12,7 +12,7 @@ function scenario(reports: ScenarioState['reports']): ScenarioState {
     uid: 'Wallet/crediting', feature: 'Wallet', scenario: 'crediting', status: 'failed', attempt: 1, attempts: 1,
     scheduledAttempt: null, outcome: 'Failed', durationMs: 10, errorMessage: null, retryReason: null, steps: [],
     totalSteps: null, declaredSteps: [], plannedSteps: [], touchedTypes: [], finishedAt: null, state: null,
-    workerPublished: true, forwarded: false, displayName: null, reports,
+    workerPublished: true, stackTrace: null, forwarded: false, displayName: null, reports,
   }
 }
 

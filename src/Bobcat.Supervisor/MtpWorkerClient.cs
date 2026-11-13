@@ -385,7 +385,8 @@ public sealed class MtpWorkerClient : IWorkerClient
             if (change?["node"] is not JsonObject node) continue;
             if (node["uid"]?.ToString() is not { } uid) continue;
 
-            var outcome = readNode(uid, node);
+            var reported = readNode(uid, node);
+            var outcome = reported;
             var executionState = node["execution-state"]?.ToString() ?? "";
 
             lock (_lock)
@@ -404,10 +405,20 @@ public sealed class MtpWorkerClient : IWorkerClient
                 _outcomes[uid] = outcome;
             }
 
+            var state = executionState == "in-progress" ? (WorkerTestState?)null : outcome.State;
+
+            // The reason rides the terminal update (bobcat#825), and only a verdict that needs one
+            // gets it: the node's own error.message / error.stacktrace first, the folded outcome's
+            // when this node carries none (a collapsed theory's later row, which folds worst-first).
+            var failed = state is not (null or WorkerTestState.Passed or WorkerTestState.Skipped or WorkerTestState.Indeterminate);
+
             relayTestUpdate(new WorkerTestUpdate(uid, outcome.DisplayName, executionState)
             {
-                State = executionState == "in-progress" ? null : outcome.State,
-                Traits = outcome.Traits
+                State = state,
+                Traits = outcome.Traits,
+                ErrorType = failed ? reported.ErrorType ?? outcome.ErrorType : null,
+                ErrorMessage = failed ? reported.ErrorMessage ?? outcome.ErrorMessage : null,
+                StackTrace = failed ? reported.StackTrace ?? outcome.StackTrace : null
             });
         }
     }

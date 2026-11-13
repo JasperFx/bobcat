@@ -519,4 +519,13 @@ public record TestFinished(
     int? Lane,
     DateTimeOffset At,
     // As on TestStarted (bobcat#515).
-    string? SpecId = null) : MonitorEvent(RunId);
+    string? SpecId = null,
+    // Why the test did not pass (bobcat#825): the worker's own failure message off the terminal
+    // MTP node. Null on a pass or a skip, and from a publisher that predates the field. Folded onto
+    // ScenarioProjection.ErrorMessage, the same slot a Bobcat scenario's own message lands in, so
+    // the run board, failing-tests and the exports read a supervised failure's reason the same way.
+    string? ErrorMessage = null,
+    // The failure's stack trace, already capped by the publisher (first 40 lines or 4 KB, ending
+    // in a "… (truncated)" line when cut). Null on a pass or a skip, and from a framework that
+    // sends none.
+    string? StackTrace = null) : MonitorEvent(RunId);

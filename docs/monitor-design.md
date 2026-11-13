@@ -484,6 +484,36 @@ real HTTP without one.
      isolated or recycled process, the same rule as `worker_faulted`. Discovery is never tapped.
    - Free consequence: a supervised xUnit run now has per-test rows in `GET /api/runs/{id}`
      and therefore a CTRF/JUnit eject, without a Bobcat reference anywhere in the suite.
+   - **`errorMessage` / `stackTrace`: the reason beside the verdict** (added 2026-11-13,
+     bobcat#825). Until then `test_finished` had no field for one, so every supervised failure
+     reached every consumer — the run board, Stoat's gate cards, `bobcat failing-tests` — as
+     "Failed" and nothing else: the Marten gate's 232 LinqTests failures were five distinct
+     clusters nobody could tell apart without rerunning the suites by hand. The supervisor had
+     the text all along (`WorkerOutcome.ErrorMessage`, already used by the GitHub annotations)
+     and was not forwarding it. A Bobcat spec's own `scenario_finished` always carried its
+     message; only this forwarded stream dropped it.
+     - **Trailing and optional, null on a pass or a skip.** A consumer that reads neither sees
+       the event exactly as before, and a publisher older than 1.0.1 is read as a failure with
+       no reason — which is what it was. A reason is only stamped on a verdict that needs one.
+     - **Read off the terminal MTP node first** — its `error.message` / `error.stacktrace`,
+       which `MtpWorkerClient.readNode` already parsed — falling back to the folded
+       `WorkerOutcome` when the node carries none (a collapsed theory's later row, bobcat#649).
+       xUnit formats the message `Namespace.ExceptionType : message`; TUnit sends the message
+       alone and no stack, so `stackTrace` is null there. Proven against the real
+       `Bobcat.Supervisor.ProjectedWorker` host, not only the fake worker.
+     - **The stack is capped at the wire, never silently.** `WireStackTrace.Cap` keeps the
+       **first** 40 lines within 4 KB — a .NET trace puts the throw site at the top and the
+       framework's invoker frames at the bottom — and a cut trace ends in a `… (truncated)`
+       line of its own. One fixture failing to start fails a hundred tests with the same
+       hundred-frame trace, and unbounded, the reason would outweigh every other event in the
+       run's ndjson. `WorkerTestUpdate` keeps the whole trace in process.
+     - **Folded into the same slot a Bobcat scenario's message takes.** `ScenarioProjection.ErrorMessage`
+       (and the store's `errorMessage`) is what `GET /api/runs/{id}`, `failing-tests`, the
+       exports and `SpecificationView`'s scenario-failure line already read, so a supervised
+       failure renders the way a projected one does with no second path; the capped stack is
+       `ScenarioProjection.StackTrace` / `ScenarioResult.StackTrace` / `failing-tests`'
+       `stackTrace`, shown as the one exception panel a step's exception would get. A
+       forwarded start that genuinely reopens the test (a retry) clears both.
    - **`specId`: the identity beside the uid** (added 2026-10-12, issue #515). The fold above —
      a worker's own scenario stream winning for any uid it has touched — needs the two streams
      to name the same test, and in the projected lane they never did: `test_*.uid` is the MTP
