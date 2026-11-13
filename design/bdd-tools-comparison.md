@@ -285,6 +285,52 @@ Append-only. One entry per discussion: date, candidate ids, who decided, what, a
 - **Gate: out of scope** — a gate is one machine. `GateDeclaration.Configure` can still set
   `Supervisor.Shard` if a gate ever wants it.
 
+### 2026-11-13 — C7 decisions, as shipped (bobcat#577)
+
+- **`Supervisor.Distribution` (`Eager` default / `Lazy`), `--distribution eager|lazy`.** Eager is
+  untouched: the same `WorkPlan.Build`, the same one request per lane (a random order's one request
+  per class, C8). Lazy is a separate first pass (`Supervisor.lazyFirstPass`); the retry passes are
+  shared.
+- **The queue is `WorkPlan.Queue`**: the class partitions weighed exactly as `Build` weighs them,
+  longest first then by key; under `--order random`, sorted by key and shuffled by the seed (the same
+  order a one-lane random plan runs). With `--shard`, the queue is the leg's classes. Lanes =
+  `min(MaxParallelWorkers, partitions)`; each lane is one long-lived worker taking one
+  `testing/runTests` request per class it pulls (the seam C8 opened), so a lazy run launches the same
+  number of processes as an eager one, measured over the real worker. `GuardAgainstAnUnfilteredRun`
+  is per request in `MtpWorkerClient`, so it holds per class with nothing added.
+- **Recording is in dequeue order, never completion order.** Each pulled class's result is kept at
+  its queue position and recorded serially once the lanes return. Which lane took which class is
+  timing-dependent; the order classes left the queue is not, and the report and the policy's view
+  follow that order. Pinned by a test where the first class pulled finishes last and is still
+  recorded first.
+- **Waves for a heal or a stall abort.** A pending heal (bobcat#824) or a stall abort stops every
+  lane pulling; the lanes return, their classes are recorded, the heal runs with nothing in flight,
+  and pulling resumes on fresh workers where the queue left off. A class still in the queue during a
+  heal was never started, so it is not a heal-induced attempt at all: it just runs after the heal.
+- **A dead or killed worker is replaced inside the lane**, not at recording time as eager does,
+  because the lane has more to pull. A supervisor-ordered kill (stall, heal) is consumed right after
+  that class's request returns, so it marks the class the kill landed on and no other. A kill that
+  arrives after the request already finished drops the worker anyway, so the next class never lands
+  in a process about to die. **There are no innocent batch-mates from other classes under lazy**: the
+  stall kill's in-flight test retries alone in a fresh process as before, its own class-mates resume
+  in the lane, and the classes still queued are simply pulled by the relaunched worker.
+- **Same-process retries return to the lane that pulled the class** (`_laneOfTest` is set at dequeue).
+  Under lazy plus random order, a lane's retries run one request per class in queue order.
+- **`SupervisorResults.LanePlan` is what each lane pulled**, `LaneElapsed` its summed request time,
+  and `SupervisorResults.Distribution` says lazy. The report prints `Distribution: lazy (…)` and its
+  Timing section heads the lanes "lanes as pulled (distribution: lazy, nothing planned)", dropping
+  the predicted makespan and per-lane predictions, since nothing acted on them. JSON gains
+  `distribution`. `ISupervisorObserver.LanesPlanned` is not called under lazy (nothing is planned);
+  `LaneStarted` / `LaneFinished` fire per class pulled, so `lane_started` / `lane_finished` on the
+  wire are per request, as they already were for retries. No wire shape changed.
+- **Recorded additively**: results file `run.distribution` (`"lazy"`, from `BOBCAT_RUN_DISTRIBUTION`;
+  absent for eager; `SchemaVersion` unmoved), `last-run.json` `arguments.distribution`; `--repeat`
+  replays it. `--distribution` is long-only (`-d` is `--domain`); an unknown value is refused,
+  `--distribution 'x' is not one of eager, lazy.` Any of the flag makes the run supervised with one
+  worker, like the others.
+- **Gate**: no flag; `GateDeclaration.Configure` / `GateProject.Configure` set
+  `Supervisor.Distribution` per unit.
+
 ### 2026-10-16 — C9, vocabulary usage (Jeremy) — **post-1.0, with #552**
 
 - Extend `bobcat vocabulary` (#552): `--usage` lists each step helper's calls, specs and p95

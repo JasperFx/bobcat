@@ -41,6 +41,34 @@ public enum RunOrder
 }
 
 /// <summary>
+/// How a supervised run hands its class partitions to its lanes (bobcat#577).
+/// <see cref="Eager"/>, the default, is the plan as <see cref="WorkPlan.Build"/> makes it: every lane
+/// is dealt its partitions before anything runs, balanced longest-first on the known durations, and
+/// given them as one request. <see cref="Lazy"/> plans nothing ahead: the partitions wait in one queue
+/// (<see cref="WorkPlan.Queue"/>, longest first) and each lane pulls the next as soon as it is idle,
+/// one request per partition into its long-lived worker. A lane that drew short classes simply takes
+/// more of them, so a run with no ledger — or a ledger that is wrong about this machine — still
+/// finishes its lanes close together. Classes are never split either way.
+/// </summary>
+/// <remarks>
+/// The price, stated rather than hidden: under <see cref="Lazy"/> which classes share a process is
+/// decided by timing, so it can change between two runs of the same suite. That surfaces coupling
+/// between classes the way <see cref="RunOrder.Random"/> does, but less reproducibly — a coupling found
+/// under lazy is reproduced with <c>--order random --seed N</c>, not by running lazy again.
+/// </remarks>
+public enum Distribution
+{
+    Eager,
+    Lazy
+}
+
+/// <summary>
+/// One class partition waiting in a lazy run's queue (bobcat#577): its key, its tests in discovery
+/// order, and what the planner expects it to cost.
+/// </summary>
+public sealed record WorkPartition(string Key, IReadOnlyList<string> Uids, TimeSpan Estimate);
+
+/// <summary>
 /// One leg of a run split across machines (bobcat#576): <c>bobcat run --shard 2/4</c> is
 /// <c>new RunShard(2, 4)</c>. <see cref="Index"/> is 1-based, as the flag is written.
 /// </summary>
@@ -284,6 +312,46 @@ public static class WorkPlan
             .Select(lane => new WorkLane(lane.Index, lane.Uids, lane.Load) { Partitions = lane.Keys })
             .OrderByDescending(lane => lane.Estimate)
             .ToList();
+    }
+
+    /// <summary>
+    /// The queue a lazy run's lanes pull from (bobcat#577): every class partition of
+    /// <paramref name="tests"/>, weighed exactly as <see cref="Build"/> weighs them, longest first
+    /// and then by key — or, under <see cref="RunOrder.Random"/>, sorted by key and shuffled with
+    /// <paramref name="seed"/>, the same order a one-lane random plan runs them in.
+    /// </summary>
+    /// <remarks>
+    /// Longest first because the last partition pulled sets when the run ends: a long class pulled
+    /// late leaves every other lane idle while it runs. A pure function of its inputs, like
+    /// <see cref="Build"/>; what is not deterministic under lazy is which lane takes which partition.
+    /// </remarks>
+    public static IReadOnlyList<WorkPartition> Queue(
+        IReadOnlyList<WorkerTest> tests,
+        Func<WorkerTest, string>? partitionKey = null,
+        IReadOnlyDictionary<string, TimeSpan>? knownDurations = null,
+        RunOrder order = RunOrder.Declared,
+        int seed = 0)
+    {
+        if (tests.Count == 0) return [];
+
+        var key = partitionKey ?? ClassOf;
+        var durations = durationsOf(tests, knownDurations);
+        var fallback = medianOf(durations);
+
+        var partitions = tests
+            .GroupBy(key, StringComparer.Ordinal)
+            .Select(group => new WorkPartition(
+                group.Key,
+                group.Select(t => t.Uid).ToList(),
+                group.Aggregate(TimeSpan.Zero, (sum, t) => sum + estimate(t, durations, fallback))))
+            .ToList();
+
+        return order == RunOrder.Random
+            ? Shuffle(partitions.OrderBy(p => p.Key, StringComparer.Ordinal).ToList(), seed)
+            : partitions
+                .OrderByDescending(p => p.Estimate)
+                .ThenBy(p => p.Key, StringComparer.Ordinal)
+                .ToList();
     }
 
     /// <summary>

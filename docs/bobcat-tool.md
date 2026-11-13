@@ -192,6 +192,7 @@ instead of leaving the last green run in view.
 | `--seed <N>` | supervised: the seed a random order is reproduced from; needs `--order random` (`run`) |
 | `--shard <i/n>` | supervised: run leg `i` of `n` when the suite is split across machines; the legs are disjoint and together run everything (`run`; see below) |
 | `--ledger <file>` | supervised: a test ledger whose durations balance the lanes and the `--shard` legs; read, never written (`run`) |
+| `--distribution <how>` | supervised: `eager` (default) deals each worker its classes up front; `lazy` has each worker pull the next class from a longest-first queue when it is idle (`run`; see below) |
 
 **No short flag means two things.** `-f` would have been `--framework`, `--feature` and `--failed`;
 `-r` `--repeat`, `--retries` and `--results`; `-s` `--stall`, `--stall-action`, `--scenario` and
@@ -229,7 +230,7 @@ and the `seed` of a `--order random` run (null otherwise). `obj/` is git-ignored
   `--domain`, `--pattern`, `--trait`), nor with each other. A run selected by coordinates is
   repeated as the identities it resolved to.
 
-### Supervised runs: `--retries`, `--workers`, `--stall`, `--order`, `--shard` {#supervised}
+### Supervised runs: `--retries`, `--workers`, `--stall`, `--order`, `--shard`, `--distribution` {#supervised}
 
 ```bash
 bobcat run --retries 2                        # retry what is allowed to be retried, twice at most
@@ -239,10 +240,11 @@ bobcat run --failed --retries 2 --results artifacts/bobcat
 bobcat run --order random                     # the classes in a shuffled order; prints the seed
 bobcat run --order random --seed 1234567      # that order again
 bobcat run --shard 2/4 --ledger artifacts/ledger/ledger.json   # leg 2 of a suite split four ways
+bobcat run --workers 4 --distribution lazy    # each worker pulls the next class when it is idle
 ```
 
-**Any of `--retries`, `--workers`, `--stall`, `--stall-action`, `--order`, `--seed`, `--shard` or
-`--ledger` makes the run supervised** (bobcat#546): the same test host, driven as worker processes by Bobcat's supervisor,
+**Any of `--retries`, `--workers`, `--stall`, `--stall-action`, `--order`, `--seed`, `--shard`,
+`--ledger` or `--distribution` makes the run supervised** (bobcat#546): the same test host, driven as worker processes by Bobcat's supervisor,
 the thing a hand-written `Supervisor` host does in C#. Without any of them `bobcat run` is exactly
 the plain run. `--results`, `--verbose` and every selection flag work on both.
 
@@ -305,9 +307,30 @@ the plain run. `--results`, `--verbose` and every selection flag work on both.
   describes) and never writes it. A missing file is a first run: `No ledger at … yet: balanced by
   test count.` An unreadable one stops the run, because a leg that quietly balanced by count while the
   others used the ledger would split the suite differently.
+- **`--distribution lazy` hands out the test classes as the workers become free** (bobcat#577).
+  The default, `eager`, deals every worker its share of the classes before anything runs, balanced
+  longest first on the ledger's durations (or on test counts without one), and gives each worker its
+  share as one request. When the estimates are wrong, which is every first run and any ledger from a
+  faster machine, one worker finishes late while the others sit idle. Under `lazy` the classes wait
+  in one queue, longest first, and each worker pulls the next as soon as it is free, one request per
+  class into its one long-lived process, so the workers finish close together without a ledger. A
+  class is never split either way, and each worker is still one process for the whole run.
+  The price: **which classes share a process now depends on timing**, so two lazy runs of the same
+  suite can put different classes side by side. That surfaces coupling between classes, but not
+  reproducibly. A coupling a lazy run finds is reproduced with `--order random --seed N`, not by
+  running lazy again. What stays fixed: results are recorded in the order classes left the queue, not
+  the order they finished, so the report does not depend on which worker won a race; a retry in the
+  same process goes back to the worker that ran that class; and a worker killed over a stall takes
+  only its own class with it, then the lane starts a fresh worker and keeps pulling. The run prints
+  `Distribution: lazy (…)` at the top and in the report, whose lane section says the lanes were
+  pulled rather than planned; each worker's results file carries `run.distribution: "lazy"`, and
+  `--repeat` runs lazy again. With `--order random` the queue is shuffled by the seed instead of
+  longest first; with `--shard` the queue is the leg's classes. A lazy run writes one results file
+  per class, as a random order does. An unknown value is refused:
+  `--distribution 'x' is not one of eager, lazy.`
 - **`--json` is refused** for a supervised run: it writes one results file per worker request, so
   there is no single file to print. Use `--results <dir>`.
-- `--repeat` replays the supervision flags with the rest, the seed, the shard and the ledger included.
+- `--repeat` replays the supervision flags with the rest, the seed, the shard, the ledger and the distribution included.
 
 ### The results file {#results-file}
 

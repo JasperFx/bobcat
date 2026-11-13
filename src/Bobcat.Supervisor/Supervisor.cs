@@ -166,6 +166,29 @@ public sealed class Supervisor
     public int? Seed { get; set; }
 
     /// <summary>
+    /// How the class partitions reach the lanes (bobcat#577). <c>Distribution.Eager</c>
+    /// by default: <see cref="WorkPlan.Build"/> deals every lane its share before anything runs.
+    /// <c>Distribution.Lazy</c> queues the partitions longest first
+    /// (<see cref="WorkPlan.Queue"/>; shuffled under a random <see cref="Order"/>) and each lane pulls
+    /// the next whenever it is idle, one request per partition into its long-lived worker.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Lazy corrects itself where the estimates are wrong (a first run with no ledger, or a ledger
+    /// from a faster machine) because a lane that drew short classes just takes more. What it gives
+    /// up is that which classes share a process now depends on timing.
+    /// </para>
+    /// <para>
+    /// What stays deterministic: results are recorded serially in the order the partitions left the
+    /// queue, never the order they finished, so a report does not depend on which lane won a race.
+    /// A same-process retry returns to the lane whose worker ran that class. A worker killed over a
+    /// stall or to heal a track takes only its own class down with it (there are no batch-mates
+    /// from other classes under lazy) and the lane relaunches a worker and keeps pulling.
+    /// </para>
+    /// </remarks>
+    public Distribution Distribution { get; set; } = Distribution.Eager;
+
+    /// <summary>
     /// Run one leg of the suite split across machines (bobcat#576): after discovery and any
     /// selection or filter, the class partitions are balanced over <see cref="RunShard.Count"/> legs
     /// (<see cref="WorkPlan.Legs"/>) and only leg <see cref="RunShard.Index"/> runs, through the
@@ -911,7 +934,8 @@ public sealed class Supervisor
                     WorkersLaunched = _workersLaunched,
                     Order = Order,
                     Seed = _seed,
-                    ShardLeg = _shardLeg
+                    ShardLeg = _shardLeg,
+                    Distribution = Distribution
                 };
             }
 
@@ -998,7 +1022,8 @@ public sealed class Supervisor
             FailOnCollapsed = FailOnCollapsed,
             Order = Order,
             Seed = _seed,
-            ShardLeg = _shardLeg
+            ShardLeg = _shardLeg,
+            Distribution = Distribution
         };
     }
 
@@ -1195,7 +1220,11 @@ public sealed class Supervisor
         Dictionary<string, List<SupervisorAttempt>> attempts,
         CancellationToken ct)
     {
-        if (batched.Count > 0)
+        if (batched.Count > 0 && Distribution == Distribution.Lazy)
+        {
+            if (await lazyFirstPass(batched, traits, attempts, ct) is { } lazyAbort) return lazyAbort;
+        }
+        else if (batched.Count > 0)
         {
             var plan = WorkPlan.Build(batched, MaxParallelWorkers, PartitionKey, KnownTestDurations, Order, _seed ?? 0);
             _lanesPlanned = Math.Max(_lanesPlanned, plan.Count);
@@ -1271,6 +1300,180 @@ public sealed class Supervisor
             var abort = record(result, AttemptPlacement.IsolatedProcess, traits, attempts, killed);
             if (abort is not null) return abort;
             if (await healIfPending(ct) is { } healAbort) return healAbort;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The first pass under <c>Distribution.Lazy</c> (bobcat#577): the lanes pull class
+    /// partitions from one queue, one request per partition into each lane's long-lived worker, until
+    /// the queue is empty.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Recorded in dequeue order.</b> Each pulled partition's result is kept at its position in the
+    /// queue and recorded serially once the lanes return. That is the eager path's rule (a report must
+    /// not depend on which worker finished first) restated for a queue: the partitions left the queue
+    /// in a deterministic order, even though which lane took each did not.
+    /// </para>
+    /// <para>
+    /// <b>Waves.</b> A pending heal or a stall abort stops every lane pulling; the lanes return, what
+    /// they ran is recorded, the heal runs with nothing in flight, and the lanes start pulling again on
+    /// fresh workers where the queue left off. Without either, the whole queue is one wave.
+    /// </para>
+    /// <para>
+    /// <b>A dead worker is replaced at once</b>, inside the lane, rather than at recording time as the
+    /// eager path does: the lane has more to pull, and pulling into a corpse would fail every class
+    /// after it. A kill the supervisor ordered (stall, heal) is read for a partition right after its
+    /// request returns, so it marks the class the kill landed on and no other.
+    /// </para>
+    /// </remarks>
+    private async Task<string?> lazyFirstPass(
+        IReadOnlyList<WorkerTest> batched,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> traits,
+        Dictionary<string, List<SupervisorAttempt>> attempts,
+        CancellationToken ct)
+    {
+        var queue = WorkPlan.Queue(batched, PartitionKey, KnownTestDurations, Order, _seed ?? 0);
+        var laneCount = Math.Max(1, Math.Min(MaxParallelWorkers, queue.Count));
+        _lanesPlanned = Math.Max(_lanesPlanned, laneCount);
+
+        _durationCoverage = WorkPlan.CoverageOf(batched, KnownTestDurations);
+        if (_durationCoverage is { } coverage) Log?.Invoke(coverage.ToString());
+
+        Log?.Invoke($"Distribution: lazy, {queue.Count} class(es) queued " +
+                    (Order == RunOrder.Random ? "in the seed's order" : "longest first") +
+                    $", pulled by {laneCount} lane(s)");
+
+        var pulled = new (int Lane, WorkerRunResult Result, InducedKill? Killed)[queue.Count];
+        var observed = Enumerable.Range(0, laneCount).Select(_ => new List<WorkPartition>()).ToArray();
+        var elapsed = new TimeSpan[laneCount];
+        var cursor = 0;
+
+        lock (_gate)
+        {
+            while (_lanes.Count < laneCount) _lanes.Add(null);
+
+            // A random order's retries run a lane's classes one request each in queue order, and
+            // runPartitionsInOrder reads them from these books.
+            for (var position = 0; position < queue.Count; position++)
+            {
+                foreach (var uid in queue[position].Uids) _partitionOfTest[uid] = queue[position].Key;
+                _partitionRank[queue[position].Key] = position;
+            }
+        }
+
+        bool stopPulling()
+        {
+            lock (_recordGate) return _pendingHeal is not null || _healing || _stallAbort is not null;
+        }
+
+        async Task pull(int lane)
+        {
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                // Read before _gate is taken: degrade() takes _recordGate and then _gate, so taking
+                // them the other way round here could deadlock against it.
+                if (stopPulling()) return;
+
+                int position;
+                lock (_gate)
+                {
+                    if (cursor >= queue.Count) return;
+                    position = cursor++;
+
+                    // Where a same-process retry of any of these tests goes back to.
+                    foreach (var uid in queue[position].Uids) _laneOfTest[uid] = lane;
+                }
+
+                var partition = queue[position];
+                var worker = await laneWorker(lane, ct);
+                notify(observer => observer.LaneStarted(lane, partition.Uids));
+
+                WorkerRunResult result;
+                var started = Stopwatch.GetTimestamp();
+                try
+                {
+                    result = await worker.Run(partition.Uids, ct);
+                }
+                finally
+                {
+                    var spent = Stopwatch.GetElapsedTime(started);
+                    elapsed[lane] += spent;
+                    Interlocked.Add(ref _busyTicks, spent.Ticks);
+                }
+
+                notify(observer => observer.LaneFinished(lane, result));
+                observed[lane].Add(partition);
+
+                var killed = consumeKill(lane);
+                if (result.Crashed)
+                {
+                    invalidateLane(lane, result.Fault!);
+                }
+                else if (killed is not null)
+                {
+                    // The kill was aimed at this worker but its request finished first: the kill is
+                    // still on its way, so the next class must not be handed to it.
+                    invalidateLane(lane, "killed by the supervisor after its class finished");
+                }
+
+                pulled[position] = (lane, result, killed);
+            }
+        }
+
+        var recorded = 0;
+        while (recorded < queue.Count)
+        {
+            await Task.WhenAll(Enumerable.Range(0, laneCount).Select(pull));
+
+            int reached;
+            lock (_gate) reached = cursor;
+
+            for (; recorded < reached; recorded++)
+            {
+                var (lane, result, killed) = pulled[recorded];
+                if (killed is null) recordFault(result, lane);
+
+                var abort = record(result, AttemptPlacement.Batched, traits, attempts, killed);
+                if (abort is not null) return abort;
+            }
+
+            lock (_recordGate)
+            {
+                if (_stallAbort is { } stallAbort) return stallAbort;
+            }
+
+            if (await healIfPending(ct) is { } healAbort) return healAbort;
+        }
+
+        // What the lanes actually ran, for the report: a lazy run has no plan to set it against.
+        _lanePlan = Enumerable.Range(0, laneCount)
+            .Where(lane => observed[lane].Count > 0)
+            .Select(lane => new WorkLane(
+                lane,
+                observed[lane].SelectMany(p => p.Uids).ToList(),
+                observed[lane].Aggregate(TimeSpan.Zero, (sum, p) => sum + p.Estimate))
+            {
+                Partitions = observed[lane].Select(p => p.Key).ToList()
+            })
+            .ToList();
+
+        lock (_recordGate)
+        {
+            for (var lane = 0; lane < laneCount; lane++)
+            {
+                if (observed[lane].Count > 0) _laneElapsed[lane] = elapsed[lane];
+            }
+        }
+
+        if (_lanePlan.Count > 1)
+        {
+            Log?.Invoke($"{_lanePlan.Count} lanes pulled: " +
+                        string.Join(", ", _lanePlan.Select(l => $"{l.Uids.Count} test(s) in {l.Partitions.Count} class(es)")));
         }
 
         return null;

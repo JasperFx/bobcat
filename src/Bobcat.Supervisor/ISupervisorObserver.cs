@@ -66,13 +66,17 @@ public interface ISupervisorObserver
     /// <summary>
     /// The first pass was planned: its lanes, and how many of the planned tests the supplied
     /// <see cref="Supervisor.KnownTestDurations"/> matched (bobcat#663). The coverage is null when
-    /// no durations were supplied.
+    /// no durations were supplied. Not called under <c>Distribution.Lazy</c> (bobcat#577), which
+    /// plans no lanes: what each lane pulled is on <see cref="SupervisorResults.LanePlan"/> afterwards.
     /// </summary>
     void LanesPlanned(IReadOnlyList<WorkLane> lanes, DurationCoverage? coverage)
     {
     }
 
-    /// <summary>A lane's worker was handed a set of tests.</summary>
+    /// <summary>
+    /// A lane's worker was handed a set of tests: its share, a retry, or (under <c>Distribution.Lazy</c>)
+    /// one class it pulled from the queue.
+    /// </summary>
     void LaneStarted(int lane, IReadOnlyList<string> uids)
     {
     }

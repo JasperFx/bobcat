@@ -117,6 +117,8 @@ public class ShortFlagTests
         { "run", "--order" }, { "run", "--seed" },
         // --shard and --ledger (bobcat#576) likewise: -s already went long-only, and supervision flags stay long
         { "run", "--shard" }, { "run", "--ledger" },
+        // --distribution (bobcat#577) likewise: -d is --domain
+        { "run", "--distribution" },
         { "preview", "--framework" }, { "preview", "--feature" }, { "preview", "--configuration" }, { "preview", "--chapter" },
         { "watch", "--scenario" }, { "watch", "--slice" }, { "watch", "--results" },
         // results-schema: --baseline and --baseline-name were both -b

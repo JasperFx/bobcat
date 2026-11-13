@@ -137,10 +137,14 @@ public class SpecRunInput : SpecInput
     [FlagAlias("ledger", true)]
     public string? LedgerFlag { get; set; }
 
+    [Description("Supervised: how the test classes reach the workers -- eager (the default: each worker is dealt its share up front) or lazy: each worker pulls the next class from a longest-first queue when it is idle, so which classes share a process depends on timing")]
+    [FlagAlias("distribution", true)]
+    public string? DistributionFlag { get; set; }
+
     /// <summary>The supervision the flags ask for; null for a plain run.</summary>
     internal Supervision? Supervision(out string? refusal)
         => Specs.Supervision.From(RetriesFlag, WorkersFlag, StallFlag, StallActionFlag, OrderFlag, SeedFlag, ShardFlag,
-            LedgerFlag, out refusal);
+            LedgerFlag, DistributionFlag, out refusal);
 }
 
 /// <summary>
@@ -239,6 +243,9 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
             // The same leg, split from the same ledger (bobcat#576).
             input.ShardFlag = recorded.Shard;
             input.LedgerFlag ??= recorded.Ledger;
+
+            // A lazy run again (bobcat#577); which classes share a process will still depend on timing.
+            input.DistributionFlag ??= recorded.Distribution;
             input.RouteConsole();
 
             project = await input.ProjectAsync();
@@ -331,7 +338,10 @@ public class SpecRunCommand : JasperFxAsyncCommand<SpecRunInput>
                     StallAction = supervision is null ? null : Specs.Supervision.Spell(supervision.StallAction),
                     Order = supervision is null || supervision.Order == RunOrder.Declared ? null : RunReport.Spell(supervision.Order),
                     Shard = supervision?.Shard?.ToString(),
-                    Ledger = supervision?.Ledger
+                    Ledger = supervision?.Ledger,
+                    Distribution = supervision is null || supervision.Distribution == Distribution.Eager
+                        ? null
+                        : RunReport.Spell(supervision.Distribution)
                 }
             }.Write(path);
         }

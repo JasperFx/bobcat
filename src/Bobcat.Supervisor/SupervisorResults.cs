@@ -258,6 +258,12 @@ public sealed class SupervisorResults
     public ShardLeg? ShardLeg { get; init; }
 
     /// <summary>
+    /// How the class partitions reached the lanes (bobcat#577): <see cref="Supervisor.Distribution"/>.
+    /// Under <c>Lazy</c>, <see cref="LanePlan"/> is what each lane actually pulled, not a plan.
+    /// </summary>
+    public Distribution Distribution { get; init; }
+
+    /// <summary>
     /// The per-test durations the lanes were balanced on — <see cref="Supervisor.KnownTestDurations"/>
     /// as it stood when the run began (bobcat#705). Null when none were supplied. Kept so
     /// <see cref="RunTiming"/> can say how fast this runner was against the same tests' history.
