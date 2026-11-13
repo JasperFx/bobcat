@@ -261,7 +261,9 @@ internal static class SupervisedHost
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException
                                               or Engine.BobcatConfigurationException)
                 {
-                    AnsiConsole.MarkupLine($"[red]The ledger at {Markup.Escape(ledgerPath)} could not be read:[/] {Markup.Escape(e.Message)}");
+                    // Plain text, not markup: Spectre wraps at the console width, and a long temp path
+                    // split the sentence across lines on CI (a reader grepping a log needs it whole).
+                    System.Console.WriteLine($"The ledger at {ledgerPath} could not be read: {e.Message}");
                     return new RunOutcome(2, [], false);
                 }
             }
