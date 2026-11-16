@@ -115,7 +115,11 @@ public class RunTableTests
     [Fact]
     public async Task a_cell_that_will_not_convert_is_an_invalid_cell_and_the_other_rows_still_run()
     {
+        // The build would refuse this table (BOBCAT042, bobcat#554); this test is about what the run does
+        // with one that got past it.
+#pragma warning disable BOBCAT042
         var (recording, render) = await Projected.RunAsync("bad cell", () => _grammar.TheMembersAre(wizardRow));
+#pragma warning restore BOBCAT042
         var step = recording.Step("the members are");
 
         step.Cells.ShouldNotContain(c => c.Name == DecisionTableComparer.RowErrorCell);

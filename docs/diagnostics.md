@@ -29,7 +29,7 @@ the usual way:
 | [BOBCAT039](#bobcat039) | error | A step helper isn't accessible to the interceptor |
 | [BOBCAT040](#bobcat040) | error | An override of an inherited `[BobcatSpec]` carries another test attribute |
 | [BOBCAT041](#bobcat041) | info | A specification reaches no Event Model slice |
-| [BOBCAT042](#bobcat042) | error | A `[BobcatExamples]` table doesn't fit its theory |
+| [BOBCAT042](#bobcat042) | error | A constant table doesn't fit what reads it (`[BobcatExamples]`, `TableRunner`) |
 | [BOBCAT043](#bobcat043) | warning | A Task-returning step is called and never awaited |
 | [BOBCAT044](#bobcat044) | error | A member check is not one assertion on one member |
 | [BOBCAT045](#bobcat045) | info | A specification's act goes through a helper that declares no Event Model role |
@@ -128,8 +128,8 @@ Inside a test that is already narrating, `And …` is taken as a step. See
 
 **Error.** For example: `The table column 'Town' does not match Address: no 'Town' on Address — it
 has City, Line1, Zip. Check the spelling, or the member may have been renamed since this spec was
-written`. Variants name a `path` or a `key column`, or a `[BobcatExamples]` column that "names no
-parameter".
+written`. Variants name a `path` or a `key column`, or a `[BobcatExamples]` or `TableRunner` column that
+"names no parameter".
 
 **When:** a **constant** table (a literal, a raw string, or a constant interpolated string such as
 `$"| {nameof(Order.Total)} |"`) or member path names something the type doesn't have. Checked for:
@@ -142,10 +142,18 @@ parameter".
 | `Specify<T>().With("path", value)` | `T` |
 | `Expect.Rows(table)` / `Expect.NoRowsLike(table)` inside a `With(…)` | the member's element type |
 | `[BobcatExamples("…")]` | the theory's parameters |
+| A step handed a constant table, whose body passes it to `TableRunner.Run(this, nameof(row), table)` | the row method's parameters, and the one column its returned value is compared against |
+| A step handed a constant table, whose body passes it to `TableRunner.BuildRows<T>(table)` | `T` — members or constructor parameters, dotted |
 
 Columns match by name or by `[Header]` title (a title *replaces* the name). A path that indexes into a
 collection (`Items[0].Sku`), a dotted column in a set verification, or a path deeper than 8 levels is
 refused with its own message.
+
+**A `TableRunner` column binding to nothing is refused even though a run would not refuse it.** At run
+time a column no parameter claims is shown as an unjudged input. That is a claim nobody checks, so the
+build reports it: on a row method returning nothing, every such column; on one returning a value, every
+such column unless there is exactly one, which is the expected return value. A renamed parameter usually
+shows as this plus a [BOBCAT042](#bobcat042) for the column the new name has no value from.
 
 **Why:** a stale column is always a broken spec. Catching it in the build beats finding it on the next
 run.
@@ -338,12 +346,14 @@ It is *not* reported for a helper whose own body names its command (`OpenTheAcco
 WhenReceived(new OpenAccount(…))`): that command and its trigger are read through it. See
 [An act that names no command](marker-steps.md#unstamped-act), and the paragraph before it on helpers.
 
-## BOBCAT042 — an inline examples table doesn't fit its theory {#bobcat042}
+## BOBCAT042 — a constant table doesn't fit what reads it {#bobcat042}
 
 **Error.** For example: `Row 2 of [BobcatExamples] on 'discount_is_applied': the cell 'ten' in column
-'amount' cannot be read as decimal: …`
+'amount' cannot be read as decimal: …`, or `The table passed to TheMembersAre runs its rows through
+MembersGrammar.addMember: in row 2, the cell 'Wizard' in column 'tier' cannot be read as Tier: 'Wizard' is
+not one of Tier's values (Free, Pro, Enterprise).`
 
-**When:** a `[BobcatExamples]` table the runtime would refuse:
+**When:** a constant table the runtime would refuse. For a `[BobcatExamples]` table:
 
 - no header row,
 - a parameter with no column and no default value,
@@ -353,17 +363,44 @@ WhenReceived(new OpenAccount(…))`): that command and its trigger are read thro
 - a cell its parameter's type can't read: a number that doesn't parse, an enum value no member names,
   `NULL` or `EMPTY` for a non-nullable value type.
 
+For a constant table passed to a step that hands it on to `TableRunner.Run(this, nameof(row), table)`
+or `TableRunner.BuildRows<T>(table)` (bobcat#554), reported at the step's call site:
+
+- a row-method parameter with no column and no default value,
+- a row too short to give a parameter without a default a value,
+- an input cell its parameter's type (or, for `BuildRows<T>`, its member's type) can't read, by the same
+  rules as above. A blank cell under `BuildRows<T>` means "not specified" and is never refused.
+
+The table is followed from the step into its body, and through methods of the same project that pass the
+same `StepTable` parameter on, up to three methods deep. A direct `TableRunner.Run(…, "| … |")` with a
+constant table is checked too.
+
 A column that names no parameter is [BOBCAT032](#bobcat032).
 
-**Why:** every one of these would fail the theory before any row runs.
+**Why:** every one of these fails the specification before the row runs. At run time the same cell is
+an `invalid` cell naming the type and the text (see
+[A cell that cannot be read](tutorials/data-intensive-specifications.md#a-cell-that-cannot-be-read)).
+The build says so first.
 
 **Fix:** correct the table, so every column names a parameter and every cell reads as its parameter's
 type. The withdrawals tutorial's theory is the shape:
 
 <<< ../src/Bobcat.Xunit.Samples/Specs/WithdrawalSpecs.cs#withdrawal-examples{cs}
 
-A cell for a domain type registered with `CellValues.Register<T>` is left to run time. See
-[A theory's examples as a table](marker-steps.md#bobcatexamples).
+**When it doesn't fire:** only what the runtime would certainly refuse is reported. Left to run time:
+
+- dates, times and relative times (`TODAY+30`), a `Uri`, and any domain type, including one with a
+  `CellValues.Register<T>` reader. The build cannot see a registration, so a reader registered *over* a
+  built-in type such as `int` or `bool` is not taken into account either (a later release may change
+  that);
+- output cells (an `out` parameter's or the return value's column), which are compared through
+  `CellCheck` and its own expressions;
+- a table that isn't a compile-time constant, a step compiled into another assembly, a step whose body
+  rebuilds or filters the table before passing it on, a row method named by anything but a constant, and
+  a row method on a target other than `this` whose type could be a subclass.
+
+A test that writes an unreadable cell on purpose, to pin what the run does with one, suppresses it
+around the call with `#pragma warning disable BOBCAT042`.
 
 ## BOBCAT043 — a Task-returning step is not awaited {#bobcat043}
 

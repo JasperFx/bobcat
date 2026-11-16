@@ -179,6 +179,27 @@ public class BobcatGenerator : IIncrementalGenerator
             }
         });
 
+        // 3c-v. bobcat#554 (the BOBCAT030 replacement): a constant table passed to a step that hands it on to
+        //       TableRunner.Run / BuildRows<T>, checked against the row method or T at the call site. A column
+        //       binding to nothing is BOBCAT032; anything else the runtime would refuse, BOBCAT042.
+        var forwardedTables = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: (node, _) => ForwardedTables.IsCandidate(node),
+                transform: ForwardedTables.Check)
+            .WithTrackingName("ForwardedTables")
+            .Where(f => f != null)
+            .Select((f, _) => f!);
+
+        context.RegisterSourceOutput(forwardedTables, (spc, findings) =>
+        {
+            foreach (var (location, problem) in findings)
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    problem.UnknownColumn ? Diagnostics.UnknownTableColumn : Diagnostics.UnreadableExamples,
+                    location, problem.Message));
+            }
+        });
+
         // 3f'. BOBCAT043 (bobcat#623): a Task-returning step called as a statement and never awaited, whose
         //      assertion runs unobserved. CS4014 says so only inside an async method, and only as a warning
         //      nobody connects to a false green.
@@ -694,15 +715,17 @@ internal static class Diagnostics
         true);
 
     /// <summary>
-    /// bobcat#570: a <c>[BobcatExamples]</c> table the runtime would refuse — a parameter with no column and
-    /// no default, a column given twice, a row with the wrong number of cells, no rows at all, or a cell its
-    /// parameter's type cannot read (an enum value no member names, a number that does not parse, <c>NULL</c>
-    /// for a non-nullable value type). An error, because every one of them fails the theory before any row
-    /// runs. A column naming no parameter is BOBCAT032, like every other stale column.
+    /// A constant table the runtime would refuse. bobcat#570: a <c>[BobcatExamples]</c> table — a parameter with
+    /// no column and no default, a column given twice, a row with the wrong number of cells, no rows at all, or a
+    /// cell its parameter's type cannot read (an enum value no member names, a number that does not parse,
+    /// <c>NULL</c> for a non-nullable value type). bobcat#554: a constant table a step hands to
+    /// <c>TableRunner.Run</c> or <c>BuildRows&lt;T&gt;</c> — a row-method parameter with no column and no default,
+    /// a row too short to reach one, or a cell its parameter's (or member's) type cannot read. An error, because
+    /// each fails the spec before the row runs. A column naming nothing is BOBCAT032, like every other stale column.
     /// </summary>
     public static readonly DiagnosticDescriptor UnreadableExamples = new(
         "BOBCAT042",
-        "An inline examples table does not fit its theory",
+        "A constant table does not fit what reads it",
         "{0}",
         "Bobcat",
         DiagnosticSeverity.Error,
