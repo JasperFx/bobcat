@@ -179,6 +179,10 @@ internal static class TableColumns
         return names.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.Ordinal);
     }
 
+    /// <summary>The type of the member (or, for a partial object, constructor parameter) one column names, or null.</summary>
+    public static ITypeSymbol? MemberType(ITypeSymbol type, string name, ColumnRule rule)
+        => memberType(type, name.Trim(), rule, includeConstructors: rule == ColumnRule.Partial);
+
     private static ITypeSymbol? memberType(ITypeSymbol type, string name, ColumnRule rule, bool includeConstructors)
     {
         foreach (var member in instanceMembers(type))

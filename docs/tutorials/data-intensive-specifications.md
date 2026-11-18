@@ -83,6 +83,21 @@ cannot be bound at compile time, and naming one is the point -- the row method s
 of the class instead of a step of its own. `TableRunner.MethodNamed` throws a `SpecCriticalException`
 for a name that matches nothing.
 
+**The build still checks a constant table against its row method.** When a test passes a constant
+table to a step, and the step hands it on to `TableRunner.Run(this, nameof(row), table)` or
+`TableRunner.BuildRows<T>(table)`, the generator follows it there and checks it at the test's call site:
+a column binding to nothing is [BOBCAT032](../diagnostics.md#bobcat032), and a missing column or a cell
+the parameter's type cannot read is [BOBCAT042](../diagnostics.md#bobcat042):
+
+```
+error BOBCAT042: The table passed to TheMembersAre runs its rows through MembersGrammar.addMember:
+in row 2, the cell 'Wizard' in column 'tier' cannot be read as Tier: 'Wizard' is not one of Tier's
+values (Free, Pro, Enterprise).
+```
+
+So renaming a row method's parameter breaks the build at every table that named the old one, rather than
+the next run.
+
 ## Decision tables
 
 One row per case, with the input columns and the expected-output column in the same table. Hand
@@ -423,8 +438,12 @@ the exception as the `InnerException`.
 
 A value written as a step helper's *argument* is never read from text at all: it is ordinary C#, so
 the compiler checks it against the parameter's type. Only a table's cells go through the readers
-above, at run time -- there is no build-time check of a cell's value. (What the build does check is a
-constant table's **columns**: BOBCAT032, above.)
+above, at run time. **A constant table is checked at build time as well** where the build can tell what
+reads it: a `[BobcatExamples]` theory's table, and a table a step hands on to `TableRunner.Run` or
+`BuildRows<T>` ([BOBCAT042](../diagnostics.md#bobcat042)). Only the readers the build knows are
+checked there -- numbers, booleans, chars, enums, `Guid`s and `NULL`/`EMPTY`; a date, a relative time or a
+type with a reader of its own, like `Dimension` above, is still read at run time, and a column naming
+nothing is [BOBCAT032](../diagnostics.md#bobcat032).
 
 ## What a grid says on the wire
 

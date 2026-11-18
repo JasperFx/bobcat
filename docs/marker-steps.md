@@ -1245,8 +1245,8 @@ a skip, so Bobcat reports it failed too.
 The generator reports what it can see at build time: a template placeholder naming no parameter
 (BOBCAT027), a slice bound with nothing recording it (BOBCAT028), a comment read as prose (BOBCAT029),
 a stale table column (BOBCAT032), duplicate identities (BOBCAT036), interceptors not enabled
-(BOBCAT037), an unreachable step helper (BOBCAT039), an inline examples table that doesn't fit its
-theory (BOBCAT042), a Task-returning step that is never awaited (BOBCAT043), a member check that is not one assertion
+(BOBCAT037), an unreachable step helper (BOBCAT039), a constant table that doesn't fit what reads it — a
+theory's examples or a `TableRunner` row method (BOBCAT042), a Task-returning step that is never awaited (BOBCAT043), a member check that is not one assertion
 on one member (BOBCAT044), and the Event Model ones (BOBCAT023, 024, 034, 038, 040, 041). Each has its
 symptom, cause and fix on the [Diagnostics](diagnostics.md) page, along with the ids retired with the
 Gherkin lane.
