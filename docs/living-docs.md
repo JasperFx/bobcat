@@ -228,8 +228,10 @@ They are rendered from the results file, so what the file leaves out, a page can
   rule as the console and the wire.
 - **A step's input values are not set apart** — the file has no value spans, so a sentence renders
   as prose and its cells on their own lines.
-- **A non-equality comparison reads in the equality shape** (`expected '10', got '3'` for a
-  `ShouldBeGreaterThan`): the file does not carry the comparison word.
+- **A results file written before 1.1.0 reads a non-equality comparison in the equality shape**
+  (`expected '10', got '3'` for a `ShouldBeGreaterThan`). From 1.1.0 the file carries the
+  comparison word on the cell (bobcat#836), so a page says `should be greater than '10', got '3'`,
+  as the console does.
 - **A skipped test is not there.** It asserted nothing, so the file has no scenario for it and no
   page is written. A failing Acceptance specification is there, under its own verdict.
 
