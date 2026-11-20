@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import AttachmentList from '@/components/AttachmentList.vue'
 import SpecificationView from '@/components/SpecificationView.vue'
+import type { StepCell } from '@/messages/monitor-events'
+import { disagreementOf } from '@/composables/specification'
 import type { ResultsScenarioView } from './fromResults'
 
 /**
@@ -12,8 +14,8 @@ import type { ResultsScenarioView } from './fromResults'
  */
 defineProps<{ scenario: ResultsScenarioView }>()
 
-function describe(cell: { expected: string | null; actual: string | null; value: string | null; note: string | null }): string {
-  if (cell.expected != null || cell.actual != null) return `expected '${cell.expected ?? ''}', got '${cell.actual ?? ''}'`
+function describe(cell: StepCell): string {
+  if (cell.expected != null || cell.actual != null) return disagreementOf(cell)
   return cell.value ?? cell.note ?? ''
 }
 </script>

@@ -6,6 +6,7 @@ import {
   cellsOf,
   segmentsOf,
   shortTypeName,
+  disagreementOf,
   verdictOf,
   type RowMarker,
   type SpecLine as SpecLineModel,
@@ -98,7 +99,7 @@ function describe(cell: StepCell): string {
   // `value` is a cell nothing judged — a table literal's input column (bobcat#396, Bobcat 0.30.0).
   if (verdict === 'passed') return cell.actual ?? cell.expected ?? cell.value ?? ''
   if (cell.expected != null || cell.actual != null) {
-    return `expected '${cell.expected ?? ''}', got '${cell.actual ?? ''}'`
+    return disagreementOf(cell)
   }
   return cell.status
 }

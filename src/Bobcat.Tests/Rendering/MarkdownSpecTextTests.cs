@@ -380,6 +380,42 @@ public class MarkdownSpecTextTests
     }
 
     [Fact]
+    public void a_non_equality_cell_keeps_its_comparison_through_the_results_file()
+    {
+        // bobcat#836: ShouldBeGreaterThan(10) against 3 states its bound, never "expected '10', got '3'".
+        var spec = new SpecRender
+        {
+            Title = "bounds", FeatureTitle = "Calculator", Succeeded = false, Counts = new Counts(0, 1, 0),
+            Steps =
+            [
+                new StepRender
+                {
+                    StepId = "s1", Keyword = "Then", Kind = StepKind.Then, StepText = "the total is large", Status = ResultStatus.failed,
+                    Cells =
+                    [
+                        CellRender.From(new CellResult("total", ResultStatus.failed) { Expected = "10", Actual = "3", Comparison = Comparison.GreaterThan }),
+                        CellRender.From(new CellResult("name", ResultStatus.failed) { Actual = "x", Comparison = Comparison.IsNull }),
+                        cell("sum", ResultStatus.success, "6", "6")
+                    ]
+                }
+            ]
+        };
+
+        var run = new MonitorRunInfo(Guid.NewGuid(), "My.Specs", "/repo", "main", "xunit");
+        var json = ResultsFile.Serialize(ResultsFile.Build(run, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, [spec], null));
+        json.ShouldContain("\"comparison\": \"greaterThan\"");
+        json.ShouldContain("\"comparison\": \"isNull\"");
+
+        var cells = ResultsFileReader.Read(json).Scenarios.ShouldHaveSingleItem().Steps.ShouldHaveSingleItem().Cells;
+        cells[0].Comparison.ShouldBe(Comparison.GreaterThan);
+        cells[0].DisplayText.ShouldBe("should be greater than '10', got '3'");
+        cells[1].Comparison.ShouldBe(Comparison.IsNull);
+        cells[2].Comparison.ShouldBeNull();
+
+        MarkdownSpecText.Render(ResultsFileReader.Read(json).Scenarios.Single()).ShouldBe(MarkdownSpecText.Render(spec));
+    }
+
+    [Fact]
     public void a_scenario_with_no_steps_is_pending_rather_than_a_clean_pass()
     {
         var spec = new SpecRender { Title = "not written yet", Succeeded = true };

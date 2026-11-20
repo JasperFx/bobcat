@@ -157,7 +157,8 @@ function cellOf(cell: ResultsCell, rowIndex: number): StepCell {
     note: cell.note ?? null,
     rowIndex,
     value: cell.value ?? null,
-    comparison: null,
+    // The file's comparison word (bobcat#836) is the wire's, so the board's cell renders it as it does live.
+    comparison: cell.comparison ?? null,
   }
 }
 

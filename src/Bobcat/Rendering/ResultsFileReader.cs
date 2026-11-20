@@ -12,8 +12,9 @@ namespace Bobcat.Rendering;
 /// <para>
 /// <b>What the file cannot give back.</b> The file carries no exception object (only its type name
 /// and message), no value spans (a sentence renders as prose and its cells on their own lines), no
-/// absolute attachment paths (only the path relative to the results directory) and no comparison
-/// word on a cell, so a non-equality cell reads back in the equality shape. Every renderer over a
+/// absolute attachment paths (only the path relative to the results directory). A judged cell's
+/// comparison word is carried since bobcat#836; a file from before reads back in the equality shape.
+/// Every renderer over a
 /// read model shows what the file has and nothing it has not.
 /// </para>
 /// <para>
@@ -157,8 +158,18 @@ public static class ResultsFileReader
             return new CellResult(name, status, cell.Value) { Note = cell.Note, RowIndex = rowIndex };
         }
 
-        return new CellResult(name, status) { Expected = cell.Expected, Actual = cell.Actual, Note = cell.Note, RowIndex = rowIndex };
+        return new CellResult(name, status)
+        {
+            Expected = cell.Expected, Actual = cell.Actual, Note = cell.Note, RowIndex = rowIndex,
+            Comparison = comparisonOf(cell.Comparison)
+        };
     }
+
+    /// <summary>The file's comparison word; null (equality) when absent or one this reader does not know.</summary>
+    private static Comparison? comparisonOf(string? word)
+        => word is not null && Enum.TryParse<Comparison>(word, ignoreCase: true, out var comparison)
+            ? comparison
+            : null;
 
     private static CellRender cellOf(JsonCellOutput cell) => CellRender.From(cellResultOf(cell));
 
@@ -174,7 +185,7 @@ public static class ResultsFileReader
         {
             return cellOf(new JsonCellOutput
             {
-                Column = cell.Column, Row = 0, Status = cell.Status, Expected = cell.Expected, Actual = cell.Actual, Note = cell.Note, Value = cell.Value
+                Column = cell.Column, Row = 0, Status = cell.Status, Expected = cell.Expected, Actual = cell.Actual, Note = cell.Note, Value = cell.Value, Comparison = cell.Comparison
             });
         }
 

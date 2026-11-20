@@ -94,7 +94,7 @@ public static class JsonRenderer
             Steps = spec.Steps.Select(stepToJson).ToList(),
             ScenarioFailure = spec.ScenarioFailure,
             ScenarioFailureCells = spec.ScenarioFailureCells.Count > 0
-                ? spec.ScenarioFailureCells.Select(c => cellToJson(c.Name, null, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
+                ? spec.ScenarioFailureCells.Select(c => cellToJson(c.Name, null, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText, c.Comparison)).ToList()
                 : null,
 
             // The scenario's reports (issue #408) — the agent-readable half of the feature, in the
@@ -160,7 +160,7 @@ public static class JsonRenderer
             // A step-level cell carries no row; one that belongs to the step's grid carries its row
             // (bobcat#553), so a reader of the file can tell the two apart as the renderers do.
             Cells = step.Cells.Count > 0
-                ? step.Cells.Select(c => cellToJson(c.Name, c.RowIndex >= 0 ? c.RowIndex : null, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText)).ToList()
+                ? step.Cells.Select(c => cellToJson(c.Name, c.RowIndex >= 0 ? c.RowIndex : null, c.Status, c.Expected, c.Actual, c.Note, c.DisplayText, c.Comparison)).ToList()
                 : null,
             SetVerification = step.SetVerification != null ? svToJson(step.SetVerification) : null,
             Attachments = attachmentsToJson(step.Attachments)
@@ -197,7 +197,7 @@ public static class JsonRenderer
     /// carried a typed comparison; falls back to a plain value for input/echo cells.
     /// </summary>
     private static JsonCellOutput cellToJson(string column, int? row, ResultStatus status,
-        string? expected, string? actual, string? note, string displayText)
+        string? expected, string? actual, string? note, string displayText, Comparison? comparison = null)
     {
         var hasStructured = expected != null || actual != null;
         return new JsonCellOutput
@@ -208,7 +208,10 @@ public static class JsonRenderer
             Expected = expected,
             Actual = actual,
             Note = note,
-            Value = hasStructured ? null : displayText
+            Value = hasStructured ? null : displayText,
+            // The monitor wire's word (StepCell.Comparison), so the file and the wire agree. Null is
+            // equality, so a file from an earlier release reads exactly as it did (bobcat#836).
+            Comparison = comparison is Engine.Comparison.Equals ? null : comparison.OnTheWire()
         };
     }
 
@@ -457,6 +460,12 @@ internal class JsonCellOutput
 
     /// <summary>Plain value for input/echo cells that carry no typed comparison.</summary>
     public string? Value { get; set; }
+
+    /// <summary>
+    /// What a judged cell compared when it was not equality — <c>greaterThan</c>, <c>contains</c>,
+    /// <c>approximately</c>, <c>isNull</c>…, the monitor wire's camelCase word. Absent means equality.
+    /// </summary>
+    public string? Comparison { get; set; }
 }
 
 internal class JsonCountsOutput

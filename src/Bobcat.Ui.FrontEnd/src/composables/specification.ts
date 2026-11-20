@@ -362,6 +362,43 @@ export type CellVerdict = 'passed' | 'failed' | 'errored' | 'other'
  * carrying either did not match (stoat#63). Folding them into `other` left them uncoloured, which
  * on a set verification read as "not a failure".
  */
+/**
+ * How each comparison word (Bobcat's `Comparison`, camelCase on the wire and in the results file)
+ * reads, copied from `Comparisons.Prose` so a cell here says what the console says. Equality and an
+ * unknown word read "expected".
+ */
+const comparisonProse: Record<string, string> = {
+  equals: 'expected',
+  notEquals: 'should not be',
+  greaterThan: 'should be greater than',
+  greaterThanOrEqual: 'should be at least',
+  lessThan: 'should be less than',
+  lessThanOrEqual: 'should be at most',
+  contains: 'should contain',
+  startsWith: 'should start with',
+  endsWith: 'should end with',
+  approximately: 'should be approximately',
+  isNull: 'should be null',
+  isNotNull: 'should not be null',
+  isEmpty: 'should be empty',
+  isNotEmpty: 'should not be empty',
+}
+
+const unaryComparisons = new Set(['isNull', 'isNotNull', 'isEmpty', 'isNotEmpty'])
+
+/**
+ * A judged cell's disagreement in the words `CellResult.derive()` uses (#384, bobcat#836):
+ * `expected '6', got '8'` for equality, `should be greater than '10', got '3'` for a bound, and no
+ * expected value at all for a unary comparison (`should not be null, got ''`).
+ */
+export function disagreementOf(cell: Pick<StepCell, 'expected' | 'actual' | 'comparison'>): string {
+  const word = cell.comparison ?? 'equals'
+  const prose = comparisonProse[word] ?? 'expected'
+  return unaryComparisons.has(word)
+    ? `${prose}, got '${cell.actual ?? ''}'`
+    : `${prose} '${cell.expected ?? ''}', got '${cell.actual ?? ''}'`
+}
+
 export function verdictOf(cell: StepCell): CellVerdict {
   switch (cell.status) {
     case 'success':

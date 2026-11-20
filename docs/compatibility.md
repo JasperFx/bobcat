@@ -221,7 +221,8 @@ Releases before 0.50.0 also carry the retired Gherkin lane. Bobcat 0.50.0 remove
 ## Bobcat 1.1 notes: .NET 11, otherwise 1.0-compatible {#bobcat-1-1-notes}
 
 Bobcat 1.1 adds .NET 11 and changes nothing else a 1.0.x suite depends on (bobcat#828): anything that
-builds and runs against 1.0.3 builds and runs against 1.1.0 unchanged.
+builds and runs against 1.0.3 builds and runs against 1.1.0 unchanged, with the one exception below: a constant
+table that never fit its row method is now a build error rather than a failure at run time.
 
 - **The libraries target `net9.0;net10.0;net11.0`.** `Bobcat`, `Bobcat.Supervisor`, `Bobcat.EventModel` and the
   four runner adapters each ship all three assemblies, so a spec project on .NET 9 restores 1.1 exactly as it
@@ -237,7 +238,16 @@ builds and runs against 1.0.3 builds and runs against 1.1.0 unchanged.
 - **No JasperFx 3.** The tool and `Bobcat.EventModel` are built against JasperFx / JasperFx.Events 2.96.0, the
   version 1.0.3 shipped with, so an `import-event-model` consumer is not forced onto JasperFx 3, Wolverine 7 or
   Marten 10. The runtime packages reference no JasperFx at all, as since 1.0.0-rc.2.
-- **No Wolverine 7, Alba 9 or YamlDotNet 18.** Those moves (bobcat#776, bobcat#823) come after 1.1.
+- **No Wolverine 7 or YamlDotNet 18.** Those moves (bobcat#776) come after 1.1. Alba 9 (bobcat#823) is used only
+  by Bobcat's own UI test suite; no shipped package references Alba.
+- **One way a 1.0.x suite can stop building: a constant table that does not fit its row method** (bobcat#554).
+  When a constant table is handed through a step to `TableRunner.Run` or `TableRunner.BuildRows<T>`, the generator
+  now checks it at the test's call site: a column that binds to nothing is BOBCAT032, and a missing required
+  column, a short row or a cell its type can't read is BOBCAT042. Under 1.0.x that table failed when the
+  specification ran; under 1.1 it fails the build. Fix the table, the same fix it always needed.
+- **The results file gains an optional `comparison` on a cell** (bobcat#836), the monitor wire's word for a
+  non-equality comparison (`greaterThan`, `isNull`, …). It is additive: a reader that ignores it reads every
+  cell as before, and `SchemaVersion` did not move.
 - **No public API removals or signature changes.** The resident runner's `ServerSentEvents` reader is the
   hand-rolled one 1.0.3 shipped (it works on every target framework; the framework's `SseParser` is in the box
   only from net10.0).

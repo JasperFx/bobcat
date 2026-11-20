@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { StepCell } from '@/messages/monitor-events'
-import { cellsOf, verdictOf } from '@/composables/specification'
+import { cellsOf, disagreementOf, verdictOf } from '@/composables/specification'
 
 /**
  * A scenario report (bobcat#408): a titled grid of what the system did. Its rows are unjudged
@@ -15,7 +15,7 @@ function text(cell: StepCell | null): string {
   if (!cell) return ''
   if (cell.value != null) return cell.value
   if (verdictOf(cell) === 'passed') return cell.actual ?? cell.expected ?? ''
-  if (cell.expected != null || cell.actual != null) return `expected '${cell.expected ?? ''}', got '${cell.actual ?? ''}'`
+  if (cell.expected != null || cell.actual != null) return disagreementOf(cell)
   return cell.note ?? cell.status
 }
 

@@ -112,6 +112,32 @@ describe('a scenario read from a results file', () => {
     ])
   })
 
+  it('keeps the comparison a cell made, so a bound is not read as an equality (bobcat#836)', () => {
+    const view = scenarioOf(
+      {
+        id: 'Calculator/bounds',
+        title: 'bounds',
+        feature: 'Calculator',
+        succeeded: false,
+        steps: [
+          {
+            stepId: 's1',
+            kind: 'Then',
+            text: 'the total is large',
+            status: 'failed',
+            cells: [
+              { column: 'total', status: 'failed', expected: '10', actual: '3', comparison: 'greaterThan' },
+              { column: 'sum', status: 'success', expected: '6', actual: '6' },
+            ],
+          },
+        ],
+      },
+      '',
+    )
+
+    expect(view.steps[0]!.cells.map((c) => c.comparison)).toEqual(['greaterThan', null])
+  })
+
   it('prints the keyword the specification wrote, not the kind it maps to', () => {
     const view = scenario('Actions/custom logging from a step')
     expect(view.steps.map((s) => s.kind)).toEqual(['When', 'And', 'Then'])

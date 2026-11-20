@@ -583,6 +583,12 @@ public class CellRender
     /// </summary>
     public int RowIndex { get; init; } = -1;
 
+    /// <summary>
+    /// What the cell compared (#384 part B), or null for equality. Carried so a writer of the
+    /// results file can say it, and a reader of the file can say it back (bobcat#836).
+    /// </summary>
+    public Comparison? Comparison { get; init; }
+
     public static CellRender From(CellResult cell)
         => new()
         {
@@ -592,7 +598,8 @@ public class CellRender
             Expected = cell.Expected,
             Actual = cell.Actual,
             Note = cell.Note,
-            RowIndex = cell.RowIndex
+            RowIndex = cell.RowIndex,
+            Comparison = cell.Comparison
         };
 }
 
