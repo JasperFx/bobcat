@@ -191,9 +191,11 @@ constants and dialects, and #729 has to keep it that way.
    `Known durations matched N/M` per project as #663 does. Locally the ledger is the gate's own,
    written to `.nuke/temp` from previous gate runs. #730 keys it by display name, so CI's artifact
    can seed it too.
-4. **Schedule by list scheduling, longest first.** Whenever a unit finishes, start the
-   longest-predicted waiting unit whose tracks are all free and whose workers fit in the remaining
-   budget. A unit that wants more workers than the budget allows is clamped to the budget, not
+4. **Schedule by list scheduling, most work first.** Order the units by predicted wall clock times
+   workers (a four-lane unit of four minutes is sixteen worker-minutes); whenever a unit finishes, start
+   the first waiting unit in that order whose tracks are all free and whose workers fit in the remaining
+   budget. (Originally longest wall clock first, which started multi-worker units last: they need several
+   workers free at once, and single-worker units took each one as it came free.) A unit that wants more workers than the budget allows is clamped to the budget, not
    held back forever. Print the plan before running (the tracks, the order, the predicted
    makespan), and print predicted against actual afterwards. That is also lesson 9's "compare a
    plan's predicted and realised makespans".

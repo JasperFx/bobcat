@@ -41,7 +41,7 @@ public sealed class Gate
         var durations = _declaration.DurationsPath is { } durationsPath
             ? GateDurations.Load(durationsPath)
             : GateDurations.Empty();
-        var plan = GateScheduler.Order(units, durations.Predict);
+        var plan = GateScheduler.Order(units, durations.Predict, budget);
 
         // 1. Preflight, by track, before anything is built or launched: a stopped container is
         //    reported in seconds and by name, not ten minutes in as a thousand identical failures.
@@ -89,7 +89,7 @@ public sealed class Gate
                 $"  predicted: {(durations.Predict(unit) is { } p ? GateResults.Humanize(p) : "first run")}");
         }
 
-        // 4. Run, longest first, never two on a track, never past the budget.
+        // 4. Run, most work first, never two on a track, never past the budget.
         var results = new List<GateUnitResult>();
         await GateScheduler.Run(plan, budget, async (unit, workers, token) =>
         {

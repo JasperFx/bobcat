@@ -7,7 +7,7 @@ namespace Bobcat.Supervisor;
 /// <c>design/local-push-gates.md</c>): its test projects, the resource <see cref="Tracks"/> each
 /// holds while it runs, and one CPU <see cref="WorkerBudget"/> across all of them. <see cref="Run"/>
 /// builds once, preflights every track, then runs one <see cref="Supervisor"/> per
-/// <see cref="GateUnit"/> — a (project, framework) pair — longest first, never two on one track,
+/// <see cref="GateUnit"/> — a (project, framework) pair — most work first, never two on one track,
 /// never more workers than the budget.
 /// </summary>
 /// <remarks>
