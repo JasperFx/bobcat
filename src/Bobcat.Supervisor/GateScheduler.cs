@@ -5,7 +5,9 @@ namespace Bobcat.Supervisor;
 /// <summary>
 /// The gate's list scheduler (bobcat#729): most work first, a unit starts when every
 /// track it names is free and its workers fit in what is left of the budget, and whenever a unit
-/// finishes the first waiting unit that now fits starts. Pure over <see cref="GateUnit"/>s and a
+/// finishes the first waiting unit that now fits starts. With predictions, the first unit held back
+/// only by workers keeps its place: a later unit jumps ahead of it only if it is predicted to finish
+/// before enough workers come free for it (see <see cref="Run"/>). Pure over <see cref="GateUnit"/>s and a
 /// delegate, so the tracks, the budget and the ordering are tested without a test host.
 /// </summary>
 internal static class GateScheduler
@@ -54,16 +56,35 @@ internal static class GateScheduler
     /// unit already running has returned, so the gate never returns with hosts still alive.
     /// Cancellation is the same path.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A unit held back by workers keeps its place</b> when <paramref name="predicted"/> is given
+    /// (EASY backfilling). The first waiting unit whose tracks are free but whose workers do not fit
+    /// gets a reservation: the time the running units are predicted to have freed enough workers for
+    /// it. A later unit may start before it only if it is predicted to finish by then, so it never
+    /// delays the reserved one. Without the reservation, a unit on four lanes waited for four
+    /// workers to be free at once while single-worker units took each one as it came free, and it
+    /// started only when the gate had nearly emptied (Wolverine's LocalGate: SqlServerTests started
+    /// 19 minutes into a 22-minute gate).
+    /// </para>
+    /// <para>
+    /// Without predictions, or when a running unit's end cannot be predicted, there is no
+    /// reservation and every unit that fits starts, as before.
+    /// </para>
+    /// </remarks>
     public static async Task Run(
         IReadOnlyList<GateUnit> ordered,
         int budget,
         Func<GateUnit, int, CancellationToken, Task> run,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Func<GateUnit, TimeSpan?>? predicted = null,
+        TimeProvider? clock = null)
     {
         budget = Math.Max(1, budget);
+        clock ??= TimeProvider.System;
 
         var waiting = new List<GateUnit>(ordered);
-        var running = new Dictionary<Task, (GateUnit Unit, int Workers)>();
+        var running = new Dictionary<Task, (GateUnit Unit, int Workers, DateTimeOffset Started)>();
         var heldTracks = new HashSet<Track>();
         var workersInUse = 0;
         ExceptionDispatchInfo? fault = null;
@@ -74,19 +95,32 @@ internal static class GateScheduler
             {
                 // Scan in plan order and start everything that fits. A unit that does not fit is
                 // stepped over, not waited on: a short no-track unit should fill the gap beside a
-                // long one holding the only track, which is the whole point of tracks.
+                // long one holding the only track, which is the whole point of tracks. A unit held
+                // back only by workers reserves them (see remarks): after it, a unit starts only if
+                // it is predicted to finish before the reservation.
+                DateTimeOffset? reservedAt = null;
+                var reserved = false;
+
                 for (var i = 0; i < waiting.Count;)
                 {
                     var unit = waiting[i];
                     var workers = WorkersFor(unit, budget);
+                    var tracksFree = unit.Tracks.All(t => !heldTracks.Contains(t));
+                    var fits = workers <= budget - workersInUse;
 
-                    if (workers <= budget - workersInUse && unit.Tracks.All(t => !heldTracks.Contains(t)))
+                    if (fits && tracksFree && (!reserved || finishesBy(unit, reservedAt)))
                     {
                         waiting.RemoveAt(i);
                         foreach (var track in unit.Tracks) heldTracks.Add(track);
                         workersInUse += workers;
-                        running[run(unit, workers, ct)] = (unit, workers);
+                        running[run(unit, workers, ct)] = (unit, workers, clock.GetUtcNow());
                         continue;
+                    }
+
+                    if (!reserved && tracksFree && !fits && predicted is not null)
+                    {
+                        reservedAt = whenWorkersFree(workers - (budget - workersInUse));
+                        reserved = reservedAt is not null;
                     }
 
                     i++;
@@ -96,7 +130,7 @@ internal static class GateScheduler
             if (running.Count == 0) break;
 
             var finished = await Task.WhenAny(running.Keys);
-            var (done, released) = running[finished];
+            var (done, released, _) = running[finished];
             running.Remove(finished);
             foreach (var track in done.Tracks) heldTracks.Remove(track);
             workersInUse -= released;
@@ -115,5 +149,34 @@ internal static class GateScheduler
 
         fault?.Throw();
         if (waiting.Count > 0) ct.ThrowIfCancellationRequested();
+
+        // When the running units are predicted to have released this many more workers; null when a
+        // unit whose end decides it has no prediction.
+        DateTimeOffset? whenWorkersFree(int needed)
+        {
+            var now = clock.GetUtcNow();
+            var ends = new List<(DateTimeOffset End, int Workers)>();
+            foreach (var (unit, workers, started) in running.Values)
+            {
+                if (predicted!(unit) is not { } duration) return null;
+
+                // A unit past its prediction is taken to end now: it is the next to free its workers
+                var end = started + duration;
+                ends.Add((end < now ? now : end, workers));
+            }
+
+            var released = 0;
+            foreach (var (end, workers) in ends.OrderBy(x => x.End))
+            {
+                released += workers;
+                if (released >= needed) return end;
+            }
+
+            return null;
+        }
+
+        // A later unit may go ahead of the reservation only if it is predicted to be done by then
+        bool finishesBy(GateUnit unit, DateTimeOffset? reservation)
+            => reservation is { } at && predicted!(unit) is { } duration && clock.GetUtcNow() + duration <= at;
     }
 }

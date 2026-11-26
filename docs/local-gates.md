@@ -116,7 +116,11 @@ The rules:
    workers the unit runs on, so a four-lane unit of four minutes (sixteen worker-minutes) goes ahead of
    a single-worker unit of ten. Ordered by wall clock alone, a unit that needs several workers at once
    started only when the gate had nearly emptied and became its tail. Whenever a unit finishes, the
-   first waiting unit in that order whose tracks are free and whose workers fit starts. Predictions come from the gate's own record of previous runs
+   first waiting unit in that order whose tracks are free and whose workers fit starts. The first unit
+   held back only by workers keeps its place: the gate works out when the running units are predicted
+   to have freed enough workers for it, and a later unit starts before then only if it is predicted to
+   be done by then (EASY backfilling). Without a prediction for a running unit there is no
+   reservation, and whatever fits starts. Predictions come from the gate's own record of previous runs
    (`DurationsPath`, `.bobcat/gate-durations.json` by default: the mean of the last five wall clocks
    per unit, on this machine); a unit with no record goes **first**, because a short unknown started
    early costs nothing and a long unknown started last is the whole makespan. Every unit runs -- a
