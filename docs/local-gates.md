@@ -4,7 +4,7 @@ One command that runs **every** test project of a repository before a push, as f
 allows, without two suites colliding on a shared container. A `GateDeclaration` in
 `Bobcat.Supervisor` lists the projects, the resource **tracks** each one holds while it runs, and one
 CPU **worker budget** across all of them; `Run()` builds once, preflights every track, then runs one
-[supervisor](parallel-ready-suites.md) per `(project, framework)` unit -- longest first, never two on
+[supervisor](parallel-ready-suites.md) per `(project, framework)` unit -- most work first, never two on
 one track, never more workers than the budget -- and exits with the worst unit's exit code and a
 report that names every unit.
 
@@ -112,8 +112,11 @@ The rules:
    - `SkipBuild = true` is the promise that the hosts are already there.
 3. **Print the plan**: every unit in the order it will be offered to the budget, with its workers,
    tracks and predicted duration.
-4. **Run, longest first.** Whenever a unit finishes, the longest waiting unit whose tracks are free
-   and whose workers fit starts. Predictions come from the gate's own record of previous runs
+4. **Run, most work first.** Units are ordered by predicted work: the predicted wall clock times the
+   workers the unit runs on, so a four-lane unit of four minutes (sixteen worker-minutes) goes ahead of
+   a single-worker unit of ten. Ordered by wall clock alone, a unit that needs several workers at once
+   started only when the gate had nearly emptied and became its tail. Whenever a unit finishes, the
+   first waiting unit in that order whose tracks are free and whose workers fit starts. Predictions come from the gate's own record of previous runs
    (`DurationsPath`, `.bobcat/gate-durations.json` by default: the mean of the last five wall clocks
    per unit, on this machine); a unit with no record goes **first**, because a short unknown started
    early costs nothing and a long unknown started last is the whole makespan. Every unit runs -- a

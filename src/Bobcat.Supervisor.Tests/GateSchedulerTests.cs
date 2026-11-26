@@ -4,7 +4,7 @@ namespace Bobcat.Supervisor.Tests;
 
 /// <summary>
 /// The gate's scheduler (bobcat#729) without a test host: tracks are exclusive, the budget is one
-/// number across every unit, and the order is longest first. Units complete only when the test
+/// number across every unit, and the order is most work (wall clock times workers) first. Units complete only when the test
 /// says so, so overlap is proved rather than timed.
 /// </summary>
 public class GateSchedulerTests
@@ -93,6 +93,66 @@ public class GateSchedulerTests
 
         GateScheduler.Order([a, b, c, d], u => predicted[u.Project.Name]).Select(u => u.Project.Name)
             .ShouldBe(["B", "D", "C", "A"]);
+    }
+
+    [Fact]
+    public void order_is_by_work_so_a_multi_worker_unit_goes_ahead_of_a_longer_single_worker_one()
+    {
+        var predicted = new Dictionary<string, TimeSpan>
+        {
+            ["Broker"] = TimeSpan.FromMinutes(10), // 10 worker-minutes
+            ["Lanes"] = TimeSpan.FromMinutes(4),   // 4 workers: 16 worker-minutes
+            ["Small"] = TimeSpan.FromMinutes(3)    // 2 workers: 6 worker-minutes
+        };
+
+        GateScheduler.Order([unit("Broker"), unit("Small", 2), unit("Lanes", 4)], u => predicted[u.Project.Name],
+                budget: 9)
+            .Select(u => u.Project.Name)
+            .ShouldBe(["Lanes", "Broker", "Small"]);
+    }
+
+    [Fact]
+    public void order_counts_the_workers_a_unit_gets_under_the_budget_not_the_ones_it_asks_for()
+    {
+        // Asks for 8 but gets 2: 2 x 4 = 8 worker-minutes, less than the single worker's 10
+        var predicted = new Dictionary<string, TimeSpan>
+        {
+            ["Wide"] = TimeSpan.FromMinutes(4),
+            ["Long"] = TimeSpan.FromMinutes(10)
+        };
+
+        GateScheduler.Order([unit("Wide", 8), unit("Long")], u => predicted[u.Project.Name], budget: 2)
+            .Select(u => u.Project.Name)
+            .ShouldBe(["Long", "Wide"]);
+    }
+
+    [Fact]
+    public async Task ordered_by_work_a_multi_worker_unit_starts_while_the_budget_is_free()
+    {
+        // Two long single-worker units and a short four-lane one on a budget of four. By wall clock the
+        // single-worker units go first and the four-lane unit waits for both to finish.
+        var predicted = new Dictionary<string, TimeSpan>
+        {
+            ["Long1"] = TimeSpan.FromMinutes(10),
+            ["Long2"] = TimeSpan.FromMinutes(9),
+            ["Lanes"] = TimeSpan.FromMinutes(4)
+        };
+        var plan = GateScheduler.Order([unit("Long1"), unit("Long2"), unit("Lanes", 4)],
+            u => predicted[u.Project.Name], budget: 4);
+
+        var harness = new Harness();
+        var run = harness.Run(plan, budget: 4);
+        await Harness.settle();
+
+        harness.Running.ShouldBe(["Lanes"]);
+
+        await harness.Release("Lanes");
+        harness.Running.ShouldBe(["Long1", "Long2"], ignoreOrder: true);
+
+        await harness.Release("Long1");
+        await harness.Release("Long2");
+        await run;
+        harness.Started.ShouldBe(["Lanes", "Long1", "Long2"]);
     }
 
     [Fact]

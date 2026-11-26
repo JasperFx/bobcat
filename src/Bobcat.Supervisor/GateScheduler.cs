@@ -3,7 +3,7 @@ using System.Runtime.ExceptionServices;
 namespace Bobcat.Supervisor;
 
 /// <summary>
-/// The gate's list scheduler (bobcat#729): longest-predicted first, a unit starts when every
+/// The gate's list scheduler (bobcat#729): most work first, a unit starts when every
 /// track it names is free and its workers fit in what is left of the budget, and whenever a unit
 /// finishes the first waiting unit that now fits starts. Pure over <see cref="GateUnit"/>s and a
 /// delegate, so the tracks, the budget and the ordering are tested without a test host.
@@ -12,20 +12,33 @@ internal static class GateScheduler
 {
     /// <summary>
     /// The order units are offered to the budget: units with no prediction first, in declaration
-    /// order, then the rest longest first.
+    /// order, then the rest by their predicted work, most first: the predicted wall clock times the
+    /// workers the unit runs on under <paramref name="budget"/>.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// An unknown unit goes first rather than being charged the median, because the two mistakes
     /// are not symmetric: a short unknown started early costs nothing, a long unknown started
     /// last is the whole makespan. After one run every unit is known.
+    /// </para>
+    /// <para>
+    /// Work, not wall clock: a unit on four lanes predicted at four minutes is sixteen worker-minutes,
+    /// and it can only start when four workers are free at once. Ordered by wall clock it sorted
+    /// behind every single-worker unit of five minutes or more, and once those were running each
+    /// worker that came free went to the next single-worker unit, so it started when the gate was
+    /// nearly empty and ran on as the tail (Wolverine's LocalGate: three such units started 15
+    /// minutes in and ended a 2h17m-of-work, 9-worker gate at 21m48s). Ordered by work, the units
+    /// that need several workers at once claim them while the whole budget is still free.
+    /// </para>
     /// </remarks>
-    public static IReadOnlyList<GateUnit> Order(IReadOnlyList<GateUnit> units, Func<GateUnit, TimeSpan?> predicted)
+    public static IReadOnlyList<GateUnit> Order(IReadOnlyList<GateUnit> units, Func<GateUnit, TimeSpan?> predicted,
+        int budget = int.MaxValue)
     {
         var indexed = units.Select((unit, index) => (unit, index, predicted: predicted(unit))).ToArray();
 
         return indexed
             .OrderBy(x => x.predicted is null ? 0 : 1)
-            .ThenByDescending(x => x.predicted ?? TimeSpan.Zero)
+            .ThenByDescending(x => (x.predicted ?? TimeSpan.Zero) * WorkersFor(x.unit, budget))
             .ThenBy(x => x.index)
             .Select(x => x.unit)
             .ToArray();
