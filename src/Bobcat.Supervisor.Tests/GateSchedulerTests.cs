@@ -24,7 +24,8 @@ public class GateSchedulerTests
         private readonly Dictionary<string, int> _workers = new(StringComparer.Ordinal);
         private readonly object _lock = new();
 
-        public Task Run(IReadOnlyList<GateUnit> plan, int budget, CancellationToken? ct = null)
+        public Task Run(IReadOnlyList<GateUnit> plan, int budget, CancellationToken? ct = null,
+            Func<GateUnit, TimeSpan?>? predicted = null, TimeProvider? clock = null)
             => GateScheduler.Run(plan, budget, async (u, workers, _) =>
             {
                 TaskCompletionSource gate;
@@ -44,7 +45,7 @@ public class GateSchedulerTests
                 {
                     lock (_lock) _running.Remove(u.Project.Name);
                 }
-            }, ct ?? TestContext.Current.CancellationToken);
+            }, ct ?? TestContext.Current.CancellationToken, predicted, clock);
 
         public IReadOnlyList<string> Started { get { lock (_lock) return _started.ToArray(); } }
         public IReadOnlySet<string> Running { get { lock (_lock) return _running.ToHashSet(); } }
@@ -153,6 +154,98 @@ public class GateSchedulerTests
         await harness.Release("Long2");
         await run;
         harness.Started.ShouldBe(["Lanes", "Long1", "Long2"]);
+    }
+
+    /// <summary>A clock the test moves by hand.</summary>
+    private sealed class ManualClock : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = new(2026, 11, 26, 9, 0, 0, TimeSpan.Zero);
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    [Fact]
+    public async Task a_unit_held_back_by_workers_keeps_its_place_and_only_units_done_before_it_go_ahead()
+    {
+        var minutes = new Dictionary<string, TimeSpan?>
+        {
+            ["Big"] = TimeSpan.FromMinutes(4),
+            ["Wide"] = TimeSpan.FromMinutes(2),
+            ["Long"] = TimeSpan.FromMinutes(10),
+            ["Short"] = TimeSpan.FromMinutes(1)
+        };
+        var clock = new ManualClock();
+        var harness = new Harness();
+        var run = harness.Run([unit("Big", 3), unit("Wide", 4), unit("Long"), unit("Short")], budget: 4,
+            predicted: u => minutes[u.Project.Name], clock: clock);
+        await Harness.settle();
+
+        // Wide needs all four and reserves them for when Big is predicted to end (4 minutes). Short is
+        // done by then and takes the spare worker; Long would still be running, so it waits.
+        harness.Running.ShouldBe(["Big", "Short"], ignoreOrder: true);
+
+        clock.Now += TimeSpan.FromMinutes(1);
+        await harness.Release("Short");
+        harness.Running.ShouldBe(["Big"]); // the spare worker is held for Wide, not given to Long
+
+        clock.Now += TimeSpan.FromMinutes(3);
+        await harness.Release("Big");
+        harness.Running.ShouldBe(["Wide"]);
+
+        await harness.Release("Wide");
+        harness.Running.ShouldBe(["Long"]);
+
+        await harness.Release("Long");
+        await run;
+        harness.Started.ShouldBe(["Big", "Short", "Wide", "Long"]);
+    }
+
+    [Fact]
+    public async Task a_running_unit_past_its_prediction_still_holds_the_reservation()
+    {
+        var minutes = new Dictionary<string, TimeSpan?>
+        {
+            ["Big"] = TimeSpan.FromMinutes(4),
+            ["Wide"] = TimeSpan.FromMinutes(2),
+            ["Short"] = TimeSpan.FromMinutes(1)
+        };
+        var clock = new ManualClock();
+        var harness = new Harness();
+        var run = harness.Run([unit("Big", 3), unit("Wide", 4), unit("Short")], budget: 4,
+            predicted: u => minutes[u.Project.Name], clock: clock);
+        await Harness.settle();
+        harness.Running.ShouldBe(["Big", "Short"], ignoreOrder: true);
+
+        // Big is overdue: it is taken to end now, so nothing more fits before the reservation
+        clock.Now += TimeSpan.FromMinutes(6);
+        await harness.Release("Short");
+        harness.Running.ShouldBe(["Big"]);
+
+        await harness.Release("Big");
+        await harness.Release("Wide");
+        await run;
+    }
+
+    [Fact]
+    public async Task without_a_prediction_for_a_running_unit_there_is_no_reservation()
+    {
+        var minutes = new Dictionary<string, TimeSpan?>
+        {
+            ["Big"] = null,
+            ["Wide"] = TimeSpan.FromMinutes(2),
+            ["Long"] = TimeSpan.FromMinutes(10)
+        };
+        var harness = new Harness();
+        var run = harness.Run([unit("Big", 3), unit("Wide", 4), unit("Long")], budget: 4,
+            predicted: u => minutes[u.Project.Name], clock: new ManualClock());
+        await Harness.settle();
+
+        // Nobody can say when Big frees its workers, so the spare one is used
+        harness.Running.ShouldBe(["Big", "Long"], ignoreOrder: true);
+
+        await harness.Release("Big");
+        await harness.Release("Long");
+        await harness.Release("Wide");
+        await run;
     }
 
     [Fact]

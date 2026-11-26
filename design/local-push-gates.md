@@ -194,8 +194,10 @@ constants and dialects, and #729 has to keep it that way.
 4. **Schedule by list scheduling, most work first.** Order the units by predicted wall clock times
    workers (a four-lane unit of four minutes is sixteen worker-minutes); whenever a unit finishes, start
    the first waiting unit in that order whose tracks are all free and whose workers fit in the remaining
-   budget. (Originally longest wall clock first, which started multi-worker units last: they need several
-   workers free at once, and single-worker units took each one as it came free.) A unit that wants more workers than the budget allows is clamped to the budget, not
+   budget. The first unit held back only by workers reserves them: a later unit goes ahead of it only
+   if it is predicted to finish before the running units free enough workers (EASY backfilling).
+   (Originally longest wall clock first with free backfill, which started multi-worker units last: they
+   need several workers free at once, and single-worker units took each one as it came free.) A unit that wants more workers than the budget allows is clamped to the budget, not
    held back forever. Print the plan before running (the tracks, the order, the predicted
    makespan), and print predicted against actual afterwards. That is also lesson 9's "compare a
    plan's predicted and realised makespans".

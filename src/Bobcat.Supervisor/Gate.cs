@@ -95,7 +95,7 @@ public sealed class Gate
         {
             var result = await runUnit(unit, workers, durations.Predict(unit), token);
             lock (results) results.Add(result);
-        }, ct);
+        }, ct, durations.Predict);
 
         // 5. Remember what each unit took, for next time's order.
         if (_declaration.DurationsPath is { } path)
