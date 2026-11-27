@@ -71,7 +71,7 @@ public static class EmlangImport
         {
             foreach (var step in chapter.Steps.Where(x => x.Kind == EmlangElementKind.Event))
             {
-                unimported.TryAdd(AggregateInference.Name(step.Label), chapter.Name);
+                unimported.TryAdd(AggregateInference.Name(step.Label), chapter.ChapterTitle);
             }
         }
 
@@ -113,15 +113,18 @@ public static class EmlangImport
     {
         if (chapters is null || chapters.Count == 0) return board;
 
-        var unknown = chapters.Where(x => board.Chapters.All(c => c.Name != x)).ToList();
+        // A name selects the board's chapter of that name (every slice in it) or, as before, the
+        // one slice of that name (bobcat#845)
+        var unknown = chapters.Where(x => board.Chapters.All(c => c.Name != x && c.ChapterTitle != x)).ToList();
         if (unknown.Count > 0)
         {
+            var known = board.Chapters.Select(x => x.ChapterTitle).Distinct(StringComparer.Ordinal);
             throw new ArgumentException(
-                $"No chapter named {string.Join(", ", unknown.Select(x => $"'{x}'"))}. The board has: {string.Join(", ", board.Chapters.Select(x => x.Name))}",
+                $"No chapter named {string.Join(", ", unknown.Select(x => $"'{x}'"))}. The board has: {string.Join(", ", known)}",
                 nameof(chapters));
         }
 
-        return new EmlangBoard(board.Chapters.Where(x => chapters.Contains(x.Name)).ToList());
+        return new EmlangBoard(board.Chapters.Where(x => chapters.Contains(x.Name) || chapters.Contains(x.ChapterTitle)).ToList());
     }
 
     /// <returns>Every slice the chapter opened or folded into, in order.</returns>
@@ -213,16 +216,23 @@ public static class EmlangImport
         // A command after an event and no screen is a processor slice: the event triggers it
         var triggeredBy = step.Props.GetValueOrDefault("triggeredBy")
                           ?? (pendingScreen is null ? triggeringEvent : null);
-        var isAutomation = triggeredBy is not null
-                           || (step.Actor.Equals("System", StringComparison.OrdinalIgnoreCase) && pendingScreen is null);
+        var inferredAutomation = triggeredBy is not null
+                                 || (step.Actor.Equals("System", StringComparison.OrdinalIgnoreCase) && pendingScreen is null);
+
+        // bobcat#845: a pattern the board declares (an EM Spec sliceType) is honoured over the
+        // inference above, which stays as the rule for emlang, whose slices carry no type. A View
+        // sliceType cannot describe a slice that opens with a command, so it is left to the inference
+        var declared = chapter.SliceType is "Command" or "Automation" or "Translation" ? chapter.SliceType : null;
+        var pattern = declared ?? (inferredAutomation ? "Automation" : "Command");
+        var isAutomation = pattern is "Automation" or "Translation";
 
         var slice = new CuratedSlice
         {
             Name = name,
             Command = name,
-            Pattern = isAutomation ? "Automation" : "Command",
+            Pattern = pattern,
             Domain = step.Props.GetValueOrDefault("module"),
-            Chapter = chapter.Name,
+            Chapter = chapter.ChapterTitle,
             Trigger = isAutomation
                 ? new CuratedTrigger { Kind = "MessageHandler", Label = triggeredBy }
                 : pendingScreen is null
@@ -235,7 +245,8 @@ public static class EmlangImport
         model.Slices.Add(slice);
         byName[name] = slice;
         report.Add($"chapter '{chapter.Name}': {slice.Pattern} slice '{name}'"
-                   + (slice.Trigger?.Label is { } label ? $" triggered by '{label}'." : "."));
+                   + (slice.Trigger?.Label is { } label ? $" triggered by '{label}'" : "")
+                   + (declared is not null ? " (pattern from the board's sliceType)." : "."));
         return slice;
     }
 
@@ -271,7 +282,7 @@ public static class EmlangImport
             Name = readModel,
             Pattern = "View",
             Domain = step.Props.GetValueOrDefault("module"),
-            Chapter = chapter.Name,
+            Chapter = chapter.ChapterTitle,
             ReadModels = [readModel],
             ConsumedEvents = [.. consumed],
             Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step),
@@ -292,7 +303,7 @@ public static class EmlangImport
     /// sees the slice in both chapters and the canvas will show it under one band.
     /// </summary>
     private static string keptChapter(CuratedSlice existing, EmlangChapter chapter)
-        => existing.Chapter is { } kept && !string.Equals(kept, chapter.Name, StringComparison.Ordinal)
+        => existing.Chapter is { } kept && !string.Equals(kept, chapter.ChapterTitle, StringComparison.Ordinal)
             ? $" Kept chapter '{kept}'; the descriptor carries one chapter per slice."
             : string.Empty;
 

@@ -509,7 +509,11 @@ Pass `--out` the application project's directory; everything lands under it.
 
 ### The stubs: one file per slice, a folder per chapter
 
-Each slice gets `Features/{Chapter}/{Slice}.cs`, in the namespace `{Namespace}.{Chapter}`. The file
+Each slice gets `Features/{Chapter}/{Slice}.cs`, in the namespace `{Namespace}.{Chapter}`. The chapter
+is the board's where the export states one: an EM Spec slice's `chapter`, or the timeline a board
+backup's slice sits on. An emlang slice, which states none, is its own chapter. A slice's pattern is
+likewise the board's where it says (`sliceType`: `STATE_CHANGE`, `STATE_VIEW`, `AUTOMATION`,
+`TRANSLATION`) and inferred from the steps only where it does not (emlang, or `UNDEFINED`). The file
 holds what the slice produces: its command (or the read model of a view), the events it emits and
 the messages it publishes. That is also the file `wolverine scaffold` adds the handler to, so a
 command and its handler live side by side. A type no slice produces, such as an aggregate or an
@@ -518,9 +522,15 @@ names it. `Features/TheSwiper/SwipeOnDog.cs`:
 
 <<< ../src/Bobcat.EventModel.Tests/Fixtures/Import/generated/k9crush/Features/TheSwiper/SwipeOnDog.cs{cs}
 
-**A stub has only what the board names, plus an `Id` where it names no identity.** An emlang export
-usually carries no field information, since the board's props are intentionally omitted. Events
-stay field-less. A command, an aggregate or a read model gets `Guid Id` when the model marks no
+**A stub has only what the board names, plus an `Id` where it names no identity.** How much a board
+names depends on the export. eventmodelers.ai's own emlang export carries neither field types nor
+tests, by design: it is export-only, it emits no Given/When/Then and no field types, and it does not
+round-trip. The `props` and `tests:` Bobcat reads follow the community
+[Emlang Project](https://github.com/emlang-project/spec) grammar (MIT, with a published JSON Schema),
+which does carry both. The lossless input from the platform is its EM Spec JSON (`config.json`, a
+`slice.json`, or a board backup): typed fields, `idAttribute`, each element's `aggregate`, the
+slice's `chapter` and its `sliceType`, and the specifications. Whatever the input, an event with no
+declared fields stays field-less. A command, an aggregate or a read model gets `Guid Id` when the model marks no
 identity for it, because that is Wolverine's own convention: a specification can address
 the stream through it, and a handler's `[WriteAggregate]` resolves it with nothing declared.
 
@@ -537,8 +547,9 @@ event is stored.
 
 A command that does not only start a stream needs a DCB decider or one or more single-stream
 aggregates, so the import gives every command one (bobcat#444). A stream the model declares (an
-eventmodelers.ai element's `aggregate`) is used as it is. Everything else is **inferred from the
-examples**:
+eventmodelers.ai element's `aggregate`) is used as it is; the platform writes `"default"` where nobody
+filled the field in, and that is read as no declaration, never as an aggregate named Default. Everything
+else is **inferred from the examples**:
 
 - **Lineage groups events into streams.** An example that gives an event and expects another says
   the second is appended where the first was. When an example gives events of several subjects
@@ -841,7 +852,7 @@ says so, and points at `EventModelDefinition`.
 | `--strong-typed-ids` | give each aggregate an identity type — `OrderId` in `Identities.cs` — and write every member and `IdentifiedBy` that addresses its stream with it |
 | `--aggregate Slice=Type …` | the aggregate a slice decides against, over the inference |
 | `--starts-stream Slice=Type …` | the aggregate whose stream a slice starts, over the inference |
-| `--chapter A B …` | import only these chapters; the rest of the board is still read as evidence |
+| `--chapter A B …` | import only these chapters (a board chapter, or an emlang slice); the rest of the board is still read as evidence |
 | `--json` | stdout carries only JSON: callouts, report and files |
 | `--force` | overwrite generated stubs and definitions that exist, instead of [merging into them](#re-running-the-import) |
 | `-u, --url <base>` | Push the assembled model to a [Bobcat UI](bobcat-ui.md) at this base URL |

@@ -92,7 +92,12 @@ public static class EventModelersJsonReader
         foreach (var slice in slices)
         {
             var name = text(slice, "title");
-            var aggregates = items(slice, "aggregates").Select(x => x.ValueKind == JsonValueKind.String ? x.GetString()! : text(x, "title")).ToList();
+
+            // The slice's aggregates, as names or as objects; the platform's "default" is nobody's name
+            var aggregates = items(slice, "aggregates")
+                .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString()! : text(x, "title"))
+                .Where(isAggregateName)
+                .ToList();
 
             var steps = new List<EmlangStep>();
             foreach (var screen in items(slice, "screens")) steps.Add(step(EmlangElementKind.Screen, "", screen));
@@ -106,24 +111,55 @@ public static class EventModelersJsonReader
             foreach (var @event in items(slice, "events"))
             {
                 var stream = streamOf(@event, aggregates);
-                steps.Add(step(EmlangElementKind.Event, stream, @event) with { Stream = stream });
+                steps.Add(step(EmlangElementKind.Event, stream ?? "", @event) with { Stream = stream });
             }
             foreach (var view in items(slice, "readmodels")) steps.Add(step(EmlangElementKind.View, "", view));
 
             var tests = items(slice, "specifications").Select(test).ToList();
-            chapters.Add(new EmlangChapter(name, steps, tests));
+
+            // bobcat#845: the slice's chapter and pattern are the board's to say, not the import's to infer
+            chapters.Add(new EmlangChapter(name, steps, tests)
+            {
+                BoardChapter = text(slice, "chapter") is { Length: > 0 } chapter ? chapter : null,
+                SliceType = PatternOf(text(slice, "sliceType")),
+            });
         }
 
         return new EmlangBoard(chapters);
     }
 
-    /// <summary>An event's stream: its aggregate, unless that is the platform's "default", then the slice's.</summary>
-    private static string streamOf(JsonElement @event, IReadOnlyList<string> sliceAggregates)
+    /// <summary>
+    /// The pattern an EM Spec <c>sliceType</c> declares, in the curated vocabulary (bobcat#845):
+    /// <c>STATE_CHANGE</c> → Command, <c>STATE_VIEW</c> → View, <c>AUTOMATION</c> → Automation,
+    /// <c>TRANSLATION</c> → Translation. Null for <c>UNDEFINED</c>, an empty value or anything else,
+    /// which leaves the pattern to the import's inference.
+    /// </summary>
+    public static string? PatternOf(string sliceType) => sliceType.Trim().ToUpperInvariant() switch
     {
-        var aggregate = text(@event, "aggregate");
-        if (aggregate.Length > 0 && !aggregate.Equals("default", StringComparison.OrdinalIgnoreCase)) return aggregate;
-        return sliceAggregates.FirstOrDefault(x => x.Length > 0 && !x.Equals("default", StringComparison.OrdinalIgnoreCase)) ?? "";
+        "STATE_CHANGE" => "Command",
+        "STATE_VIEW" => "View",
+        "AUTOMATION" => "Automation",
+        "TRANSLATION" => "Translation",
+        _ => null
+    };
+
+    /// <summary>An event's stream: its aggregate, unless that is the platform's "default", then the slice's; null for neither.</summary>
+    private static string? streamOf(JsonElement @event, IReadOnlyList<string> sliceAggregates)
+        => aggregateOf(@event) ?? sliceAggregates.FirstOrDefault(isAggregateName);
+
+    /// <summary>
+    /// The aggregate an element names, or null when it names none. The platform writes
+    /// <c>"default"</c> wherever nobody filled the field in, so it is a sentinel, not a name, and both
+    /// readers treat it as absent (bobcat#845).
+    /// </summary>
+    private static string? aggregateOf(JsonElement element)
+    {
+        var aggregate = text(element, "aggregate");
+        return isAggregateName(aggregate) ? aggregate : null;
     }
+
+    private static bool isAggregateName(string aggregate)
+        => aggregate.Length > 0 && !aggregate.Equals("default", StringComparison.OrdinalIgnoreCase);
 
     // ---- board backup --------------------------------------------------------------------------
 
@@ -225,12 +261,15 @@ public static class EventModelersJsonReader
                             automation = text(meta, "title");
                             break;
                         case "COMMAND":
-                            steps.Add(step(EmlangElementKind.Command, "", meta, automation));
+                            steps.Add(step(EmlangElementKind.Command, "", meta, automation) with { Stream = aggregateOf(meta) });
                             automation = null;
                             break;
                         case "EVENT":
+                            // The element's own aggregate first (the same field, and the same "default"
+                            // sentinel, as a config.json's: bobcat#845), else the swimlane it sits in
                             var lane = swimlanes.GetValueOrDefault(cell.Row) ?? "";
-                            steps.Add(step(EmlangElementKind.Event, lane.Equals("Swimlane", StringComparison.OrdinalIgnoreCase) ? "" : lane, meta));
+                            var stream = aggregateOf(meta) ?? (lane.Equals("Swimlane", StringComparison.OrdinalIgnoreCase) ? "" : lane);
+                            steps.Add(step(EmlangElementKind.Event, stream, meta));
                             break;
                         case "READMODEL":
                             steps.Add(step(EmlangElementKind.View, "", meta));
@@ -243,7 +282,8 @@ public static class EventModelersJsonReader
                 }
             }
 
-            if (steps.Count > 0 || tests.Count > 0) yield return new EmlangChapter(title, steps, tests);
+            // The timeline is the board's chapter; the slice border only names the slice (bobcat#845)
+            if (steps.Count > 0 || tests.Count > 0) yield return new EmlangChapter(title, steps, tests) { BoardChapter = chapterTitle };
         }
     }
 

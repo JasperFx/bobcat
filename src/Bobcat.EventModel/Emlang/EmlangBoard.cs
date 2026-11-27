@@ -82,7 +82,26 @@ public sealed record EmlangTest(
 public sealed record EmlangChapter(
     string Name,
     IReadOnlyList<EmlangStep> Steps,
-    IReadOnlyList<EmlangTest> Tests);
+    IReadOnlyList<EmlangTest> Tests)
+{
+    /// <summary>
+    /// The board's chapter this slice sits in, when the model says so (bobcat#845): an EM Spec
+    /// slice's <c>chapter</c>, or the timeline a board backup's slice was read from. Null for an
+    /// emlang slice, which is its own chapter; <see cref="ChapterTitle"/> is the one to stamp.
+    /// </summary>
+    public string? BoardChapter { get; init; }
+
+    /// <summary>
+    /// The slice pattern the model declares — <c>Command</c>, <c>View</c>, <c>Automation</c> or
+    /// <c>Translation</c>, read from an EM Spec <c>sliceType</c> (bobcat#845). Null when the model
+    /// does not say (emlang has no slice type, and the platform writes <c>UNDEFINED</c>), so the
+    /// import infers it from the steps as before.
+    /// </summary>
+    public string? SliceType { get; init; }
+
+    /// <summary>What the imported slice is stamped with as its chapter: the board's, else this slice's own name.</summary>
+    public string ChapterTitle => BoardChapter is { Length: > 0 } ? BoardChapter : Name;
+}
 
 public sealed record EmlangBoard(IReadOnlyList<EmlangChapter> Chapters);
 
