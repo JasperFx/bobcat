@@ -1,0 +1,57 @@
+---
+slices:
+  # Extended form slice: uses steps + tests
+  UserRegistration:
+    steps:
+      - t: Customer/RegistrationForm  # Swimlane: Customer/
+      - c: RegisterUser
+        props:                         # Props: describe command input
+          email: string
+          password: string
+      - e: User/UserRegistered         # Swimlane: User/
+        props:                         # Props: describe event output
+          userId: string
+          email: string
+      - v: UserProfile
+    tests:
+      # When-Then test: no given (no precondition needed)
+      SuccessfulRegistration:
+        when:
+          - c: RegisterUser
+            props:
+              email: alice@example.com
+              password: Str0ngP@ss!
+        then:
+          - e: User/UserRegistered
+            props:
+              email: alice@example.com
+          - v: UserProfile              # View in then
+      # Given-When-Then test with an exception (x:)
+      EmailMustBeUnique:
+        given:
+          - e: User/UserRegistered
+            props:
+              email: joe@example.com
+        when:
+          - c: RegisterUser
+            props:
+              email: joe@example.com
+              password: Str0ngP@ss!
+        then:
+          - x: EmailAlreadyInUse
+            props:
+              email: joe@example.com
+
+---
+# Second YAML document: documents are separated by ---
+slices:
+  # Processor slice: reacts to an event and triggers a side effect
+  # Long prefixes: event:, command: instead of e:, c:
+  SendActivationEmail:
+    steps:
+      - event: User/UserRegistered          # Long form of e:
+      - command: SendActivationEmail        # Long form of c:
+        props:
+          email: string
+          activationLink: string
+      - event: Email/ActivationEmailSent    # Long form of e:

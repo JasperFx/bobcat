@@ -23,7 +23,7 @@ first (`bobcat ui --no-browser` is enough for an agent).
 | `failing-spec` | everything about one scenario: every step with its status, duration and error, its cells (the green ones too), logs, diagnostics, the exception with filtered frames, earlier attempts, the types it touched and the slices that bind it |
 | `flaky-ledger` | scenarios that passed only after a retry, across every run the UI knows |
 | `await-run` | wait for a run to finish, then print its summary -- instead of polling |
-| `export-run` | a run's results as CTRF (the default) or JUnit XML |
+| `export-run` | a run's results as CTRF (the default), JUnit XML, or Cucumber Messages for the Cucumber-family reporters |
 | `event-model` | the Event Model the UI holds, or one slice or domain of it |
 | `slice-coverage` | per slice, what is untested: **`no-spec`** (nothing bound) or **`no-evidence`** (bound, but no run has exercised it) |
 
@@ -37,7 +37,7 @@ Every command takes `-u, --url <url>`, the UI's base URL; `http://localhost:5525
 | `--uid <identity>` | `failing-spec` | the `{Feature}/{Scenario}` identity; the run's first failing scenario by default |
 | `--slice <name>` | `event-model` | only the slice with this name, case-insensitive |
 | `--domain <name>` | `event-model` | only the slices in this domain, case-insensitive |
-| `-f, --format <ctrf\|junit>` | `export-run` | `ctrf` by default |
+| `-f, --format <ctrf\|junit\|cucumber-messages>` | `export-run` | `ctrf` by default; see [`export-run`](#export-run) |
 | `-o, --output <file>` | `export-run` | write to a file instead of standard out |
 | `-t, --timeout <seconds>` | `await-run` | how long to wait; 600 by default, at most 3600 |
 
@@ -54,6 +54,32 @@ it refuses and lists them, because guessing would latch onto somebody else's run
 
 It answers with `outcome` set to `finished`, `orphaned` (the run's process died), or `timeout` with the
 progress so far.
+
+### `export-run`
+
+```bash
+bobcat export-run --format cucumber-messages --output run.ndjson
+```
+
+Three formats. **CTRF** (the default) is the rich one: steps, cells, retry attempts and Bobcat's own
+outcome vocabulary ride its `extra` objects. **JUnit** is the lossy floor every CI system ingests.
+**Cucumber Messages** is the NDJSON envelope stream the Cucumber-family reporters read -- the Cucumber
+HTML formatter, Allure, Serenity-style requirement coverage, and the living-documentation tools Reqnroll
+users rely on -- so a Bobcat run renders in any of them. It answers with `application/x-ndjson`, one
+envelope per line, validated in Bobcat's own tests against the protocol's schema (release 35.0.0).
+
+A Bobcat specification is a test, not a `.feature` file, so the Gherkin half of the stream is
+**synthesised from what the run rendered**: a `source` and `gherkinDocument` per `[BobcatFeature]`,
+a `pickle` per specification, and its steps from the rendered step text of the final attempt. The
+verdicts are the recorded ones: `testCaseStarted` per attempt (a retried spec is two attempts, the
+first `willBeRetried`), `testStepFinished` with each step's status, duration and failure message, a
+step's cells as a JSON `attachment` on it (`cells.json`) and its logs as a text one (`log.txt`), and a
+scenario's reports as JSON attachments on the test case. `meta.ci.git` carries the run's `BOBCAT_RUN_TAG`
+as `tag`, with the branch and repository the run reported, so a reporter can be joined back to the run.
+
+A scenario that recorded no steps -- a test the supervisor forwarded from a plain xUnit suite, say --
+gets one `*` step named for itself carrying the verdict, because Cucumber derives a test case's status
+from its steps and a case with none shows nothing.
 
 ## What comes back
 

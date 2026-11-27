@@ -112,7 +112,7 @@ public sealed record EmlangBoard(IReadOnlyList<EmlangChapter> Chapters);
 /// <item>a top-level <c>slices:</c> map, in one YAML document or several separated by
 /// <c>---</c>, whose slices are all read in order;</item>
 /// <item>a slice written out as <c>steps</c>/<c>tests</c>, or as just its list of steps;</item>
-/// <item>each step a map with one element key, short (<c>t/c/e/v/x</c>) or long
+/// <item>each step a map with one element key, short (<c>t/c/e/v/x</c>), acronym (<c>trg/cmd/evt/err</c>) or long
 /// (<c>trigger/command/event/view/exception</c>), and optional <c>props</c> whose values may be
 /// text, numbers, lists, maps or empty;</item>
 /// <item><c>given:</c> and <c>then:</c> that may be written and left empty.</item>
@@ -130,15 +130,20 @@ public static class EmlangReader
     private static readonly IReadOnlyDictionary<string, EmlangElementKind> Keys =
         new Dictionary<string, EmlangElementKind>(StringComparer.Ordinal)
         {
+            // Short, acronym and long: the three prefix forms Emlang spec v1.0.0 makes equivalent (bobcat#847)
             ["t"] = EmlangElementKind.Screen,
+            ["trg"] = EmlangElementKind.Screen,
             ["trigger"] = EmlangElementKind.Screen,
             ["c"] = EmlangElementKind.Command,
+            ["cmd"] = EmlangElementKind.Command,
             ["command"] = EmlangElementKind.Command,
             ["e"] = EmlangElementKind.Event,
+            ["evt"] = EmlangElementKind.Event,
             ["event"] = EmlangElementKind.Event,
             ["v"] = EmlangElementKind.View,
             ["view"] = EmlangElementKind.View,
             ["x"] = EmlangElementKind.Error,
+            ["err"] = EmlangElementKind.Error,
             ["exception"] = EmlangElementKind.Error,
         };
 
@@ -246,7 +251,7 @@ public static class EmlangReader
             var element = readElement(step)
                           ?? throw new EmlangFormatException(
                               $"slice '{chapter}' has a step with none of the element keys "
-                              + "(t/c/e/v/x, or trigger/command/event/view/exception)");
+                              + "(t/c/e/v/x, trg/cmd/evt/err, or trigger/command/event/view/exception)");
 
             steps.Add(new EmlangStep(element.Kind, element.Actor, element.Label, element.Props)
             {

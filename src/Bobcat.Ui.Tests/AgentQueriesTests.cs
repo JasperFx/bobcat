@@ -169,6 +169,6 @@ public class AgentQueriesTests : IDisposable
         parse(AgentQueries.RunStatus(_registry, "not-a-guid")).GetProperty("error").GetString()
             .ShouldContain("not a run id");
         parse(AgentQueries.ExportRun(_registry, format: "yaml")).GetProperty("error").GetString()
-            .ShouldContain("unknown format");
+            .ShouldBe("unknown format 'yaml' — expected ctrf, junit, cucumber-messages");
     }
 }

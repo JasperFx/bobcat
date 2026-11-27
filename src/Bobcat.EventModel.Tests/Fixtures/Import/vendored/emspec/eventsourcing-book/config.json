@@ -1,0 +1,2444 @@
+{
+  "slices": [
+    {
+      "id": "3458764595831815141",
+      "status": "Done",
+      "index": 1,
+      "title": "slice: add item",
+      "context": "",
+      "sliceType": "STATE_CHANGE",
+      "commands": [
+        {
+          "id": "3458764595812558688",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: add item",
+          "title": "Add Item",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "description",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "image",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "price",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596402400430",
+              "type": "OUTBOUND",
+              "title": "Cart Created",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764595631345476",
+              "type": "OUTBOUND",
+              "title": "Item Added",
+              "elementType": "EVENT"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "service": null,
+          "createsAggregate": false,
+          "prototype": {
+            "projection": "",
+            "label": "Add Item",
+            "placement": "MAIN",
+            "initialValue": null,
+            "css": null,
+            "pageTemplate": null,
+            "activeByDefault": false
+          }
+        }
+      ],
+      "events": [
+        {
+          "id": "3458764596402400430",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: add item",
+          "title": "Cart Created",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596403196690",
+              "type": "OUTBOUND",
+              "title": "Carts with Products",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764595831018749",
+              "type": "OUTBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764595812558688",
+              "type": "INBOUND",
+              "title": "Add Item",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        },
+        {
+          "id": "3458764595631345476",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: add item",
+          "title": "Item Added",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "description",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "image",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "price",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "deviceFingerPrint",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596403196690",
+              "type": "OUTBOUND",
+              "title": "Carts with Products",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764595831018749",
+              "type": "OUTBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764595812558688",
+              "type": "INBOUND",
+              "title": "Add Item",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "actors": [],
+      "aggregates": [
+        "Cart"
+      ]
+    },
+    {
+      "id": "3458764595831815463",
+      "status": "Done",
+      "index": 2,
+      "title": "slice: remove item",
+      "context": "",
+      "sliceType": "STATE_CHANGE",
+      "commands": [
+        {
+          "id": "3458764595830770125",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: remove item",
+          "title": "Remove Item",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764595631345609",
+              "type": "OUTBOUND",
+              "title": "Item Removed",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764595668362949",
+              "type": "INBOUND",
+              "title": "title",
+              "elementType": "SCREEN"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "projection": "",
+            "label": "Remove Item",
+            "placement": "MAIN",
+            "initialValue": null,
+            "css": null,
+            "pageTemplate": null,
+            "activeByDefault": false
+          }
+        }
+      ],
+      "events": [
+        {
+          "id": "3458764595631345609",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: remove item",
+          "title": "Item Removed",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596403196690",
+              "type": "OUTBOUND",
+              "title": "Carts with Products",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764595831018749",
+              "type": "OUTBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764595830770125",
+              "type": "INBOUND",
+              "title": "Remove Item",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "readmodels": [],
+      "screens": [
+        {
+          "id": "3458764595668362949",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: remove item",
+          "title": "title",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "description",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "image",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "price",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "SCREEN",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764595830770125",
+              "type": "OUTBOUND",
+              "title": "Remove Item",
+              "elementType": "COMMAND"
+            },
+            {
+              "id": "3458764595831018749",
+              "type": "INBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "actors": [
+        {
+          "name": "User",
+          "authzRequired": false
+        }
+      ],
+      "aggregates": [
+        "Cart"
+      ]
+    },
+    {
+      "id": "3458764595831815528",
+      "status": "Done",
+      "index": 3,
+      "title": "slice: cart items",
+      "context": "",
+      "sliceType": "STATE_VIEW",
+      "commands": [],
+      "events": [],
+      "readmodels": [
+        {
+          "id": "3458764595831018749",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: cart items",
+          "title": "cart items",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": true
+            },
+            {
+              "name": "description",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "image",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "price",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "price",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": true
+            }
+          ],
+          "type": "READMODEL",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764595831018709",
+              "type": "OUTBOUND",
+              "title": "title",
+              "elementType": "SCREEN"
+            },
+            {
+              "id": "3458764595641022548",
+              "type": "INBOUND",
+              "title": "Cart Cleared",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764595641022551",
+              "type": "INBOUND",
+              "title": "Item Archived",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764596402400430",
+              "type": "INBOUND",
+              "title": "Cart Created",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764595631345609",
+              "type": "INBOUND",
+              "title": "Item Removed",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764595631345476",
+              "type": "INBOUND",
+              "title": "Item Added",
+              "elementType": "EVENT"
+            }
+          ],
+          "listElement": true,
+          "apiEndpoint": "",
+          "service": null,
+          "createsAggregate": false,
+          "prototype": {
+            "projection": "events.forEach((eventData)=>{\n    let event = eventData.data\n    switch(eventData.type) {\n   \n       \tcase 'ItemAddedEvent':\n\t\t\tthis.resultList.push({\n\t\t\taggregateId:event.aggregateId,\n\t\t\tdescription:event.description,\n\t\t\timage:event.image,\n\t\t\tprice:event.price,\n\t\t\titemId:event.itemId,\n\t\t\ttotalPrice:event.price,\n\t\t\tproductId:event.productId\n\t\t})\n    \treturn;\n        \n       \tcase 'ItemArchivedEvent':\n\t\t\tthis.resultList = this.resultList.filter(item => item.itemId !== event.itemId)\n    \treturn;\n        \n       \tcase 'CartCreatedEvent':\n    \treturn;\n        \n       \tcase 'CartClearedEvent':\n\t\t\tthis.resultList = []\n    \treturn;\n        \n       \tcase 'ItemRemovedEvent':\n\t\t\tthis.resultList = this.resultList.filter(item => item.itemId !== event.itemId)\n    \treturn;\n        \n    }\n})",
+            "label": "cart items",
+            "placement": "MAIN",
+            "renderFunction": "",
+            "initialValue": null,
+            "css": null,
+            "pageTemplate": null,
+            "activeByDefault": false
+          }
+        }
+      ],
+      "screens": [
+        {
+          "id": "3458764595831018709",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: cart items",
+          "title": "title",
+          "fields": [
+            {
+              "name": "description",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "image",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "price",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "SCREEN",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764595831018749",
+              "type": "INBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "actors": [],
+      "aggregates": [
+        "Cart"
+      ]
+    },
+    {
+      "id": "3458764595935790438",
+      "status": "Done",
+      "index": 4,
+      "title": "slice: clear cart",
+      "context": "",
+      "sliceType": "STATE_CHANGE",
+      "commands": [
+        {
+          "id": "3458764595934952195",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: clear cart",
+          "title": "Clear Cart",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764595641022548",
+              "type": "OUTBOUND",
+              "title": "Cart Cleared",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764595831398076",
+              "type": "INBOUND",
+              "title": "title",
+              "elementType": "SCREEN"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "events": [
+        {
+          "id": "3458764595641022548",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: clear cart",
+          "title": "Cart Cleared",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596403196690",
+              "type": "OUTBOUND",
+              "title": "Carts with Products",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764595831018749",
+              "type": "OUTBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764595934952195",
+              "type": "INBOUND",
+              "title": "Clear Cart",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "readmodels": [],
+      "screens": [
+        {
+          "id": "3458764595831398076",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: clear cart",
+          "title": "title",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "description",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "image",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "price",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "SCREEN",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764595934952195",
+              "type": "OUTBOUND",
+              "title": "Clear Cart",
+              "elementType": "COMMAND"
+            },
+            {
+              "id": "3458764595831018749",
+              "type": "INBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "actors": [
+        {
+          "name": "User",
+          "authzRequired": false
+        }
+      ],
+      "aggregates": [
+        "Cart"
+      ]
+    },
+    {
+      "id": "3458764596700878567",
+      "status": "Done",
+      "index": 5,
+      "title": "slice: change inventory",
+      "context": "",
+      "sliceType": "STATE_CHANGE",
+      "commands": [
+        {
+          "id": "3458764596395279433",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: change inventory",
+          "title": "Change Inventory",
+          "fields": [
+            {
+              "name": "inventory",
+              "type": "Int",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "Inventory",
+          "aggregateDependencies": [
+            "Inventory"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596395403355",
+              "type": "OUTBOUND",
+              "title": "Inventory Changed",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764596395278973",
+              "type": "INBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "events": [
+        {
+          "id": "3458764596395403355",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: change inventory",
+          "title": "Inventory Changed",
+          "fields": [
+            {
+              "name": "inventory",
+              "type": "Int",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": true
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "Inventory",
+          "aggregateDependencies": [
+            "Inventory"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596395903488",
+              "type": "OUTBOUND",
+              "title": "Inventories",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764596395279433",
+              "type": "INBOUND",
+              "title": "Change Inventory",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "service": null,
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "processors": [
+        {
+          "id": "3458764596395278973",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: change inventory",
+          "title": "automation",
+          "fields": [
+            {
+              "name": "inventory",
+              "type": "Int",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "AUTOMATION",
+          "description": "",
+          "aggregate": "Inventory",
+          "aggregateDependencies": [
+            "Inventory"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596395279433",
+              "type": "OUTBOUND",
+              "title": "Change Inventory",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "tables": [],
+      "specifications": [],
+      "actors": [
+        {
+          "name": "bots",
+          "authzRequired": false
+        }
+      ],
+      "aggregates": [
+        "Inventory"
+      ]
+    },
+    {
+      "id": "3458764596700878694",
+      "status": "Done",
+      "index": 6,
+      "title": "slice: Inventories",
+      "context": "",
+      "sliceType": "STATE_VIEW",
+      "commands": [],
+      "events": [],
+      "readmodels": [
+        {
+          "id": "3458764596395903488",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: Inventories",
+          "title": "Inventories",
+          "fields": [
+            {
+              "name": "inventory",
+              "type": "Int",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": true
+            }
+          ],
+          "type": "READMODEL",
+          "description": "",
+          "aggregate": "Inventory",
+          "aggregateDependencies": [
+            "Inventory"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596395903754",
+              "type": "OUTBOUND",
+              "title": "title",
+              "elementType": "SCREEN"
+            },
+            {
+              "id": "3458764596395403355",
+              "type": "INBOUND",
+              "title": "Inventory Changed",
+              "elementType": "EVENT"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "service": null,
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "screens": [
+        {
+          "id": "3458764596395903754",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: Inventories",
+          "title": "title",
+          "fields": [
+            {
+              "name": "inventory",
+              "type": "Int",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "SCREEN",
+          "description": "",
+          "aggregate": "Inventory",
+          "aggregateDependencies": [
+            "Inventory"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596395903488",
+              "type": "INBOUND",
+              "title": "Inventories",
+              "elementType": "READMODEL"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "actors": [],
+      "aggregates": [
+        "Inventory"
+      ]
+    },
+    {
+      "id": "3458764596700962283",
+      "status": "Done",
+      "index": 7,
+      "title": "slice: change price",
+      "context": "",
+      "sliceType": "STATE_CHANGE",
+      "commands": [
+        {
+          "id": "3458764596402011072",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: change price",
+          "title": "Change Price",
+          "fields": [
+            {
+              "name": "newPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "oldPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "Pricing",
+          "aggregateDependencies": [
+            "Pricing"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764595641022550",
+              "type": "OUTBOUND",
+              "title": "Price Changed",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764596401905894",
+              "type": "INBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "events": [
+        {
+          "id": "3458764595641022550",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: change price",
+          "title": "Price Changed",
+          "fields": [
+            {
+              "name": "newPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "oldPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "Pricing",
+          "aggregateDependencies": [
+            "Pricing"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596409128019",
+              "type": "OUTBOUND",
+              "title": "Changed Prices",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764596402011072",
+              "type": "INBOUND",
+              "title": "Change Price",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "service": null,
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "processors": [
+        {
+          "id": "3458764596401905894",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: change price",
+          "title": "automation",
+          "fields": [
+            {
+              "name": "newPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "oldPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "AUTOMATION",
+          "description": "",
+          "aggregate": "Pricing",
+          "aggregateDependencies": [
+            "Pricing"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596402011072",
+              "type": "OUTBOUND",
+              "title": "Change Price",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "tables": [],
+      "specifications": [],
+      "actors": [
+        {
+          "name": "bots",
+          "authzRequired": false
+        }
+      ],
+      "aggregates": [
+        "Pricing"
+      ]
+    },
+    {
+      "id": "3458764597396562122",
+      "status": "Done",
+      "index": 8,
+      "title": "slice: cart with products",
+      "context": "",
+      "sliceType": "STATE_VIEW",
+      "commands": [],
+      "events": [],
+      "readmodels": [
+        {
+          "id": "3458764596403196690",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: cart with products",
+          "title": "Carts with Products",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "READMODEL",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596406327949",
+              "type": "OUTBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            },
+            {
+              "id": "3458764595631345609",
+              "type": "INBOUND",
+              "title": "Item Removed",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764595641022551",
+              "type": "INBOUND",
+              "title": "Item Archived",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764596402400430",
+              "type": "INBOUND",
+              "title": "Cart Created",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764595641022548",
+              "type": "INBOUND",
+              "title": "Cart Cleared",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764595631345476",
+              "type": "INBOUND",
+              "title": "Item Added",
+              "elementType": "EVENT"
+            }
+          ],
+          "listElement": true,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "screens": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "actors": [],
+      "aggregates": [
+        "Cart"
+      ]
+    },
+    {
+      "id": "3458764596700962150",
+      "status": "Created",
+      "index": 9,
+      "title": "slice: Changed Prices",
+      "context": "",
+      "sliceType": "STATE_VIEW",
+      "commands": [],
+      "events": [],
+      "readmodels": [
+        {
+          "id": "3458764596409128019",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: Changed Prices",
+          "title": "Changed Prices",
+          "fields": [
+            {
+              "name": "newPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "oldPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": true
+            }
+          ],
+          "type": "READMODEL",
+          "description": "",
+          "aggregate": "Pricing",
+          "aggregateDependencies": [
+            "Pricing"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596406327949",
+              "type": "OUTBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            },
+            {
+              "id": "3458764595641022550",
+              "type": "INBOUND",
+              "title": "Price Changed",
+              "elementType": "EVENT"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "service": null,
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "screens": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "actors": [],
+      "aggregates": [
+        "Pricing"
+      ]
+    },
+    {
+      "id": "3458764596700962479",
+      "status": "Done",
+      "index": 10,
+      "title": "slice: Archive Item",
+      "context": "",
+      "sliceType": "STATE_CHANGE",
+      "commands": [
+        {
+          "id": "3458764597673526089",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: Archive Item",
+          "title": "Archive Item",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764595641022551",
+              "type": "OUTBOUND",
+              "title": "Item Archived",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764596406327949",
+              "type": "INBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "events": [
+        {
+          "id": "3458764595641022551",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: Archive Item",
+          "title": "Item Archived",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "productId",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596403196690",
+              "type": "OUTBOUND",
+              "title": "Carts with Products",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764595831018749",
+              "type": "OUTBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764597673526089",
+              "type": "INBOUND",
+              "title": "Archive Item",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "processors": [
+        {
+          "id": "3458764596406327949",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: Archive Item",
+          "title": "automation",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "cartId",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "AUTOMATION",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764597673526089",
+              "type": "OUTBOUND",
+              "title": "Archive Item",
+              "elementType": "COMMAND"
+            },
+            {
+              "id": "3458764596403196690",
+              "type": "INBOUND",
+              "title": "Carts with Products",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764596409128019",
+              "type": "INBOUND",
+              "title": "Changed Prices",
+              "elementType": "READMODEL"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "tables": [],
+      "specifications": [],
+      "actors": [
+        {
+          "name": "bots",
+          "authzRequired": false
+        }
+      ],
+      "aggregates": [
+        "Cart"
+      ]
+    },
+    {
+      "id": "3458764596110806982",
+      "status": "Done",
+      "index": 11,
+      "title": "slice: submit cart",
+      "context": "",
+      "sliceType": "STATE_CHANGE",
+      "commands": [
+        {
+          "id": "3458764596109969508",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: submit cart",
+          "title": "Submit Cart",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "List"
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764595641022547",
+              "type": "OUTBOUND",
+              "title": "Cart Submitted",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764597395412247",
+              "type": "INBOUND",
+              "title": "title",
+              "elementType": "SCREEN"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "events": [
+        {
+          "id": "3458764595641022547",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: submit cart",
+          "title": "Cart Submitted",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "productId, price",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "List"
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "orderedProducts",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596111217572",
+              "type": "OUTBOUND",
+              "title": "Submitted Cart Data",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "3458764596109969508",
+              "type": "INBOUND",
+              "title": "Submit Cart",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "readmodels": [],
+      "screens": [
+        {
+          "id": "3458764597395412247",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: submit cart",
+          "title": "title",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "{\"productid\":UUID, \"price\":Double}",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "SCREEN",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596109969508",
+              "type": "OUTBOUND",
+              "title": "Submit Cart",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "actors": [
+        {
+          "name": "User",
+          "authzRequired": false
+        }
+      ],
+      "aggregates": [
+        "Cart"
+      ]
+    },
+    {
+      "id": "3458764596112606680",
+      "status": "Done",
+      "index": 12,
+      "title": "slice: submitted cart data",
+      "context": "",
+      "sliceType": "STATE_VIEW",
+      "commands": [],
+      "events": [],
+      "readmodels": [
+        {
+          "id": "3458764596111217572",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: submitted cart data",
+          "title": "Submitted Cart Data",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "productId, price",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "List"
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "orderedProducts",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "READMODEL",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596112734108",
+              "type": "OUTBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            },
+            {
+              "id": "3458764595641022547",
+              "type": "INBOUND",
+              "title": "Cart Submitted",
+              "elementType": "EVENT"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "screens": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "actors": [],
+      "aggregates": [
+        "Cart"
+      ]
+    },
+    {
+      "id": "3458764596112734544",
+      "status": "Done",
+      "index": 13,
+      "title": "slice: publish cart",
+      "context": "",
+      "sliceType": "STATE_CHANGE",
+      "commands": [
+        {
+          "id": "3458764596112734332",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: publish cart",
+          "title": "Publish Cart",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "productId, price",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "List"
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "orderedProducts",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764599253812385",
+              "type": "OUTBOUND",
+              "title": "Cart Publication Failed",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764599014166815",
+              "type": "OUTBOUND",
+              "title": "Cart Published",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764596112850382",
+              "type": "OUTBOUND",
+              "title": "External Cart Published",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3458764596112734108",
+              "type": "INBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "events": [
+        {
+          "id": "3458764596112850382",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "EXTERNAL",
+          "slice": "slice: publish cart",
+          "title": "External Cart Published",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "productId, price",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "List"
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "orderedProducts",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596112734332",
+              "type": "INBOUND",
+              "title": "Publish Cart",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        },
+        {
+          "id": "3458764599253812385",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: publish cart",
+          "title": "Cart Publication Failed",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596112734332",
+              "type": "INBOUND",
+              "title": "Publish Cart",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        },
+        {
+          "id": "3458764599014166815",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: publish cart",
+          "title": "Cart Published",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596112734332",
+              "type": "INBOUND",
+              "title": "Publish Cart",
+              "elementType": "COMMAND"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "processors": [
+        {
+          "id": "3458764596112734108",
+          "tags": [],
+          "domain": "Cart",
+          "modelContext": "Cart",
+          "context": "INTERNAL",
+          "slice": "slice: publish cart",
+          "title": "automation",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single"
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "productId, price",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "List"
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "orderedProducts",
+              "optional": false,
+              "cardinality": "Single"
+            }
+          ],
+          "type": "AUTOMATION",
+          "description": "",
+          "aggregate": "Cart",
+          "aggregateDependencies": [
+            "Cart"
+          ],
+          "dependencies": [
+            {
+              "id": "3458764596112734332",
+              "type": "OUTBOUND",
+              "title": "Publish Cart",
+              "elementType": "COMMAND"
+            },
+            {
+              "id": "3458764596111217572",
+              "type": "INBOUND",
+              "title": "Submitted Cart Data",
+              "elementType": "READMODEL"
+            }
+          ],
+          "listElement": false,
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "prototype": {
+            "activeByDefault": false
+          }
+        }
+      ],
+      "tables": [],
+      "specifications": [],
+      "actors": [
+        {
+          "name": "bots",
+          "authzRequired": false
+        }
+      ],
+      "aggregates": [
+        "Cart"
+      ]
+    }
+  ],
+  "flows": [],
+  "aggregates": [
+    {
+      "id": "3458764596700773581",
+      "title": "Cart",
+      "fields": [],
+      "service": "Cart",
+      "type": "AGGREGATE"
+    },
+    {
+      "id": "3458764596700773657",
+      "title": "Inventory",
+      "fields": [],
+      "service": "Inventory",
+      "type": "AGGREGATE"
+    },
+    {
+      "id": "3458764596700773691",
+      "title": "Pricing",
+      "fields": [],
+      "service": "Pricing",
+      "type": "AGGREGATE"
+    }
+  ],
+  "actors": [
+    {
+      "id": "3458764608287924633",
+      "title": "admin",
+      "fields": [],
+      "type": "ACTOR"
+    },
+    {
+      "id": "3458764608287924630",
+      "title": "clerk",
+      "fields": [],
+      "type": "ACTOR"
+    },
+    {
+      "id": "3458764608287924617",
+      "title": "admin",
+      "fields": [],
+      "type": "ACTOR"
+    },
+    {
+      "id": "3458764608287924595",
+      "title": "clerk",
+      "fields": [],
+      "type": "ACTOR"
+    },
+    {
+      "id": "3458764598585275618",
+      "title": "User",
+      "fields": [],
+      "type": "ACTOR"
+    },
+    {
+      "id": "3458764596699928748",
+      "title": "bots",
+      "fields": [],
+      "type": "ACTOR"
+    },
+    {
+      "id": "3458764596699928819",
+      "title": "User",
+      "fields": [],
+      "type": "ACTOR"
+    }
+  ],
+  "context": "Cart",
+  "codeGen": {
+    "application": "Cart",
+    "domain": "Cart",
+    "rootPackage": "de.eventsourcingbook.cart",
+    "contextPackage": ""
+  },
+  "boardId": "uXjVKvTN_NQ=",
+  "sliceGroups": []
+}

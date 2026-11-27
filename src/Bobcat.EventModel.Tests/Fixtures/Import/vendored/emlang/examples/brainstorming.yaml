@@ -1,0 +1,16 @@
+# Direct form slice: event storming brainstorm
+# Element names with spaces (free-form text)
+---
+slices:
+  Shopping cart:
+    - e: Item added
+    - e: Item upgraded
+    - e: Item downgraded
+    - e: Item removed
+    - e: Voucher applied
+    - e: Inventory changed
+    - e: Price changed
+    - e: Item archived
+    - e: Customer notified
+    - e: Cart cleared
+    - e: Cart submitted
