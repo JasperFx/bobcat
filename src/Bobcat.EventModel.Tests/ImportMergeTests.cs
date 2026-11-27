@@ -562,7 +562,10 @@ public sealed class ImportMergeTests : IDisposable
 
         // The new role is in the fresh declaration itself; there is nothing to reopen
         var definition = read("Shelter/Features/Booking/BookingModel.cs");
-        definition.ShouldContain(".Emits<AppointmentConfirmed>()\n            .Emits<ReminderScheduled>()");
+        definition.ShouldContain(".Emits<AppointmentConfirmed>()");
+        definition.ShouldContain(".Emits<ReminderScheduled>()");
+        // bobcat#845: each emitted event's stream lane follows its Emits
+        definition.ShouldContain(".Emits<AppointmentConfirmed>()\n            .OnStream<Appointment>()");
         definition.ShouldNotContain("model.Slice(");
     }
 

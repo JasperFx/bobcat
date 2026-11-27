@@ -24,24 +24,28 @@ public class VolunteeringModel : EventModelDefinition
         model.Command<ApplyToVolunteer>()
             .StartsStream<VolunteerApplication>()
             .Emits<VolunteerApplicationSubmitted>()
+            .OnStream<VolunteerApplication>()
             .LinksToSpecification("ApplyToVolunteer/submitted");
 
         // From chapter 'Volunteering', actor 'Admin'.
         // ⚠ inferred: decides against VolunteerApplication — its examples give VolunteerApplication events before it appends; 'VolunteerApplication' is the subject 3 of its 4 events share.
         model.Command<ReviewVolunteerApplication>()
             .Emits<VolunteerApplicationReviewed>()
+            .OnStream<VolunteerApplication>()
             .LinksToSpecification("ReviewVolunteerApplication/reviewed");
 
         // From chapter 'Volunteering', actor 'Admin'.
         // ⚠ inferred: decides against VolunteerApplication — its examples give VolunteerApplication events before it appends; 'VolunteerApplication' is the subject 3 of its 4 events share.
         model.Command<ApproveVolunteer>()
             .Emits<VolunteerApproved>()
+            .OnStream<VolunteerApplication>()
             .LinksToSpecification("ApproveVolunteer/approved");
 
         // From chapter 'Volunteering', actor 'Admin'.
         // ⚠ inferred: decides against VolunteerApplication — its examples give VolunteerApplication events before it appends; 'VolunteerApplication' is the subject 3 of its 4 events share.
         model.Command<RejectVolunteerApplication>()
             .Emits<VolunteerApplicationRejected>()
+            .OnStream<VolunteerApplication>()
             .LinksToSpecification("RejectVolunteerApplication/rejected");
 
         // From chapter 'Volunteering', actor 'Staff'.
@@ -49,6 +53,7 @@ public class VolunteeringModel : EventModelDefinition
         model.Command<RequestHomeCheck>()
             .Against<HomeCheck>()
             .Emits<HomeCheckRequested>()
+            .OnStream<HomeCheck>()
             .LinksToSpecification("RequestHomeCheck/requested");
 
         // From chapter 'Volunteering', actor 'Volunteer'.
@@ -59,6 +64,7 @@ public class VolunteeringModel : EventModelDefinition
             .Against<HomeCheck>()
             .Against<VolunteerApplication>()
             .Emits<HomeCheckAssignmentAccepted>()
+            .OnStream<HomeCheck>()
             .LinksToSpecification("AcceptHomeCheckAssignment/accepted");
     }
 }

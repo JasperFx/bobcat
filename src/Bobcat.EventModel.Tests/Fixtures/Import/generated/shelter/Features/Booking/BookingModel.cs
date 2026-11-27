@@ -26,6 +26,7 @@ public class BookingModel : EventModelDefinition
             .Command<ProposeHomeCheckAppointment>()
             .StartsStream<Appointment>()
             .Emits<HomeCheckAppointmentProposed>()
+            .OnStream<Appointment>()
             .LinksToSpecification("ProposeHomeCheckAppointment/home check proposed");
 
         // From chapter 'Booking', actor 'System'.
@@ -35,6 +36,7 @@ public class BookingModel : EventModelDefinition
             .Command<ProposeFosterHandoverAppointment>()
             .StartsStream<Appointment>()
             .Emits<FosterHandoverAppointmentProposed>()
+            .OnStream<Appointment>()
             .LinksToSpecification("ProposeFosterHandoverAppointment/foster proposed");
 
         // #region confirm-appointment
@@ -42,6 +44,7 @@ public class BookingModel : EventModelDefinition
         // ⚠ inferred: decides against Appointment — its examples give Appointment events before it appends; 'Appointment' is the subject 3 of its 3 events share.
         model.Command<ConfirmAppointment>()
             .Emits<AppointmentConfirmed>()
+            .OnStream<Appointment>()
             .LinksToSpecification("ConfirmAppointment/confirmed");
         // #endregion confirm-appointment
 
@@ -49,6 +52,7 @@ public class BookingModel : EventModelDefinition
         // ⚠ inferred: decides against Appointment — its examples give Appointment events before it appends; 'Appointment' is the subject 3 of its 3 events share.
         model.Command<CancelAppointment>()
             .Emits<AppointmentCancelled>()
+            .OnStream<Appointment>()
             .LinksToSpecification("CancelAppointment/cancelled");
     }
 }

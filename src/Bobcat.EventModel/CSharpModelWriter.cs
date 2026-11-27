@@ -787,7 +787,7 @@ public static class CSharpModelWriter
 
         foreach (var slice in model.Slices)
         {
-            writeSlice(writer, slice, stubbed);
+            writeSlice(writer, slice, stubbed, null, model.EventStreams);
             writer.BlankLine();
         }
 
@@ -864,7 +864,7 @@ public static class CSharpModelWriter
             var defaults = new SliceDefaults(Chapter: true, Domain: sharedDomain is not null, Aggregate: dominant);
             foreach (var slice in slices)
             {
-                writeSlice(writer, slice, stubbed, defaults);
+                writeSlice(writer, slice, stubbed, defaults, model.EventStreams);
                 writer.BlankLine();
             }
 
@@ -921,8 +921,12 @@ public static class CSharpModelWriter
     /// <param name="chapterSaid">The chapter the definition's <c>model.InChapter</c> names, if any.</param>
     /// <param name="domainSaid">The domain its <c>model.InDomain</c> names, if any.</param>
     /// <param name="aggregateDefault">The aggregate its <c>model.ForAggregate</c> names, if any.</param>
+    /// <param name="eventStreams">
+    /// Event → aggregate, the model's <see cref="ImportedEventModel.EventStreams"/>, for the <c>.OnStream</c> lanes
+    /// (bobcat#845); null writes no lanes.
+    /// </param>
     internal static string SliceDeclaration(CuratedSlice slice, IReadOnlyCollection<string> stubbed, string? chapterSaid, string? domainSaid,
-        string? aggregateDefault)
+        string? aggregateDefault, IReadOnlyDictionary<string, string>? eventStreams = null)
     {
         var defaults = new SliceDefaults(
             Chapter: chapterSaid is not null && string.Equals(chapterSaid, slice.Chapter, StringComparison.Ordinal),
@@ -930,7 +934,7 @@ public static class CSharpModelWriter
             Aggregate: aggregateDefault);
 
         using var writer = new SourceWriter();
-        writeSlice(writer, slice, stubbed.ToHashSet(StringComparer.Ordinal), defaults);
+        writeSlice(writer, slice, stubbed.ToHashSet(StringComparer.Ordinal), defaults, eventStreams);
         return writer.Code();
     }
 
@@ -943,7 +947,8 @@ public static class CSharpModelWriter
         => (declare("model.Aggregate", aggregate, stubbed.ToHashSet(StringComparer.Ordinal)) + identifiedBy(aggregate, ids))
             .Replace('`', '"') + ";";
 
-    private static void writeSlice(ISourceWriter writer, CuratedSlice slice, HashSet<string> stubbed, SliceDefaults? defaults)
+    private static void writeSlice(ISourceWriter writer, CuratedSlice slice, HashSet<string> stubbed, SliceDefaults? defaults,
+        IReadOnlyDictionary<string, string>? eventStreams = null)
     {
         var name = Identifiers.Sanitize(slice.Name);
         if (name.Length == 0) name = "Unnamed";
@@ -1063,7 +1068,18 @@ public static class CSharpModelWriter
         {
             foreach (var aggregate in sanitized(slice.Aggregates)) calls.Add(role(".Against", aggregate, stubbed));
         }
-        foreach (var @event in sanitized(slice.Events)) calls.Add(role(".Emits", @event, stubbed));
+        // jasperfx#1203 / bobcat#845: the stream lane of an emitted event, right after its Emits, on the aggregates
+        // the slice decides against or starts — the only lanes the builder accepts (ImportedModelMapper.StreamLanes)
+        var lanes = eventStreams is null
+            ? new Dictionary<string, string>(StringComparer.Ordinal)
+            : ImportedModelMapper.StreamLanes(slice, eventStreams)
+                .GroupBy(x => Identifiers.Sanitize(x.Event), StringComparer.Ordinal)
+                .ToDictionary(x => x.Key, x => Identifiers.Sanitize(x.First().Aggregate), StringComparer.Ordinal);
+        foreach (var @event in sanitized(slice.Events))
+        {
+            calls.Add(role(".Emits", @event, stubbed));
+            if (lanes.TryGetValue(@event, out var lane)) calls.Add(role(".OnStream", lane, stubbed));
+        }
         foreach (var message in sanitized(slice.Messages)) calls.Add(role(".Publishes", message, stubbed));
         foreach (var consumed in sanitized(slice.ConsumedEvents)) calls.Add(role(".On", consumed, stubbed));
         foreach (var read in sanitized(slice.ReadsFrom)) calls.Add(role(".Reads", read, stubbed));

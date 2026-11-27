@@ -43,11 +43,34 @@ public static class ImportedModelMapper
     /// </summary>
     public static EventModelDescriptor ToDescriptor(ImportedEventModel file, ModelLayout? layout)
     {
-        var slices = file.Slices.Select(x => toSlice(x, layout)).ToList();
+        var slices = file.Slices.Select(x => toSlice(x, file.EventStreams, layout)).ToList();
         return new EventModelDescriptor(file.Model, slices);
     }
 
-    private static EventModelSliceDescriptor toSlice(CuratedSlice slice, ModelLayout? layout)
+    /// <summary>
+    /// The stream lane of each event the slice emits (jasperfx#1203, bobcat#845): the aggregate
+    /// <see cref="ImportedEventModel.EventStreams"/> puts the event on, when that aggregate is one the
+    /// slice decides against or starts — the rule <c>EventModelSliceBuilder.OnStream</c> enforces, so the
+    /// descriptor written here and the one the generated definition builds agree. An event on some other
+    /// stream, or on none, keeps no lane and tooling infers it as before.
+    /// </summary>
+    public static IEnumerable<(string Event, string Aggregate)> StreamLanes(CuratedSlice slice, IReadOnlyDictionary<string, string> eventStreams)
+    {
+        var aggregates = new[] { slice.StartsStream }.Concat(slice.Aggregates)
+            .OfType<string>().Select(CSharpModelWriter.Identifiers.Sanitize).Where(x => x.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var @event in slice.Events)
+        {
+            var stream = eventStreams.GetValueOrDefault(CSharpModelWriter.Identifiers.Sanitize(@event));
+            if (stream is { Length: > 0 } && aggregates.Contains(CSharpModelWriter.Identifiers.Sanitize(stream)))
+            {
+                yield return (@event, stream);
+            }
+        }
+    }
+
+    private static EventModelSliceDescriptor toSlice(CuratedSlice slice, IReadOnlyDictionary<string, string> eventStreams, ModelLayout? layout)
     {
         TypeDescriptor type(string name) => new(name, layout?.FullNameOf(name) ?? name, string.Empty);
         TypeDescriptor beside(string name, string? neighbour)
@@ -75,6 +98,7 @@ public static class ImportedModelMapper
             Domain = slice.Domain,
             Chapter = slice.Chapter,
             AggregateTypes = types(slice.Aggregates),
+            EmittedEventStreams = StreamLanes(slice, eventStreams).Select(x => new EmittedEventStream(type(x.Event), type(x.Aggregate))).ToList(),
             StartsStream = slice.StartsStream is null ? null : type(slice.StartsStream),
             PublishedMessages = types(slice.Messages),
             ConsumedEvents = types(slice.ConsumedEvents),

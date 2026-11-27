@@ -20,6 +20,7 @@ public class BookingModel : EventModelDefinition
         model.Command<BookAppointment>()
             .StartsStream<Appointment>()
             .Emits<AppointmentBooked>()
+            .OnStream<Appointment>()
             .LinksToSpecification("BookAppointment/booked");
 
         // From chapter 'Booking', actor 'Staff'.
@@ -27,6 +28,7 @@ public class BookingModel : EventModelDefinition
         model.Command<RecordAppointmentNoShow>()
             .Against<Appointment>()
             .Emits<AppointmentMissed>()
+            .OnStream<Appointment>()
             .LinksToSpecification("RecordAppointmentNoShow/missed");
 
         model.Slice("RecordAppointmentNoShow").Emits<AppointmentNoShowRecorded>();

@@ -18,7 +18,7 @@
       tool package carries one framework's runtimeconfig per TFM for no gain — the tool's own code
       is the same IL either way. A .NET tool does NOT roll forward across majors by default (that is
       what the `allow-roll-forward` switch of `dotnet tool install` exists for), so this is what makes `bobcat`
-      start on .NET 11 while it stays built on net10.0 and WolverineFx 6.x.
+      start on .NET 11 while it stays built on net10.0 (WolverineFx 7 targets net10.0 and net11.0, bobcat#776).
     -->
     <RollForward>Major</RollForward>
     <OutputType>Exe</OutputType>
