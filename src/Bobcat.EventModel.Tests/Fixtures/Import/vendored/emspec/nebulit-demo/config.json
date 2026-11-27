@@ -1,0 +1,2631 @@
+{
+  "slices": [
+    {
+      "id": "6829844f-fbb5-41ab-b948-fdef54c7e9c1",
+      "status": "Planned",
+      "index": 0,
+      "title": "Add Item",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "STATE_CHANGE",
+      "commands": [
+        {
+          "id": "75ed140d-12c0-44f9-bf81-c2fa4886cf9d",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Add Item",
+          "title": "Add Item",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "description",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "image",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "price",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "a39b1e41-7b38-42b1-8ad3-c9cc18ca2f7c",
+              "type": "OUTBOUND",
+              "title": "Cart Created",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "544d0a8c-809c-4670-a9d9-aa8259f43c46",
+              "type": "OUTBOUND",
+              "title": "Item Added",
+              "elementType": "EVENT"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "75ed140d-12c0-44f9-bf81-c2fa4886cf9d",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "events": [
+        {
+          "id": "a39b1e41-7b38-42b1-8ad3-c9cc18ca2f7c",
+          "tags": [],
+          "lane": "Events",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Add Item",
+          "title": "Cart Created",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "22511305-2296-43ba-b8e8-d786d53cd25f",
+              "type": "OUTBOUND",
+              "title": "Carts with Products",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "631c5aa8-0f9e-4a8f-b7f6-91174cae2b82",
+              "type": "OUTBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "75ed140d-12c0-44f9-bf81-c2fa4886cf9d",
+              "type": "INBOUND",
+              "title": "Add Item",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "a39b1e41-7b38-42b1-8ad3-c9cc18ca2f7c",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "1ee269a6-cdb5-4c83-9c78-a71246bb4985",
+      "status": "Planned",
+      "index": 0,
+      "title": "Item Added",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "UNDEFINED",
+      "commands": [],
+      "events": [
+        {
+          "id": "544d0a8c-809c-4670-a9d9-aa8259f43c46",
+          "tags": [],
+          "lane": "Events",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Item Added",
+          "title": "Item Added",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "description",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "image",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "price",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "deviceFingerPrint",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "22511305-2296-43ba-b8e8-d786d53cd25f",
+              "type": "OUTBOUND",
+              "title": "Carts with Products",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "631c5aa8-0f9e-4a8f-b7f6-91174cae2b82",
+              "type": "OUTBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "75ed140d-12c0-44f9-bf81-c2fa4886cf9d",
+              "type": "INBOUND",
+              "title": "Add Item",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "544d0a8c-809c-4670-a9d9-aa8259f43c46",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "f263e451-78a6-475e-a112-bff181295e65",
+      "status": "Planned",
+      "index": 0,
+      "title": "Remove Item",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "STATE_CHANGE",
+      "commands": [
+        {
+          "id": "f04eb51d-6afd-4a33-8e3d-941dea5a3abc",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Remove Item",
+          "title": "Remove Item",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "b5b7ae0a-d0a7-4b2b-bc14-2086993eface",
+              "type": "OUTBOUND",
+              "title": "Item Removed",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "9e7ae82a-42f0-4298-85f4-fc2f0f689f43",
+              "type": "INBOUND",
+              "title": "title",
+              "elementType": "SCREEN"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "f04eb51d-6afd-4a33-8e3d-941dea5a3abc",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "events": [
+        {
+          "id": "b5b7ae0a-d0a7-4b2b-bc14-2086993eface",
+          "tags": [],
+          "lane": "Events",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Remove Item",
+          "title": "Item Removed",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "22511305-2296-43ba-b8e8-d786d53cd25f",
+              "type": "OUTBOUND",
+              "title": "Carts with Products",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "631c5aa8-0f9e-4a8f-b7f6-91174cae2b82",
+              "type": "OUTBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "f04eb51d-6afd-4a33-8e3d-941dea5a3abc",
+              "type": "INBOUND",
+              "title": "Remove Item",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "b5b7ae0a-d0a7-4b2b-bc14-2086993eface",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "readmodels": [],
+      "screens": [
+        {
+          "id": "9e7ae82a-42f0-4298-85f4-fc2f0f689f43",
+          "tags": [],
+          "lane": "Actor",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Remove Item",
+          "title": "title",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "description",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "image",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "price",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "SCREEN",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "f04eb51d-6afd-4a33-8e3d-941dea5a3abc",
+              "type": "OUTBOUND",
+              "title": "Remove Item",
+              "elementType": "COMMAND"
+            },
+            {
+              "id": "631c5aa8-0f9e-4a8f-b7f6-91174cae2b82",
+              "type": "INBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "9e7ae82a-42f0-4298-85f4-fc2f0f689f43",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "47781f50-9bf5-425d-adc5-810801b94fb2",
+      "status": "Planned",
+      "index": 0,
+      "title": "cart items",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "STATE_VIEW",
+      "commands": [],
+      "events": [],
+      "readmodels": [
+        {
+          "id": "631c5aa8-0f9e-4a8f-b7f6-91174cae2b82",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "cart items",
+          "title": "cart items",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": true
+            },
+            {
+              "name": "description",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "image",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "price",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "price",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": true
+            }
+          ],
+          "type": "READMODEL",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "9e7ae82a-42f0-4298-85f4-fc2f0f689f43",
+              "type": "OUTBOUND",
+              "title": "title",
+              "elementType": "SCREEN"
+            },
+            {
+              "id": "934c48e4-d999-418b-91b2-a4d7798c4a53",
+              "type": "OUTBOUND",
+              "title": "title",
+              "elementType": "SCREEN"
+            },
+            {
+              "id": "1977b408-2125-4752-992c-6bc36e00f8bb",
+              "type": "OUTBOUND",
+              "title": "title",
+              "elementType": "SCREEN"
+            },
+            {
+              "id": "a39b1e41-7b38-42b1-8ad3-c9cc18ca2f7c",
+              "type": "INBOUND",
+              "title": "Cart Created",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "544d0a8c-809c-4670-a9d9-aa8259f43c46",
+              "type": "INBOUND",
+              "title": "Item Added",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "b5b7ae0a-d0a7-4b2b-bc14-2086993eface",
+              "type": "INBOUND",
+              "title": "Item Removed",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "d7cb2a4a-6d1a-4abf-9a37-0bdd9b84eb32",
+              "type": "INBOUND",
+              "title": "Cart Cleared",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3d3f9528-08f8-473b-8456-7b03f6d368ca",
+              "type": "INBOUND",
+              "title": "Item Archived",
+              "elementType": "EVENT"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "631c5aa8-0f9e-4a8f-b7f6-91174cae2b82",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "screens": [
+        {
+          "id": "934c48e4-d999-418b-91b2-a4d7798c4a53",
+          "tags": [],
+          "lane": "Actor",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "cart items",
+          "title": "title",
+          "fields": [
+            {
+              "name": "description",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "image",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "price",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "SCREEN",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "631c5aa8-0f9e-4a8f-b7f6-91174cae2b82",
+              "type": "INBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "934c48e4-d999-418b-91b2-a4d7798c4a53",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "d7e5ba77-fd22-4975-b131-3e942b4859b0",
+      "status": "Planned",
+      "index": 0,
+      "title": "Clear Cart",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "STATE_CHANGE",
+      "commands": [
+        {
+          "id": "84d6812f-3646-4953-9697-9848d21ca961",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Clear Cart",
+          "title": "Clear Cart",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "d7cb2a4a-6d1a-4abf-9a37-0bdd9b84eb32",
+              "type": "OUTBOUND",
+              "title": "Cart Cleared",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "1977b408-2125-4752-992c-6bc36e00f8bb",
+              "type": "INBOUND",
+              "title": "title",
+              "elementType": "SCREEN"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "84d6812f-3646-4953-9697-9848d21ca961",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "events": [
+        {
+          "id": "d7cb2a4a-6d1a-4abf-9a37-0bdd9b84eb32",
+          "tags": [],
+          "lane": "Events",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Clear Cart",
+          "title": "Cart Cleared",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "631c5aa8-0f9e-4a8f-b7f6-91174cae2b82",
+              "type": "OUTBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "22511305-2296-43ba-b8e8-d786d53cd25f",
+              "type": "OUTBOUND",
+              "title": "Carts with Products",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "84d6812f-3646-4953-9697-9848d21ca961",
+              "type": "INBOUND",
+              "title": "Clear Cart",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "d7cb2a4a-6d1a-4abf-9a37-0bdd9b84eb32",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "readmodels": [],
+      "screens": [
+        {
+          "id": "1977b408-2125-4752-992c-6bc36e00f8bb",
+          "tags": [],
+          "lane": "Actor",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Clear Cart",
+          "title": "title",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "description",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "image",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "price",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "SCREEN",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "84d6812f-3646-4953-9697-9848d21ca961",
+              "type": "OUTBOUND",
+              "title": "Clear Cart",
+              "elementType": "COMMAND"
+            },
+            {
+              "id": "631c5aa8-0f9e-4a8f-b7f6-91174cae2b82",
+              "type": "INBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "1977b408-2125-4752-992c-6bc36e00f8bb",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "472e6e49-ab4d-408c-9653-df364587036d",
+      "status": "Planned",
+      "index": 0,
+      "title": "Change Inventory",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "AUTOMATION",
+      "commands": [
+        {
+          "id": "9a4189b3-02f8-4c77-8f81-01d7317d5649",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Change Inventory",
+          "title": "Change Inventory",
+          "fields": [
+            {
+              "name": "inventory",
+              "type": "Int",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "ee37a976-e3af-48d5-8c4c-c168294bda9a",
+              "type": "OUTBOUND",
+              "title": "Inventory Changed",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "fb1aeac2-88f3-4d0d-8011-7588c1d743ae",
+              "type": "INBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "9a4189b3-02f8-4c77-8f81-01d7317d5649",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "events": [
+        {
+          "id": "ee37a976-e3af-48d5-8c4c-c168294bda9a",
+          "tags": [],
+          "lane": "Events",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Change Inventory",
+          "title": "Inventory Changed",
+          "fields": [
+            {
+              "name": "inventory",
+              "type": "Int",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": true
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "eb95e57c-3b32-45a5-bb85-89078fe07476",
+              "type": "OUTBOUND",
+              "title": "Inventories",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "9a4189b3-02f8-4c77-8f81-01d7317d5649",
+              "type": "INBOUND",
+              "title": "Change Inventory",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "ee37a976-e3af-48d5-8c4c-c168294bda9a",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [
+        {
+          "id": "fb1aeac2-88f3-4d0d-8011-7588c1d743ae",
+          "tags": [],
+          "lane": "Actor",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Change Inventory",
+          "title": "automation",
+          "fields": [
+            {
+              "name": "inventory",
+              "type": "Int",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "AUTOMATION",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "9a4189b3-02f8-4c77-8f81-01d7317d5649",
+              "type": "OUTBOUND",
+              "title": "Change Inventory",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "fb1aeac2-88f3-4d0d-8011-7588c1d743ae",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "0631d89b-9b87-4981-9b37-e745842a6d48",
+      "status": "Planned",
+      "index": 0,
+      "title": "Inventories",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "STATE_VIEW",
+      "commands": [],
+      "events": [],
+      "readmodels": [
+        {
+          "id": "eb95e57c-3b32-45a5-bb85-89078fe07476",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Inventories",
+          "title": "Inventories",
+          "fields": [
+            {
+              "name": "inventory",
+              "type": "Int",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": true
+            }
+          ],
+          "type": "READMODEL",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "70b2a647-3ff3-4d3f-b269-defda6a78122",
+              "type": "OUTBOUND",
+              "title": "title",
+              "elementType": "SCREEN"
+            },
+            {
+              "id": "ee37a976-e3af-48d5-8c4c-c168294bda9a",
+              "type": "INBOUND",
+              "title": "Inventory Changed",
+              "elementType": "EVENT"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "eb95e57c-3b32-45a5-bb85-89078fe07476",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "screens": [
+        {
+          "id": "70b2a647-3ff3-4d3f-b269-defda6a78122",
+          "tags": [],
+          "lane": "Actor",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Inventories",
+          "title": "title",
+          "fields": [
+            {
+              "name": "inventory",
+              "type": "Int",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "SCREEN",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "eb95e57c-3b32-45a5-bb85-89078fe07476",
+              "type": "INBOUND",
+              "title": "Inventories",
+              "elementType": "READMODEL"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "70b2a647-3ff3-4d3f-b269-defda6a78122",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "bffefd48-cb91-482a-b2cc-e17b16fff358",
+      "status": "Planned",
+      "index": 0,
+      "title": "Change Price",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "AUTOMATION",
+      "commands": [
+        {
+          "id": "b3c543d7-e049-4d3e-a953-45b23d156273",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Change Price",
+          "title": "Change Price",
+          "fields": [
+            {
+              "name": "newPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "oldPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "5a70c236-a04e-49b2-8dec-ffaffa20cecb",
+              "type": "OUTBOUND",
+              "title": "Price Changed",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "297ddf35-aa5b-4a5a-b520-e458ea04ed7e",
+              "type": "INBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "b3c543d7-e049-4d3e-a953-45b23d156273",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "events": [
+        {
+          "id": "5a70c236-a04e-49b2-8dec-ffaffa20cecb",
+          "tags": [],
+          "lane": "Events",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Change Price",
+          "title": "Price Changed",
+          "fields": [
+            {
+              "name": "newPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "oldPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "262b687e-a34a-4395-97a9-040945290cb5",
+              "type": "OUTBOUND",
+              "title": "Changed Prices",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "b3c543d7-e049-4d3e-a953-45b23d156273",
+              "type": "INBOUND",
+              "title": "Change Price",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "5a70c236-a04e-49b2-8dec-ffaffa20cecb",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [
+        {
+          "id": "297ddf35-aa5b-4a5a-b520-e458ea04ed7e",
+          "tags": [],
+          "lane": "Actor",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Change Price",
+          "title": "automation",
+          "fields": [
+            {
+              "name": "newPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "oldPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "AUTOMATION",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "b3c543d7-e049-4d3e-a953-45b23d156273",
+              "type": "OUTBOUND",
+              "title": "Change Price",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "297ddf35-aa5b-4a5a-b520-e458ea04ed7e",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "b7e24b44-1c2c-4d42-b81d-298eb48ce19c",
+      "status": "Planned",
+      "index": 0,
+      "title": "Carts with Products",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "STATE_VIEW",
+      "commands": [],
+      "events": [],
+      "readmodels": [
+        {
+          "id": "22511305-2296-43ba-b8e8-d786d53cd25f",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Carts with Products",
+          "title": "Carts with Products",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "READMODEL",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "1ccbf498-e4eb-4eb7-90c9-7c113780a136",
+              "type": "OUTBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            },
+            {
+              "id": "a39b1e41-7b38-42b1-8ad3-c9cc18ca2f7c",
+              "type": "INBOUND",
+              "title": "Cart Created",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "544d0a8c-809c-4670-a9d9-aa8259f43c46",
+              "type": "INBOUND",
+              "title": "Item Added",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "b5b7ae0a-d0a7-4b2b-bc14-2086993eface",
+              "type": "INBOUND",
+              "title": "Item Removed",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "d7cb2a4a-6d1a-4abf-9a37-0bdd9b84eb32",
+              "type": "INBOUND",
+              "title": "Cart Cleared",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "3d3f9528-08f8-473b-8456-7b03f6d368ca",
+              "type": "INBOUND",
+              "title": "Item Archived",
+              "elementType": "EVENT"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "22511305-2296-43ba-b8e8-d786d53cd25f",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "screens": [],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "4dbc8407-87a0-4e5b-a9ee-61d0f83d437e",
+      "status": "Planned",
+      "index": 0,
+      "title": "Changed Prices",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "STATE_VIEW",
+      "commands": [],
+      "events": [],
+      "readmodels": [
+        {
+          "id": "262b687e-a34a-4395-97a9-040945290cb5",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Changed Prices",
+          "title": "Changed Prices",
+          "fields": [
+            {
+              "name": "newPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "oldPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "String",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": true
+            }
+          ],
+          "type": "READMODEL",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "1ccbf498-e4eb-4eb7-90c9-7c113780a136",
+              "type": "OUTBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            },
+            {
+              "id": "5a70c236-a04e-49b2-8dec-ffaffa20cecb",
+              "type": "INBOUND",
+              "title": "Price Changed",
+              "elementType": "EVENT"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "262b687e-a34a-4395-97a9-040945290cb5",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "screens": [],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "ecb9f15d-1700-483e-be5a-71b3aa822644",
+      "status": "Planned",
+      "index": 0,
+      "title": "Archive Item",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "AUTOMATION",
+      "commands": [
+        {
+          "id": "e3e86899-efb7-4d1b-90e5-99b7f1eca099",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Archive Item",
+          "title": "Archive Item",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "3d3f9528-08f8-473b-8456-7b03f6d368ca",
+              "type": "OUTBOUND",
+              "title": "Item Archived",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "1ccbf498-e4eb-4eb7-90c9-7c113780a136",
+              "type": "INBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "e3e86899-efb7-4d1b-90e5-99b7f1eca099",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "events": [
+        {
+          "id": "3d3f9528-08f8-473b-8456-7b03f6d368ca",
+          "tags": [],
+          "lane": "Events",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Archive Item",
+          "title": "Item Archived",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "itemId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "productId",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "631c5aa8-0f9e-4a8f-b7f6-91174cae2b82",
+              "type": "OUTBOUND",
+              "title": "cart items",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "22511305-2296-43ba-b8e8-d786d53cd25f",
+              "type": "OUTBOUND",
+              "title": "Carts with Products",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "e3e86899-efb7-4d1b-90e5-99b7f1eca099",
+              "type": "INBOUND",
+              "title": "Archive Item",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "3d3f9528-08f8-473b-8456-7b03f6d368ca",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [
+        {
+          "id": "1ccbf498-e4eb-4eb7-90c9-7c113780a136",
+          "tags": [],
+          "lane": "Actor",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Archive Item",
+          "title": "automation",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "cartId",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "productId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "AUTOMATION",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "e3e86899-efb7-4d1b-90e5-99b7f1eca099",
+              "type": "OUTBOUND",
+              "title": "Archive Item",
+              "elementType": "COMMAND"
+            },
+            {
+              "id": "22511305-2296-43ba-b8e8-d786d53cd25f",
+              "type": "INBOUND",
+              "title": "Carts with Products",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "262b687e-a34a-4395-97a9-040945290cb5",
+              "type": "INBOUND",
+              "title": "Changed Prices",
+              "elementType": "READMODEL"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "1ccbf498-e4eb-4eb7-90c9-7c113780a136",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "46e2eee1-54ef-4a9c-9403-a3403bf45943",
+      "status": "Planned",
+      "index": 0,
+      "title": "Submit Cart",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "STATE_CHANGE",
+      "commands": [
+        {
+          "id": "af612742-5aba-4d05-950a-fae77c5f6307",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Submit Cart",
+          "title": "Submit Cart",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "List",
+              "idAttribute": false
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "29ae25b9-56cd-4086-bbfe-a64efb30d240",
+              "type": "OUTBOUND",
+              "title": "Cart Submitted",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "0e77e668-00df-404a-9334-3f22153c7ab6",
+              "type": "INBOUND",
+              "title": "title",
+              "elementType": "SCREEN"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "af612742-5aba-4d05-950a-fae77c5f6307",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "events": [
+        {
+          "id": "29ae25b9-56cd-4086-bbfe-a64efb30d240",
+          "tags": [],
+          "lane": "Events",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Submit Cart",
+          "title": "Cart Submitted",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "productId, price",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "List",
+              "idAttribute": false
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "orderedProducts",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "e3dc2c7e-7327-480a-bdb4-4b2055327540",
+              "type": "OUTBOUND",
+              "title": "Submitted Cart Data",
+              "elementType": "READMODEL"
+            },
+            {
+              "id": "af612742-5aba-4d05-950a-fae77c5f6307",
+              "type": "INBOUND",
+              "title": "Submit Cart",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "29ae25b9-56cd-4086-bbfe-a64efb30d240",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "readmodels": [],
+      "screens": [
+        {
+          "id": "0e77e668-00df-404a-9334-3f22153c7ab6",
+          "tags": [],
+          "lane": "Actor",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Submit Cart",
+          "title": "title",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "{\"productid\":UUID, \"price\":Double}",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "SCREEN",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "af612742-5aba-4d05-950a-fae77c5f6307",
+              "type": "OUTBOUND",
+              "title": "Submit Cart",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "0e77e668-00df-404a-9334-3f22153c7ab6",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "412dfce9-0843-4ac0-82e5-4e645716d502",
+      "status": "Planned",
+      "index": 0,
+      "title": "Submitted Cart Data",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "STATE_VIEW",
+      "commands": [],
+      "events": [],
+      "readmodels": [
+        {
+          "id": "e3dc2c7e-7327-480a-bdb4-4b2055327540",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Submitted Cart Data",
+          "title": "Submitted Cart Data",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "productId, price",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "List",
+              "idAttribute": false
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "orderedProducts",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "READMODEL",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "e3073105-b883-444b-b7d2-170de493e093",
+              "type": "OUTBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            },
+            {
+              "id": "29ae25b9-56cd-4086-bbfe-a64efb30d240",
+              "type": "INBOUND",
+              "title": "Cart Submitted",
+              "elementType": "EVENT"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "e3dc2c7e-7327-480a-bdb4-4b2055327540",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "screens": [],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "c8427265-9c14-4d11-91ee-a88f22ee74cd",
+      "status": "Planned",
+      "index": 0,
+      "title": "Publish Cart",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "AUTOMATION",
+      "commands": [
+        {
+          "id": "1ecaf8a8-2e66-4212-8813-c9f614736e5a",
+          "tags": [],
+          "lane": "Interaction",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Publish Cart",
+          "title": "Publish Cart",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "productId, price",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "List",
+              "idAttribute": false
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "orderedProducts",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "COMMAND",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "efe58df2-5a4a-4344-9759-d4d2779c1045",
+              "type": "OUTBOUND",
+              "title": "Cart Publication Failed",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "8dc753b4-a03e-4052-b5c6-ffcb84fdb023",
+              "type": "OUTBOUND",
+              "title": "Cart Published",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "eb816080-8140-4db8-8a65-f96df8876ec8",
+              "type": "OUTBOUND",
+              "title": "External Cart Published",
+              "elementType": "EVENT"
+            },
+            {
+              "id": "e3073105-b883-444b-b7d2-170de493e093",
+              "type": "INBOUND",
+              "title": "automation",
+              "elementType": "AUTOMATION"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "1ecaf8a8-2e66-4212-8813-c9f614736e5a",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "events": [
+        {
+          "id": "eb816080-8140-4db8-8a65-f96df8876ec8",
+          "tags": [],
+          "lane": "Events",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Publish Cart",
+          "title": "External Cart Published",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "productId, price",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "List",
+              "idAttribute": false
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "orderedProducts",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "1ecaf8a8-2e66-4212-8813-c9f614736e5a",
+              "type": "INBOUND",
+              "title": "Publish Cart",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "eb816080-8140-4db8-8a65-f96df8876ec8",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [
+        {
+          "id": "e3073105-b883-444b-b7d2-170de493e093",
+          "tags": [],
+          "lane": "Actor",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Publish Cart",
+          "title": "automation",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            },
+            {
+              "name": "orderedProducts",
+              "type": "Custom",
+              "example": "productId, price",
+              "mapping": "",
+              "optional": false,
+              "cardinality": "List",
+              "idAttribute": false
+            },
+            {
+              "name": "totalPrice",
+              "type": "Double",
+              "example": "",
+              "mapping": "orderedProducts",
+              "optional": false,
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "AUTOMATION",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "1ecaf8a8-2e66-4212-8813-c9f614736e5a",
+              "type": "OUTBOUND",
+              "title": "Publish Cart",
+              "elementType": "COMMAND"
+            },
+            {
+              "id": "e3dc2c7e-7327-480a-bdb4-4b2055327540",
+              "type": "INBOUND",
+              "title": "Submitted Cart Data",
+              "elementType": "READMODEL"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "e3073105-b883-444b-b7d2-170de493e093",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "4d9b60f9-f59f-4475-bfd8-8a4ca686f17f",
+      "status": "Planned",
+      "index": 0,
+      "title": "Cart Publication Failed",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "UNDEFINED",
+      "commands": [],
+      "events": [
+        {
+          "id": "efe58df2-5a4a-4344-9759-d4d2779c1045",
+          "tags": [],
+          "lane": "Events",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Cart Publication Failed",
+          "title": "Cart Publication Failed",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "1ecaf8a8-2e66-4212-8813-c9f614736e5a",
+              "type": "INBOUND",
+              "title": "Publish Cart",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "efe58df2-5a4a-4344-9759-d4d2779c1045",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    },
+    {
+      "id": "cccef300-beb0-41de-8127-df7a8fd8a5b7",
+      "status": "Planned",
+      "index": 0,
+      "title": "Cart Published",
+      "context": "Understanding Eventsourcing",
+      "sliceType": "UNDEFINED",
+      "commands": [],
+      "events": [
+        {
+          "id": "8dc753b4-a03e-4052-b5c6-ffcb84fdb023",
+          "tags": [],
+          "lane": "Events",
+          "modelContext": "Understanding Eventsourcing",
+          "slice": "Cart Published",
+          "title": "Cart Published",
+          "fields": [
+            {
+              "name": "aggregateId",
+              "type": "UUID",
+              "example": "",
+              "mapping": "",
+              "optional": false,
+              "subfields": [],
+              "cardinality": "Single",
+              "idAttribute": false
+            }
+          ],
+          "type": "EVENT",
+          "description": "",
+          "aggregate": "default",
+          "aggregateDependencies": [],
+          "dependencies": [
+            {
+              "id": "1ecaf8a8-2e66-4212-8813-c9f614736e5a",
+              "type": "INBOUND",
+              "title": "Publish Cart",
+              "elementType": "COMMAND"
+            }
+          ],
+          "apiEndpoint": "",
+          "createsAggregate": false,
+          "triggers": [],
+          "elementCopy": false,
+          "linkedId": "8dc753b4-a03e-4052-b5c6-ffcb84fdb023",
+          "sketched": false,
+          "prototype": {
+            "activeByDefault": false
+          },
+          "comments": []
+        }
+      ],
+      "readmodels": [],
+      "screens": [],
+      "screenImages": [],
+      "screenLayouts": [],
+      "processors": [],
+      "tables": [],
+      "specifications": [],
+      "storylines": [],
+      "chapter": "Understanding Eventsourcing",
+      "codeGen": {},
+      "notes": [],
+      "comments": [],
+      "aggregates": []
+    }
+  ],
+  "flows": [],
+  "aggregates": [],
+  "actors": [],
+  "context": "Understanding Eventsourcing",
+  "sliceGroups": [],
+  "sliceImages": [],
+  "sliceLayouts": []
+}

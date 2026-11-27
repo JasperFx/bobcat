@@ -57,6 +57,10 @@
       the wire uses, so the .ts mirrors can only ever say what the serializer does.
     -->
     <PackageVersion Include="NJsonSchema" Version="11.5.2" />
+    <!-- Tests only (bobcat#847/#848): validates what Bobcat reads and writes against the JSON Schemas other
+         projects publish (the Emlang Project's schema.json, Cucumber Messages' envelope schema), both draft
+         2020-12 with $id-keyed $defs, which NJsonSchema's validator does not resolve. -->
+    <PackageVersion Include="JsonSchema.Net" Version="9.7.0" />
     <PackageVersion Include="NJsonSchema.CodeGeneration.TypeScript" Version="11.5.2" />
     <!--
       Consumed by Bobcat.EventModel: the curated YAML event-model loader and the emlang importer

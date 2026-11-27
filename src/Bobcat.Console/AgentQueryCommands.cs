@@ -46,7 +46,7 @@ public class EventModelQueryInput : AgentQueryInput
 
 public class ExportRunInput : RunQueryInput
 {
-    [Description("ctrf (rich JSON, the default) or junit (lossy XML for CI)")]
+    [Description("ctrf (rich JSON, the default), junit (lossy XML for CI) or cucumber-messages (NDJSON for Cucumber-family reporters)")]
     [FlagAlias("format", 'f')]
     public string FormatFlag { get; set; } = "ctrf";
 
@@ -183,7 +183,7 @@ public class SliceCoverageCommand : JasperFxAsyncCommand<AgentQueryInput>
     public override Task<bool> Execute(AgentQueryInput input) => AgentQuery.RunAsync(input, "/api/agent/slice-coverage");
 }
 
-[Description("Export a run's results as CTRF or JUnit", Name = "export-run")]
+[Description("Export a run's results as CTRF, JUnit or Cucumber Messages", Name = "export-run")]
 public class ExportRunCommand : JasperFxAsyncCommand<ExportRunInput>
 {
     public override Task<bool> Execute(ExportRunInput input)

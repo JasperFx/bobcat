@@ -40,16 +40,14 @@ public static class AgentEndpoints
     public static IResult SliceCoverage(EventModelStore store, MonitorRunRegistry registry)
         => answer(AgentQueries.SliceCoverage(store, registry));
 
-    /// <summary><c>ctrf</c> (the default) or <c>junit</c>, for the most recent run unless one is named.</summary>
+    /// <summary><c>ctrf</c> (the default), <c>junit</c> or <c>cucumber-messages</c>, for the most recent run unless one is named.</summary>
     [WolverineGet("/api/agent/export")]
     public static IResult Export(MonitorRunRegistry registry, string? runId = null, string? format = null)
     {
         var rendered = AgentQueries.ExportRun(registry, runId, format ?? "ctrf");
         if (IsError(rendered)) return Results.Content(rendered, "application/json", statusCode: StatusCodes.Status400BadRequest);
 
-        return Results.Content(rendered, (format ?? "ctrf").Equals("junit", StringComparison.OrdinalIgnoreCase)
-            ? "application/xml"
-            : "application/json");
+        return Results.Content(rendered, AgentQueries.ExportFormats.GetValueOrDefault(format ?? "ctrf", "application/json"));
     }
 
     /// <summary>Block until a run settles (at most an hour); see <see cref="AgentQueries.AwaitRunCompletion"/>.</summary>

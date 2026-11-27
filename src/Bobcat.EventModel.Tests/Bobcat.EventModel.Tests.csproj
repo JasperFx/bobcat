@@ -11,6 +11,7 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="Shouldly" />
+    <PackageReference Include="JsonSchema.Net" />
     <!--
       Issue #405. The importer writes C#, and the one failure a scaffolder must never have is
       output that does not compile — so CSharpModelWriterTests compiles its own output in memory

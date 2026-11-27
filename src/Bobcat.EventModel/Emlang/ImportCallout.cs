@@ -33,6 +33,22 @@ public static class ImportCalloutCodes
     /// <summary>No aggregate could be declared or inferred for the command.</summary>
     public const string MissingAggregate = "missing-aggregate";
 
+    // The board's own shape (bobcat#847): the Emlang Project's lint rules, under the same names, so a board
+    // that `emlang lint` would warn about is called out by the import that reads it. None has a flag:
+    // each is settled on the board.
+
+    /// <summary>A command slice emits no event and raises no exception: nothing says what the command does.</summary>
+    public const string CommandWithoutEvent = "command-without-event";
+
+    /// <summary>A view slice consumes no event: no event precedes the read model anywhere on the board.</summary>
+    public const string ViewWithoutEvent = "view-without-event";
+
+    /// <summary>An exception step with no command before it in its chapter, so no slice to attach it to.</summary>
+    public const string OrphanException = "orphan-exception";
+
+    /// <summary>A screen (trigger) followed by no command before the next screen or the chapter's end.</summary>
+    public const string TriggerWithoutCommand = "trigger-without-command";
+
     // The spec project and the application it runs against (bobcat: import writes the spec project).
     // These are about the project, not a slice, so their Slice is empty and File names what they are about.
 

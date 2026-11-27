@@ -79,10 +79,11 @@ public static class EmlangImport
         var report = new List<string>();
         var byName = new Dictionary<string, CuratedSlice>(StringComparer.Ordinal);
 
+        var shape = new List<ImportCallout>();
         var touched = new Dictionary<EmlangChapter, List<CuratedSlice>>();
         foreach (var chapter in board.Chapters)
         {
-            touched[chapter] = segmentChapter(chapter, model, byName, report);
+            touched[chapter] = segmentChapter(chapter, model, byName, report, shape);
         }
 
         foreach (var chapter in board.Chapters)
@@ -101,7 +102,10 @@ public static class EmlangImport
         }
 
         var callouts = AggregateInference.Apply(model, declared, aggregates, report, unimported);
-        return new EmlangImportResult(model, report) { Callouts = callouts, Board = board };
+
+        // After the aggregates, which reset each slice's callouts before writing their own
+        shape.AddRange(boardShape(model, report));
+        return new EmlangImportResult(model, report) { Callouts = [.. callouts, .. shape], Board = board };
     }
 
     /// <summary>
@@ -128,8 +132,9 @@ public static class EmlangImport
     }
 
     /// <returns>Every slice the chapter opened or folded into, in order.</returns>
+    /// <param name="shape">Where the board's own gaps are called out (bobcat#847): a screen no command follows, an exception no command precedes.</param>
     private static List<CuratedSlice> segmentChapter(EmlangChapter chapter, ImportedEventModel model,
-        Dictionary<string, CuratedSlice> byName, List<string> report)
+        Dictionary<string, CuratedSlice> byName, List<string> report, List<ImportCallout> shape)
     {
         string? pendingScreen = null;
         CuratedSlice? current = null;
@@ -150,6 +155,7 @@ public static class EmlangImport
             switch (step.Kind)
             {
                 case EmlangElementKind.Screen:
+                    if (pendingScreen is not null) triggerWithoutCommand(chapter, pendingScreen, report, shape);
                     pendingScreen = step.Label;
                     current = null;
                     break;
@@ -185,7 +191,9 @@ public static class EmlangImport
                 case EmlangElementKind.Error:
                     if (current is null)
                     {
-                        report.Add($"⚠ chapter '{chapter.Name}': exception '{step.Label}' has no open slice — not attached.");
+                        var orphan = $"⚠ chapter '{chapter.Name}': exception '{step.Label}' has no command before it — not attached to a slice.";
+                        report.Add(orphan);
+                        shape.Add(new ImportCallout("", ImportCalloutCodes.OrphanException, [], orphan, null) { Chapters = [chapter.Name] });
                         break;
                     }
 
@@ -199,7 +207,43 @@ public static class EmlangImport
             report.Add($"⚠ chapter '{chapter.Name}': event '{step.Label}' precedes any command — not attached to a slice.");
         }
 
+        if (pendingScreen is not null) triggerWithoutCommand(chapter, pendingScreen, report, shape);
+
         return touched;
+    }
+
+    private static void triggerWithoutCommand(EmlangChapter chapter, string screen, List<string> report, List<ImportCallout> shape)
+    {
+        var message = $"⚠ chapter '{chapter.Name}': screen '{screen}' is followed by no command — it triggers nothing.";
+        report.Add(message);
+        shape.Add(new ImportCallout("", ImportCalloutCodes.TriggerWithoutCommand, [], message, null) { Chapters = [chapter.Name] });
+    }
+
+    /// <summary>
+    /// bobcat#847: the Emlang Project's two slice-level lint rules, judged over the whole board once
+    /// every chapter has folded in — a command folded from two chapters emits in either, and a view is
+    /// fed by an event in any slice, which is also how <c>emlang lint</c> reads it.
+    /// </summary>
+    private static IEnumerable<ImportCallout> boardShape(ImportedEventModel model, List<string> report)
+    {
+        foreach (var slice in model.Slices)
+        {
+            if (slice.Pattern is "Command" or "Automation" or "Translation" && slice.Events.Count == 0 && slice.Hotspots.Count == 0)
+            {
+                var message = $"⚠ slice '{slice.Name}': the command emits no event and raises no exception — nothing on the board says what it does.";
+                report.Add(message);
+                slice.Callouts.Add(message);
+                yield return new ImportCallout(slice.Name, ImportCalloutCodes.CommandWithoutEvent, [], message, null);
+            }
+
+            if (slice.Pattern is "View" && slice.ConsumedEvents.Count == 0)
+            {
+                var message = $"⚠ slice '{slice.Name}': the view consumes no event — no event precedes '{slice.Name}' in any chapter.";
+                report.Add(message);
+                slice.Callouts.Add(message);
+                yield return new ImportCallout(slice.Name, ImportCalloutCodes.ViewWithoutEvent, [], message, null);
+            }
+        }
     }
 
     private static CuratedSlice commandSlice(EmlangChapter chapter, EmlangStep step, string? pendingScreen,

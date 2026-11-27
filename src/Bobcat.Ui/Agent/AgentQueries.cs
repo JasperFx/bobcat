@@ -269,7 +269,18 @@ public static class AgentQueries
         }
     }
 
-    /// <summary>A run's results as <c>ctrf</c> (rich JSON) or <c>junit</c> (lossy XML for CI).</summary>
+    /// <summary>The export formats <see cref="ExportRun"/> renders, each with the media type it answers with.</summary>
+    public static readonly IReadOnlyDictionary<string, string> ExportFormats = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ctrf"] = "application/json",
+        ["junit"] = "application/xml",
+        ["cucumber-messages"] = CucumberMessagesExport.MediaType,
+    };
+
+    /// <summary>
+    /// A run's results as <c>ctrf</c> (rich JSON), <c>junit</c> (lossy XML for CI) or
+    /// <c>cucumber-messages</c> (the NDJSON envelope stream Cucumber-family reporters read, bobcat#848).
+    /// </summary>
     public static string ExportRun(
         MonitorRunRegistry registry,
         string? runId = null,
@@ -282,11 +293,12 @@ public static class AgentQueries
         {
             "ctrf" => registry.Read(resolved.Value, CtrfExport.Render),
             "junit" => registry.Read(resolved.Value, JUnitExport.Render),
+            "cucumber-messages" => registry.Read(resolved.Value, CucumberMessagesExport.Render),
             _ => null
         };
 
-        if (rendered == null && format.ToLowerInvariant() is not ("ctrf" or "junit"))
-            return error($"unknown format '{format}' — expected ctrf or junit");
+        if (rendered == null && !ExportFormats.ContainsKey(format))
+            return error($"unknown format '{format}' — expected {string.Join(", ", ExportFormats.Keys)}");
 
         return rendered ?? error($"run {resolved} is not known to this monitor");
     }

@@ -63,9 +63,116 @@ public class ImportCalloutTests
                   - c: Ping
             """);
 
-        var callout = calloutsOf(result, "Ping").Single();
-        callout.Code.ShouldBe(ImportCalloutCodes.MissingAggregate);
+        var callout = calloutsOf(result, "Ping").Single(x => x.Code == ImportCalloutCodes.MissingAggregate);
         callout.Override.ShouldBe("--aggregate Ping=<Type>");
+
+        // bobcat#847: a command emitting nothing is also the board's own gap, under the linter's name
+        calloutsOf(result, "Ping").Select(x => x.Code).ShouldBe([ImportCalloutCodes.MissingAggregate, ImportCalloutCodes.CommandWithoutEvent]);
+    }
+
+    // ---- bobcat#847: the Emlang Project's lint rules, as callouts of the same names -----------------
+
+    [Fact]
+    public void a_screen_no_command_follows_is_a_trigger_without_command()
+    {
+        var result = import(
+            """
+            slices:
+              Browsing:
+                steps:
+                  - t: Member/Home Page
+                  - t: Member/Discovery Feed
+                  - c: Swipe On Dog
+                  - e: Dog Liked
+                  - t: Member/Settings
+            """);
+
+        var callouts = result.Callouts.Where(x => x.Code == ImportCalloutCodes.TriggerWithoutCommand).ToList();
+        callouts.Select(x => x.Message).ShouldBe([
+            "⚠ chapter 'Browsing': screen 'Home Page' is followed by no command — it triggers nothing.",
+            "⚠ chapter 'Browsing': screen 'Settings' is followed by no command — it triggers nothing."
+        ]);
+        callouts.ShouldAllBe(x => x.Slice == "" && x.Override == null && x.Chapters.Single() == "Browsing");
+        result.Report.ShouldContain(callouts[0].Message);
+    }
+
+    [Fact]
+    public void an_exception_before_any_command_is_an_orphan_exception()
+    {
+        var result = import(
+            """
+            slices:
+              Browsing:
+                steps:
+                  - x: Not Signed In
+                  - c: Swipe On Dog
+                  - e: Dog Liked
+                  - x: Already Swiped
+            """);
+
+        var orphan = result.Callouts.Single(x => x.Code == ImportCalloutCodes.OrphanException);
+        orphan.Message.ShouldBe("⚠ chapter 'Browsing': exception 'Not Signed In' has no command before it — not attached to a slice.");
+        result.Model.Slices.Single().Hotspots.ShouldBe(["Already Swiped"]);
+    }
+
+    [Fact]
+    public void a_command_with_no_event_and_no_exception_is_a_command_without_event()
+    {
+        var result = import(
+            """
+            slices:
+              Browsing:
+                steps:
+                  - c: Swipe On Dog
+                  - c: Report Dog
+                  - x: Already Reported
+                  - c: Block Member
+                  - e: Member Blocked
+            """);
+
+        var callouts = result.Callouts.Where(x => x.Code == ImportCalloutCodes.CommandWithoutEvent).ToList();
+        callouts.Select(x => x.Slice).ShouldBe(["SwipeOnDog"]);
+        result.Model.Slices.Single(x => x.Name == "SwipeOnDog").Callouts.ShouldContain(callouts[0].Message);
+    }
+
+    [Fact]
+    public void a_command_that_emits_in_another_chapter_is_not_a_command_without_event()
+    {
+        var result = import(
+            """
+            slices:
+              First:
+                steps:
+                  - c: Swipe On Dog
+              Second:
+                steps:
+                  - c: Swipe On Dog
+                  - e: Dog Liked
+            """);
+
+        result.Callouts.ShouldNotContain(x => x.Code == ImportCalloutCodes.CommandWithoutEvent);
+    }
+
+    [Fact]
+    public void a_view_no_event_precedes_anywhere_is_a_view_without_event()
+    {
+        var result = import(
+            """
+            slices:
+              Lists:
+                steps:
+                  - v: Match List
+                  - c: Swipe On Dog
+                  - e: Dog Liked
+                  - v: Swipe History
+              Later:
+                steps:
+                  - v: Match List
+            """);
+
+        var callouts = result.Callouts.Where(x => x.Code == ImportCalloutCodes.ViewWithoutEvent).ToList();
+        callouts.Select(x => x.Slice).ShouldBe(["MatchList"]);
+        callouts[0].Message.ShouldBe("⚠ slice 'MatchList': the view consumes no event — no event precedes 'MatchList' in any chapter.");
     }
 
     [Fact]

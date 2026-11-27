@@ -199,6 +199,7 @@ public class RunProjection
                 }
 
                 scenario.Attempt = attempt;
+                scenario.StartedAt = e.At;
                 // Every attempt gets a fresh reset/begin/end bracket, so the live step list
                 // starts over — earlier attempts survive in PriorAttempts, which is what CTRF's
                 // retryAttempts[] is rendered from.
@@ -228,6 +229,7 @@ public class RunProjection
                 // nothing recorded) leaves whatever stands — absence of evidence is not
                 // evidence to erase with.
                 if (e.TouchedTypes != null) scenario.TouchedTypes = e.TouchedTypes;
+                if (e.Reports != null) scenario.Reports = e.Reports;
                 scenario.FinishedAt = e.At;
 
                 // SpecLog lines (bobcat#547) arrive at the close, latched like reports, so they are
@@ -519,8 +521,18 @@ public class ScenarioProjection
     /// </summary>
     public IReadOnlyList<TouchedType> TouchedTypes { get; set; } = [];
 
+    /// <summary>When the current (or final) attempt started, from its ScenarioStarted.</summary>
+    public DateTimeOffset? StartedAt { get; set; }
+
     /// <summary>When the scenario finished — the stamp a consumer ages the evidence by.</summary>
     public DateTimeOffset? FinishedAt { get; set; }
+
+    /// <summary>
+    /// The scenario's reports from the terminal ScenarioFinished (bobcat#408): titled grids of what the
+    /// system did, already filtered by the publisher's visibility rule. Empty when it sent none; kept so
+    /// an export (bobcat#848) can attach them. Assigned, never appended, like <see cref="TouchedTypes"/>.
+    /// </summary>
+    public IReadOnlyList<ScenarioReportInfo> Reports { get; set; } = [];
 
     /// <summary>
     /// The worker's own word for the verdict — Passed / Failed / Error / Skipped / Timeout /

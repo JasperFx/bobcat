@@ -1,0 +1,585 @@
+# Pizza delivery system
+
+# Customer builds and places an order
+# Omitted: item quantity (add same item multiple times instead),
+#   menu/item validation, minimum order amount, order cancellation,
+#   removing an item not in the order
+slices:
+  Add item:
+    steps:
+      - t: Website / Menu
+      - c: Add item to order
+      - e: Order / Order started
+      - e: Order / Item added
+      - v: Order summary
+    tests:
+      Add first item:
+        given: # No order exists yet
+        when:
+          - c: Add item to order
+            props:
+              order id: order-123
+              item id: pepperoni-pizza
+        then:
+          - e: Order / Order started
+            props:
+              order id: order-123
+          - e: Order / Item added
+            props:
+              order id: order-123
+              item id: pepperoni-pizza
+          - v: Order summary
+            props:
+              items:
+                - pepperoni-pizza/18.99
+              total: 18.99
+
+      Add item to existing order:
+        given:
+          - e: Order / Order started
+            props:
+              order id: order-123
+          - e: Order / Item added
+            props:
+              order id: order-123
+              item id: pepperoni-pizza
+        when:
+          - c: Add item to order
+            props:
+              order id: order-123
+              item id: cheese-pizza
+        then:
+          - e: Order / Item added
+            props:
+              order id: order-123
+              item id: cheese-pizza
+          - v: Order summary
+            props:
+              items:
+                - pepperoni-pizza/18.99
+                - cheese-pizza/14.99
+              total: 33.98
+
+  Remove item:
+    steps:
+      - t: Website / Order
+      - c: Remove item from order
+      - e: Order / Item removed from order
+      - v: Order summary
+    tests:
+      Remove item from order:
+        given:
+          - e: Order / Order started
+            props:
+              order id: order-123
+          - e: Order / Item added
+            props:
+              order id: order-123
+              item id: pepperoni-pizza
+          - e: Order / Item added
+            props:
+              order id: order-123
+              item id: cheese-pizza
+        when:
+          - c: Remove item from order
+            props:
+              order id: order-123
+              item id: cheese-pizza
+        then:
+          - e: Order / Item removed from order
+            props:
+              order id: order-123
+              item id: cheese-pizza
+          - v: Order summary
+            props:
+              items:
+                - pepperoni-pizza/18.99
+              total: 18.99
+
+      Remove last item:
+        given:
+          - e: Order / Order started
+            props:
+              order id: order-123
+          - e: Order / Item added
+            props:
+              order id: order-123
+              item id: pepperoni-pizza
+        when:
+          - c: Remove item from order
+            props:
+              order id: order-123
+              item id: pepperoni-pizza
+        then:
+          - e: Order / Item removed from order
+            props:
+              order id: order-123
+              item id: pepperoni-pizza
+          - v: Order summary
+            props:
+              items:
+              total: 0.00
+
+  View order items:
+    steps:
+      - v: Order summary
+    tests:
+      No order exists:
+        given: # No order exists yet
+        then: # No view to display
+
+      Order with items:
+        given:
+          - e: Order / Order started
+            props:
+              order id: order-123
+          - e: Order / Item added
+            props:
+              order id: order-123
+              item id: pepperoni-pizza
+          - e: Order / Item added
+            props:
+              order id: order-123
+              item id: cheese-pizza
+        then:
+          - v: Order summary
+            props:
+              items:
+                - pepperoni-pizza/18.99
+                - cheese-pizza/14.99
+              total: 33.98
+
+  Set delivery details:
+    steps:
+      - t: Website / Order
+      - c: Set delivery details
+      - e: Order / Delivery details set
+      - v: Order summary
+    tests:
+      Valid delivery details:
+        given:
+          - e: Order / Order started
+            props:
+              order id: order-123
+        when:
+          - c: Set delivery details
+            props:
+              order id: order-123
+              delivery address: "1337 rue Saint-Jean, Québec"
+              email: "joe@example.com"
+              phone number: "418-555-1234"
+              desired time: "18:00"
+        then:
+          - e: Order / Delivery details set
+            props:
+              order id: order-123
+              delivery address: "1337 rue Saint-Jean, Québec"
+              email: "joe@example.com"
+              phone number: "418-555-1234"
+              desired time: "18:00"
+
+      Address outside delivery zone:
+        given:
+          - e: Order / Order started
+            props:
+              order id: order-123
+        when:
+          - c: Set delivery details
+            props:
+              order id: order-123
+              delivery address: "123 rue Saint-Denis, Montréal"
+              email: "joe@example.com"
+              desired time: "18:00"
+        then:
+          - x: Address outside delivery zone
+
+      Time before opening hours:
+        given:
+          - e: Order / Order started
+            props:
+              order id: order-123
+        when:
+          - c: Set delivery details
+            props:
+              order id: order-123
+              delivery address: "1337 rue Saint-Jean, Québec"
+              email: "joe@example.com"
+              desired time: "08:00"
+        then:
+          - x: Desired time outside delivery hours
+
+      Time after closing hours:
+        given:
+          - e: Order / Order started
+            props:
+              order id: order-123
+        when:
+          - c: Set delivery details
+            props:
+              order id: order-123
+              delivery address: "1337 rue Saint-Jean, Québec"
+              email: "joe@example.com"
+              desired time: "23:00"
+        then:
+          - x: Desired time outside delivery hours
+
+  Place order:
+    steps:
+      - t: Website / Order
+      - c: Place order
+      - e: Order / Payment requested
+    tests:
+      Order placed:
+        given:
+          - e: Order / Order started
+            props:
+              order id: order-123
+          - e: Order / Item added
+            props:
+              order id: order-123
+              item id: pepperoni-pizza
+          - e: Order / Delivery details set
+            props:
+              order id: order-123
+              delivery address: "1337 rue Saint-Jean, Québec"
+              email: "joe@example.com"
+              desired time: "18:00"
+        when:
+          - c: Place order
+            props:
+              order id: order-123
+        then:
+          - e: Order / Payment requested
+            props:
+              order id: order-123
+              total: 18.99
+
+      Cannot place empty order:
+        given:
+          - e: Order / Order started
+            props:
+              order id: order-123
+          - e: Order / Delivery details set
+            props:
+              order id: order-123
+              delivery address: "1337 rue Saint-Jean, Québec"
+              email: "joe@example.com"
+              desired time: "18:00"
+        when:
+          - c: Place order
+            props:
+              order id: order-123
+        then:
+          - x: Order must have items
+
+      Cannot place order without delivery details:
+        given:
+          - e: Order / Order started
+            props:
+              order id: order-123
+          - e: Order / Item added
+            props:
+              order id: order-123
+              item id: pepperoni-pizza
+        when:
+          - c: Place order
+            props:
+              order id: order-123
+        then:
+          - x: Delivery details required
+---
+# Payment and confirmation
+# Omitted: payment failure/decline, payment timeout/expiry, refunds
+
+slices:
+  # Processor slice: triggered by payment gateway webhook
+  Confirm payment:
+    steps:
+      - t: Payment gateway / Webhook
+      - c: Confirm payment
+      - e: Order / Payment confirmed
+      - v: Order confirmation
+    tests:
+      Payment confirmed:
+        given:
+          - e: Order / Payment requested
+            props:
+              order id: order-123
+              total: 18.99
+        when:
+          - c: Confirm payment
+            props:
+              order id: order-123
+        then:
+          - e: Order / Payment confirmed
+            props:
+              order id: order-123
+              total: 18.99
+              confirmation number: "CON-78901"
+          - v: Order confirmation
+            props:
+              order id: order-123
+              confirmation number: "CON-78901"
+
+  # Processor slice: triggered by payment confirmation
+  Send confirmation email:
+    steps:
+      - e: Order / Payment confirmed
+      - t: Email service / Send
+      - c: Send confirmation email
+      - e: Order / Confirmation email sent
+    tests:
+      Confirmation email sent:
+        given:
+          - e: Order / Payment confirmed
+            props:
+              order id: order-123
+              confirmation number: "CON-78901"
+          - e: Order / Delivery details set
+            props:
+              order id: order-123
+              email: "joe@example.com"
+        when:
+          - c: Send confirmation email
+            props:
+              order id: order-123
+        then:
+          - e: Order / Confirmation email sent
+            props:
+              order id: order-123
+              email: "joe@example.com"
+              confirmation number: "CON-78901"
+
+---
+# Preparation
+# Omitted: preparation time estimation, order cancellation during preparation,
+#   out-of-stock ingredients
+
+slices:
+  # Processor slice: scheduler triggers preparation at the right time before desired delivery
+  Start preparation:
+    steps:
+      - e: Order / Payment confirmed
+      - t: Scheduler / Preparation timer
+      - c: Start preparation
+      - e: Kitchen / Preparation started
+      - v: Kitchen dashboard
+    tests:
+      Preparation started:
+        given:
+          - e: Order / Payment confirmed
+            props:
+              order id: order-123
+        when:
+          - c: Start preparation
+            props:
+              order id: order-123
+        then:
+          - e: Kitchen / Preparation started
+            props:
+              order id: order-123
+          - v: Kitchen dashboard
+            props:
+              order id: order-123
+
+  Mark order ready:
+    steps:
+      - v: Kitchen dashboard
+      - t: Kitchen / Order ready form
+      - c: Mark order ready
+      - e: Kitchen / Order ready
+      - v: Kitchen dashboard
+    tests:
+      Order marked as ready:
+        given:
+          - e: Kitchen / Preparation started
+            props:
+              order id: order-123
+        when:
+          - c: Mark order ready
+            props:
+              order id: order-123
+        then:
+          - e: Kitchen / Order ready
+            props:
+              order id: order-123
+
+---
+# Delivery
+# Omitted: driver registration/login, real-time tracking, customer rating,
+#   delivery failure (customer absent, wrong address), order status view
+
+slices:
+  Track available drivers:
+    steps:
+      - v: Available drivers
+    tests:
+      All drivers available:
+        given: # No deliveries in progress
+        then:
+          - v: Available drivers
+            props:
+              drivers:
+                - driver-456
+                - driver-789
+
+      Driver busy:
+        given:
+          - e: Delivery / Driver assigned
+            props:
+              order id: order-123
+              driver id: driver-456
+        then:
+          - v: Available drivers
+            props:
+              drivers:
+                - driver-789
+
+      Driver available again:
+        given:
+          - e: Delivery / Driver assigned
+            props:
+              order id: order-123
+              driver id: driver-456
+          - e: Delivery / Order delivered
+            props:
+              order id: order-123
+        then:
+          - v: Available drivers
+            props:
+              drivers:
+                - driver-456
+                - driver-789
+
+  # Processor slice: automated dispatcher assigns driver when order is ready
+  Assign driver:
+    steps:
+      - e: Kitchen / Order ready
+      - v: Available drivers
+      - t: Dispatcher / Auto assign
+      - c: Assign driver
+      - e: Delivery / Driver assigned
+      - v: Driver dashboard
+    tests:
+      Driver assigned to order:
+        given:
+          - e: Kitchen / Order ready
+            props:
+              order id: order-123
+          - e: Delivery / Driver assigned
+            props:
+              order id: order-456
+              driver id: driver-789
+          - v: Available drivers
+            props:
+              drivers:
+                - driver-456
+        when:
+          - c: Assign driver
+            props:
+              order id: order-123
+              driver id: driver-456
+        then:
+          - e: Delivery / Driver assigned
+            props:
+              order id: order-123
+              driver id: driver-456
+          - v: Available drivers
+            props:
+              drivers: # No drivers available
+
+  Pick up order:
+    steps:
+      - v: Driver dashboard
+      - t: Driver app / Pick up
+      - c: Pick up order
+      - e: Delivery / Order picked up
+    tests:
+      Driver picks up order:
+        given:
+          - e: Delivery / Driver assigned
+            props:
+              order id: order-123
+              driver id: driver-456
+        when:
+          - c: Pick up order
+            props:
+              order id: order-123
+              driver id: driver-456
+        then:
+          - e: Delivery / Order picked up
+            props:
+              order id: order-123
+              driver id: driver-456
+
+  # Processor slice: SMS sent when driver picks up the order
+  Notify client of pickup:
+    steps:
+      - e: Delivery / Order picked up
+      - t: SMS service / Send
+      - c: Notify client of pickup
+      - e: Delivery / Client notified
+    tests:
+      Client notified by SMS:
+        given:
+          - e: Delivery / Order picked up
+            props:
+              order id: order-123
+          - e: Order / Delivery details set
+            props:
+              order id: order-123
+              phone number: "418-555-1234"
+        when:
+          - c: Notify client of pickup
+            props:
+              order id: order-123
+        then:
+          - e: Delivery / Client notified
+            props:
+              order id: order-123
+              phone number: "418-555-1234"
+
+  Mark delivered:
+    steps:
+      - v: Driver dashboard
+      - t: Driver app / Confirm delivery
+      - c: Mark delivered
+      - e: Delivery / Order delivered
+      - v: Order status
+    tests:
+      Driver marks order as delivered:
+        given:
+          - e: Delivery / Order picked up
+            props:
+              order id: order-123
+              driver id: driver-456
+        when:
+          - c: Mark delivered
+            props:
+              order id: order-123
+              driver id: driver-456
+        then:
+          - e: Delivery / Order delivered
+            props:
+              order id: order-123
+
+  Confirm reception:
+    steps:
+      - t: Driver app / Reception form
+      - c: Confirm reception
+      - e: Order / Reception confirmed
+      - v: Order status
+    tests:
+      Customer confirms reception:
+        given:
+          - e: Delivery / Order delivered
+            props:
+              order id: order-123
+        when:
+          - c: Confirm reception
+            props:
+              order id: order-123
+        then:
+          - e: Order / Reception confirmed
+            props:
+              order id: order-123

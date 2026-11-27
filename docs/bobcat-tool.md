@@ -137,7 +137,7 @@ Feature: Tables
 | **[`resident`](#resident)** | keep a suite whose process Bobcat does not own available to a run console, running the specifications the console asks for |
 | **[`ui`](bobcat-ui.md)** | serve the [Bobcat UI](bobcat-ui.md) -- the live run board and the Event Model canvas -- on 5525 and open it in the browser, until Ctrl+C |
 | **[`watch-event-model`](bobcat-ui.md#getting-a-model-onto-it)** | keep an application's Event Model live in the Bobcat UI as you edit it, starting a UI if none is running |
-| **[`list-runs`](agent-queries.md)**, **`run-status`**, **`failing-tests`**, **`failing-spec`**, **`flaky-ledger`**, **`await-run`**, **`export-run`** | read the runs a running Bobcat UI holds, as JSON -- see [Querying Runs from the Command Line](agent-queries.md) |
+| **[`list-runs`](agent-queries.md)**, **`run-status`**, **`failing-tests`**, **`failing-spec`**, **`flaky-ledger`**, **`await-run`**, **`export-run`** | read the runs a running Bobcat UI holds, as JSON -- see [Querying Runs from the Command Line](agent-queries.md); `export-run` also writes CTRF, JUnit or Cucumber Messages |
 | **[`event-model`](agent-queries.md)**, **`slice-coverage`** | read the Event Model a running Bobcat UI holds, and what of it is untested, as JSON |
 
 ::: tip The UI came back
@@ -636,6 +636,10 @@ Non-ASCII characters such as `⚠` and `—` arrive escaped (`\u26A0`), as any J
 | `several-streams` | Draws on several streams: several `[WriteAggregate]` streams or a DCB decider | a design decision, no flag |
 | `missing-aggregate` | No aggregate could be declared or inferred | `--aggregate Slice=Type` |
 | `strong-typed-id-name-taken` | `--strong-typed-ids` was asked for and the board already names a type `{Aggregate}Id`, so that aggregate keeps a primitive identity | rename the board's element |
+| `command-without-event` | The command slice emits no event and raises no exception, so nothing on the board says what it does. The Emlang Project's lint rule of the same name | the board |
+| `view-without-event` | No event precedes the view's read model in any chapter, so the view consumes nothing. The same lint rule | the board |
+| `orphan-exception` | An exception step with no command before it in its chapter; not attached. `slice` is empty and `chapters` names the chapter | the board |
+| `trigger-without-command` | A screen followed by no command before the next screen or the chapter's end; it triggers nothing. `slice` is empty and `chapters` names the chapter | the board |
 | `merged-slice-declaration` | A re-import declared a new slice at the end of its chapter's definition | nothing; review it |
 | `merged-aggregate-declaration` | A slice merged in names an aggregate no definition declared, so it was declared beside it | nothing; review it |
 | `merged-type` | A re-import added a type the board names to an existing stub file | nothing; review it |
