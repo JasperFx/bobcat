@@ -1,5 +1,6 @@
 using Bobcat.Ui.EventModel;
 using Bobcat.Ui.Hosting;
+using JasperFx.CodeGeneration;
 using Wolverine;
 using Wolverine.Http;
 using Wolverine.SignalR;
@@ -40,6 +41,13 @@ public static class BobcatUiHost
             // runner-wire handlers in this assembly are found only because this line says so. A
             // missing line fails as 404s on a host that started cleanly.
             opts.ApplicationAssembly = typeof(BobcatUiHost).Assembly;
+
+            // Wolverine 7 loads pre-generated code in the Production profile (TypeLoadMode.Static with
+            // AssertAllPreGeneratedTypesExist), and a tool started from a terminal is in Production.
+            // Nothing pre-generates this host's handlers and endpoints -- it ships RuntimeCompilation
+            // for exactly this -- so say Dynamic outright, or `bobcat ui` dies at startup with
+            // MissingPreBuiltTypesException (bobcat#776).
+            opts.CodeGeneration.TypeLoadMode = TypeLoadMode.Dynamic;
 
             opts.UseSignalR();
 

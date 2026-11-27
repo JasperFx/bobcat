@@ -22,7 +22,9 @@ public class TheSwiperModel : EventModelDefinition
             .TriggeredBy("Discovery Feed", TriggerKind.Human)
             .Against<Dog>()
             .Emits<DogLiked>()
+            .OnStream<Dog>()
             .Emits<DogPassed>()
+            .OnStream<Dog>()
             .LinksToSpecification("SwipeOnDog/a like is recorded");
 
         // From chapter 'TheSwiper', actor 'System'.
@@ -33,7 +35,8 @@ public class TheSwiperModel : EventModelDefinition
             .TriggeredBy("Dog Liked", TriggerKind.MessageHandler)
             .Command<DetectMutualMatch>()
             .Against<MutualMatch>()
-            .Emits<MutualMatchDetected>();
+            .Emits<MutualMatchDetected>()
+            .OnStream<MutualMatch>();
 
         // From chapter 'TheSwiper', actor 'Member'.
         model.View<MatchList>()

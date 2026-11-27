@@ -131,6 +131,11 @@ public class EventModelBridgeTests
         };
 
         var json = JsonSerializer.Serialize(GeneratedEventModel.For(compiled()), wire);
+
+        // The pin moves only on purpose: a JasperFx bump that adds to the descriptor (bobcat#776 took 3.16.0)
+        // rewrites it with BOBCAT_UPDATE_BRIDGE_FIXTURE=1, and the diff is what the PR reviews
+        if (Environment.GetEnvironmentVariable("BOBCAT_UPDATE_BRIDGE_FIXTURE") == "1") File.WriteAllText(fixtureFile(), json);
+
         json.ShouldBe(File.ReadAllText(fixtureFile()));
     }
 

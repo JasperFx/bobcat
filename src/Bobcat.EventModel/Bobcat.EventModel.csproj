@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net9.0;net10.0;net11.0</TargetFrameworks>
+    <!-- JasperFx.Events 3.x targets net10.0 and net11.0 only, so this package does too (bobcat#776);
+         the runtime packages that reference no JasperFx keep net9.0. -->
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>

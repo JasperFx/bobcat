@@ -36,6 +36,12 @@ until bobcat#470; the platform and xUnit move together. MTP 2.x refuses the VSTe
 note that mode collects every project with `IsTestingPlatformApplication=true` — `IsTestProject=false`
 no longer opts a host out (see `Bobcat.Xunit.Samples.csproj`).
 
+**The tools are on JasperFx 3.x and Wolverine 7 (bobcat#776, Bobcat 1.2).** `src/Directory.Packages.props` pins
+JasperFx / JasperFx.Events 3.16.0 and the WolverineFx.* 7.0.0 packages from nuget.org (a prerelease until Wolverine 7
+ships); 1.1.x stayed on 2.96.0 / 6.54.0 (#828). JasperFx 3 targets net10.0 and net11.0 only, which is why
+Bobcat.EventModel dropped net9.0 while the runtime packages, which reference no JasperFx, keep it. `bobcat ui` sets
+`TypeLoadMode.Dynamic` itself because Wolverine 7's Production profile loads pre-generated code.
+
 **No JasperFx or Wolverine in the runtime packages (#744).** `Bobcat` (and, with #745,
 `Bobcat.Supervisor`) reference neither; `BobcatAssemblyReferenceTests` guards core. JasperFx(.Events) is
 referenced by the tools (`Bobcat.EventModel`, `Bobcat.Console`, `Bobcat.Ui`) and by the test hosts that
@@ -60,7 +66,7 @@ and is packed by the Nuke `Pack` target; `./build.sh Pack` lists exactly these n
 | **Bobcat.TUnit** | net9.0; net10.0; net11.0 | The same projection for TUnit `[Test]` methods |
 | **Bobcat.NUnit** | net9.0; net10.0; net11.0 | The same projection for NUnit `[Test]`/`[TestCase]` methods (an `ITestAction`) |
 | **Bobcat.MSTest** | net9.0; net10.0; net11.0 | The same projection for MSTest `[TestMethod]`s — references no MSTest; ships global hooks as source |
-| **Bobcat.EventModel** | net9.0; net10.0; net11.0 | Imports an eventmodelers.ai emlang board and writes it as C# stub types plus an `EventModelDefinition`; the curated YAML format is retired (#406) |
+| **Bobcat.EventModel** | net10.0; net11.0 (JasperFx.Events 3.x has no net9.0, bobcat#776) | Imports an eventmodelers.ai emlang board and writes it as C# stub types plus an `EventModelDefinition`; the curated YAML format is retired (#406) |
 | **Bobcat.Console** | net10.0, `RollForward=Major` | The `bobcat` global tool: `run` (the default), `preview`, `pick` and `watch` over a spec project, `import-event-model`, `resident` for the out-of-process resident runner, `ui` (the run board and Event Model canvas, `src/Bobcat.Ui`), `watch-event-model`, and the agent queries (`list-runs`, `run-status`, `failing-tests`, `failing-spec`, `flaky-ledger`, `await-run`, `export-run`, `event-model`, `slice-coverage`). Packable only with `EmbedFrontend=true`, so it never ships without its page |
 
 `design/history/acceptance-coverage-map.md` maps the retired acceptance suite onto

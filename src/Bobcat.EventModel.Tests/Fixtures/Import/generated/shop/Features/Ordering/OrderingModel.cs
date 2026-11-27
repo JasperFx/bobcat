@@ -23,12 +23,14 @@ public class OrderingModel : EventModelDefinition
         // ⚠ no example says whether it starts the Order stream, so it is assumed to append to one.
         // ⚠ inferred: decides against Order — its examples give Order events before it appends; 'Order' is the subject 2 of its 2 events share.
         model.Command<PlaceOrder>()
-            .Emits<OrderPlaced>();
+            .Emits<OrderPlaced>()
+            .OnStream<Order>();
 
         // From chapter 'Ordering', actor 'Member'.
         // ⚠ inferred: decides against Order — its examples give Order events before it appends; 'Order' is the subject 2 of its 2 events share.
         model.Command<CancelOrder>()
             .Emits<OrderCancelled>()
+            .OnStream<Order>()
             .LinksToSpecification("CancelOrder/an order is cancelled");
 
         // From chapter 'Ordering', actor 'Member'.

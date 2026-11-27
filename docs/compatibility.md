@@ -25,12 +25,30 @@ The Event Model still works without a reference: when your spec project has Jasp
 WolverineFx.Bobcat or directly), `Bobcat.Generators` emits the Event Model source and a small bridge that
 hands Bobcat the JSON to publish. Without JasperFx.Events, no Event Model is generated, exactly as before.
 
+## Bobcat 1.2
+
+The runtime packages are unchanged from 1.1: `net9.0;net10.0;net11.0`, no JasperFx or Wolverine. What moves is the
+tooling (bobcat#776), with the Critter Stack .NET 11 release train:
+
+- **`Bobcat.EventModel` and the `bobcat` tool are built against JasperFx / JasperFx.Events 3.16.0 and the
+  WolverineFx 7.0 packages.** An `import-event-model` consumer is therefore on JasperFx 3, which means Wolverine 7
+  and Marten 10 beside it. Until Wolverine 7 is released the pin is its current prerelease from nuget.org.
+- **`Bobcat.EventModel` targets `net10.0;net11.0`.** JasperFx 3 ships no `net9.0` assembly, so neither can a package
+  that references it. The four runner adapters, `Bobcat` and `Bobcat.Supervisor` keep `net9.0`.
+- **The `bobcat` tool still rolls forward.** Built for .NET 10, `RollForward=Major`, so it starts on a machine with
+  only the .NET 11 runtime. Wolverine 7's Production profile loads pre-generated code by default; `bobcat ui` sets
+  `TypeLoadMode.Dynamic` itself, so nothing changes for anyone running it.
+- **YamlDotNet 18.** Only `Bobcat.EventModel` references it, for reading emlang.
+
+<!-- JEREMY: "TypeScript 6 alias" from #776's title is not in this change; the front end stays on TypeScript 5.9 and
+nothing in the build needed it. Say what the alias was meant to be and it is a small follow-up. -->
+
 ## Bobcat 1.0 and 1.1
 
 | | Requirement | Built and tested against |
 |---|---|---|
 | .NET | `net9.0`, `net10.0` or `net11.0` for the libraries (1.1; 1.0.x: `net9.0` or `net10.0`); the `bobcat` tool is built for .NET 10 and rolls forward to .NET 11 (`RollForward=Major`), so it runs on a machine with only the .NET 10 or only the .NET 11 runtime | .NET 10 (the test hosts); the SDK that builds the repository is .NET 11 |
-| `JasperFx`, `JasperFx.Events` | none from 1.0.0-rc.2 (rc.1 and earlier: 2.90.2 or later) | the `bobcat` tool and the Event Model generator's tests: 2.96.0 (the 2.x line; JasperFx 3 comes after 1.1) |
+| `JasperFx`, `JasperFx.Events` | none from 1.0.0-rc.2 (rc.1 and earlier: 2.90.2 or later) | the `bobcat` tool and the Event Model generator's tests: 2.96.0 in 1.0 and 1.1 (JasperFx 3 came with 1.2, above) |
 | Marten, Fisher, Polecat | none from Bobcat; through `WolverineFx.Bobcat`, below | in the Wolverine repository since #744 |
 | WolverineFx | through `WolverineFx.Bobcat`, below | in the Wolverine repository since #744 |
 | Alba | any for Bobcat itself, which does not reference it. `WolverineFx.Bobcat.Http` 6.51.0-alpha.1 and later require **9.0.0-rc.2** (below) | |
