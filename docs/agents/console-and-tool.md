@@ -132,9 +132,11 @@ and so cannot be handed a class to host.
     specified. **The intent is that this moves onto attributes, and no such attribute exists yet.**
     `[BobcatSlice]` — binding a test that already exists to a slice — is untouched, and
     `SpecIdentityAudit` (#338, in WolverineFx.Bobcat since #744) is the only gate of its kind.
-  - **Field-less is the honest output**, not a shortcut: an emlang export carries no field
-    information at all (the board's props are intentionally omitted), so a name is the whole truth
-    it can tell, and inventing an `Id` is a guess every consumer then has to un-guess.
+  - **Field-less is the honest output**, not a shortcut: eventmodelers.ai's emlang export carries no
+    field types and no tests by design (the community Emlang Project grammar Bobcat reads does carry
+    `props` and `tests:`; the lossless platform input is the EM Spec JSON, bobcat#845), so a name is
+    often the whole truth it can tell, and inventing an `Id` is a guess every consumer then has to
+    un-guess.
   - **`--strong-typed-ids` gives each aggregate an identity type (bobcat#512/#433), and the decision
     lives in one place — `StrongTypedIds`.** Off by default: an undeclared identity is a `Guid`,
     which is what every store defaults a stream id to, and typing one is a modelling choice no board

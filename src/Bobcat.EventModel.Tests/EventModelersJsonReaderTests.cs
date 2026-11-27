@@ -17,8 +17,9 @@ public class EventModelersJsonReaderTests
           "slices": [
             {
               "title": "Add Item",
+              "chapter": "Shopping",
               "sliceType": "STATE_CHANGE",
-              "aggregates": ["Cart"],
+              "aggregates": ["default", "Cart"],
               "screens": [ { "title": "Cart Page", "fields": [] } ],
               "commands": [
                 { "title": "Add Item", "fields": [
@@ -203,6 +204,127 @@ public class EventModelersJsonReaderTests
         var json = Board.Replace("\"SLICE_BORDER\"", "\"NOTHING\"");
 
         EventModelersJsonReader.Read(json).Chapters.Select(x => x.Name).ShouldBe(["Initialize System", "System Version"]);
+    }
+
+    // ---- bobcat#845: what the board says, the import does not re-infer ------------------------
+
+    [Fact]
+    public void a_config_slice_carries_the_boards_chapter_and_its_declared_pattern()
+    {
+        var chapter = EventModelersJsonReader.Read(Config).Chapters.Single();
+
+        chapter.Name.ShouldBe("Add Item");
+        chapter.BoardChapter.ShouldBe("Shopping");
+        chapter.ChapterTitle.ShouldBe("Shopping");
+        chapter.SliceType.ShouldBe("Command");
+    }
+
+    [Fact]
+    public void the_imported_slice_is_stamped_with_the_boards_chapter_not_the_slice_title()
+    {
+        var model = EmlangImport.ToCurated(EventModelersJsonReader.Read(Config), "Shop").Model;
+
+        model.Slices.Single(x => x.Name == "AddItem").Chapter.ShouldBe("Shopping");
+    }
+
+    [Fact]
+    public void a_config_slice_with_no_chapter_is_its_own_chapter_as_before()
+    {
+        var json = Config.Replace("\"chapter\": \"Shopping\",", "");
+
+        var chapter = EventModelersJsonReader.Read(json).Chapters.Single();
+        chapter.BoardChapter.ShouldBeNull();
+        chapter.ChapterTitle.ShouldBe("Add Item");
+        EmlangImport.ToCurated(EventModelersJsonReader.Read(json), "Shop").Model.Slices.Single(x => x.Name == "AddItem").Chapter.ShouldBe("Add Item");
+    }
+
+    [Fact]
+    public void the_chapter_flag_selects_every_slice_of_a_board_chapter()
+    {
+        var board = EventModelersJsonReader.Read(Config);
+
+        EmlangImport.SelectChapters(board, ["Shopping"]).Chapters.Count.ShouldBe(1);
+        EmlangImport.SelectChapters(board, ["Add Item"]).Chapters.Count.ShouldBe(1);
+        Should.Throw<ArgumentException>(() => EmlangImport.SelectChapters(board, ["Checkout"]))
+            .Message.ShouldContain("The board has: Shopping");
+    }
+
+    [Theory]
+    [InlineData("STATE_CHANGE", "Command")]
+    [InlineData("STATE_VIEW", "View")]
+    [InlineData("AUTOMATION", "Automation")]
+    [InlineData("TRANSLATION", "Translation")]
+    [InlineData("UNDEFINED", null)]
+    [InlineData("", null)]
+    [InlineData("something new", null)]
+    public void slice_types_read_as_the_curated_patterns_and_anything_else_as_undeclared(string sliceType, string? pattern)
+    {
+        EventModelersJsonReader.PatternOf(sliceType).ShouldBe(pattern);
+    }
+
+    [Fact]
+    public void a_declared_state_change_with_a_processor_stays_a_command_slice()
+    {
+        // The inference would call a command preceded by a processor an automation; the board says otherwise
+        var json = Config.Replace("\"processors\": []", "\"processors\": [ { \"title\": \"nightly job\" } ]");
+
+        var slice = EmlangImport.ToCurated(EventModelersJsonReader.Read(json), "Shop").Model.Slices.Single(x => x.Name == "AddItem");
+        slice.Pattern.ShouldBe("Command");
+        slice.Trigger!.Kind.ShouldBe("Human");
+    }
+
+    [Fact]
+    public void a_declared_automation_with_no_processor_is_an_automation_slice()
+    {
+        var json = Config.Replace("\"sliceType\": \"STATE_CHANGE\"", "\"sliceType\": \"AUTOMATION\"");
+
+        var result = EmlangImport.ToCurated(EventModelersJsonReader.Read(json), "Shop");
+        var slice = result.Model.Slices.Single(x => x.Name == "AddItem");
+        slice.Pattern.ShouldBe("Automation");
+        slice.Trigger!.Kind.ShouldBe("MessageHandler");
+        result.Report.ShouldContain(x => x.Contains("Automation slice 'AddItem'") && x.Contains("pattern from the board's sliceType"));
+    }
+
+    [Fact]
+    public void an_undefined_slice_type_leaves_the_pattern_to_the_inference()
+    {
+        var json = Config.Replace("\"sliceType\": \"STATE_CHANGE\"", "\"sliceType\": \"UNDEFINED\"");
+
+        var slice = EmlangImport.ToCurated(EventModelersJsonReader.Read(json), "Shop").Model.Slices.Single(x => x.Name == "AddItem");
+        slice.Pattern.ShouldBe("Command");
+    }
+
+    [Fact]
+    public void the_default_sentinel_in_a_slices_aggregates_is_not_an_aggregate()
+    {
+        var json = Config.Replace("\"aggregates\": [\"default\", \"Cart\"]", "\"aggregates\": [\"default\"]");
+
+        var steps = EventModelersJsonReader.Read(json).Chapters.Single().Steps;
+        steps.Single(x => x.Kind == EmlangElementKind.Event).Stream.ShouldBeNull();
+        steps.Single(x => x.Kind == EmlangElementKind.Command).Stream.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_board_backups_slices_carry_the_timeline_as_their_chapter()
+    {
+        var board = EventModelersJsonReader.Read(Board);
+
+        board.Chapters.Select(x => x.BoardChapter).ShouldAllBe(x => x == "Initialization");
+        var model = EmlangImport.ToCurated(board, "Init").Model;
+        model.Slices.Select(x => x.Chapter).Distinct().ShouldBe(["Initialization"]);
+    }
+
+    [Fact]
+    public void a_board_backup_element_reads_its_own_aggregate_over_the_swimlane_and_default_as_none()
+    {
+        var declared = Board.Replace("\"type\": \"EVENT\", \"title\": \"System Initialized\",", "\"type\": \"EVENT\", \"title\": \"System Initialized\", \"aggregate\": \"Installation\",");
+        EventModelersJsonReader.Read(declared).Chapters[0].Steps[1].Actor.ShouldBe("Installation");
+
+        var defaulted = Board.Replace("\"type\": \"EVENT\", \"title\": \"System Initialized\",", "\"type\": \"EVENT\", \"title\": \"System Initialized\", \"aggregate\": \"default\",");
+        EventModelersJsonReader.Read(defaulted).Chapters[0].Steps[1].Actor.ShouldBe("System");
+
+        var command = Board.Replace("\"type\": \"COMMAND\", \"title\": \"Initialize System\",", "\"type\": \"COMMAND\", \"title\": \"Initialize System\", \"aggregate\": \"Installation\",");
+        EventModelersJsonReader.Read(command).Chapters[0].Steps[0].Stream.ShouldBe("Installation");
     }
 
     private sealed class EmlangRefComparer : IEqualityComparer<EmlangRef>
