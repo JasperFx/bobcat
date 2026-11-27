@@ -104,6 +104,26 @@ public class VendoredFixtureTests
         scenario.Then[1].Contains["total"].ShouldBe("33.98");
     }
 
+    [Fact]
+    public void the_specs_acronym_prefixes_read_as_their_short_forms()
+    {
+        // Emlang spec v1.0.0, "Elements": t/trg/trigger, c/cmd/command, e/evt/event, x/err/exception are equivalent
+        var board = EmlangReader.Read(
+            """
+            slices:
+              Registration:
+                steps:
+                  - trg: Customer/Registration Form
+                  - cmd: Register User
+                  - evt: User/User Registered
+                  - err: Email Already In Use
+                  - view: User Profile
+            """);
+
+        board.Chapters.Single().Steps.Select(x => x.Kind).ShouldBe([
+            EmlangElementKind.Screen, EmlangElementKind.Command, EmlangElementKind.Event, EmlangElementKind.Error, EmlangElementKind.View]);
+    }
+
     // ---- EM Spec JSON: eventmodelers.ai's own export -----------------------------------------------
 
     [Fact]
