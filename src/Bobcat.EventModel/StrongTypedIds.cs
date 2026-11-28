@@ -50,6 +50,13 @@ public sealed class StrongTypedIds
     /// </summary>
     private readonly Dictionary<string, string> _members;
 
+    /// <summary>
+    /// The components of a compound identity (bobcat#851), keyed by identity type: an aggregate whose element
+    /// marks several <c>idAttribute</c>s is identified by all of them together, so its identity type is a record
+    /// struct of those members rather than a wrapper over one value. Such a type has no <see cref="Inner"/>.
+    /// </summary>
+    private readonly Dictionary<string, IReadOnlyList<(string Name, string Type)>> _components = new(StringComparer.Ordinal);
+
     private StrongTypedIds(Dictionary<string, string> byAggregate, Dictionary<string, string> inner,
         Dictionary<string, string> members, IReadOnlyList<ImportCallout> callouts)
     {
@@ -82,6 +89,7 @@ public sealed class StrongTypedIds
 
         var byAggregate = new Dictionary<string, string>(StringComparer.Ordinal);
         var inner = new Dictionary<string, string>(StringComparer.Ordinal);
+        var compound = new Dictionary<string, IReadOnlyList<(string Name, string Type)>>(StringComparer.Ordinal);
         var callouts = new List<ImportCallout>();
 
         var aggregates = model.Slices
@@ -111,7 +119,11 @@ public sealed class StrongTypedIds
             }
 
             byAggregate[aggregate] = name;
-            inner[name] = CSharpModelWriter.StreamIdentityType(model, aggregate);
+
+            // bobcat#851: several idAttributes on one element are one compound identity
+            var components = CSharpModelWriter.IdentityComponents(model, aggregate);
+            if (components.Count > 1) compound[name] = components;
+            else inner[name] = CSharpModelWriter.StreamIdentityType(model, aggregate);
         }
 
         var members = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -133,7 +145,9 @@ public sealed class StrongTypedIds
             foreach (var field in marked) members[$"{element}.{field}"] = id;
         }
 
-        return new StrongTypedIds(byAggregate, inner, members, callouts);
+        var ids = new StrongTypedIds(byAggregate, inner, members, callouts);
+        foreach (var (name, parts) in compound) ids._components[name] = parts;
+        return ids;
     }
 
     /// <summary>Whether any identity is typed at all — false for <see cref="None"/>.</summary>
@@ -142,19 +156,25 @@ public sealed class StrongTypedIds
     /// <summary>What the import could not type, and why.</summary>
     public IReadOnlyList<ImportCallout> Callouts { get; }
 
-    /// <summary>Every identity type to be written, in aggregate order, with what it wraps.</summary>
-    public IReadOnlyList<(string Name, string Inner)> Declarations
-        => _byAggregate.Values.Select(name => (name, _inner[name])).ToList();
+    /// <summary>
+    /// Every identity type to be written, in aggregate order, with what it wraps: <c>Guid</c> or <c>string</c>,
+    /// or null for a compound identity, whose members <see cref="Components"/> gives.
+    /// </summary>
+    public IReadOnlyList<(string Name, string? Inner)> Declarations
+        => _byAggregate.Values.Select(name => (name, _inner.GetValueOrDefault(name))).ToList();
 
     /// <summary>The identity type of an aggregate, or null when it keeps a primitive one.</summary>
     public string? IdOf(string aggregate)
         => _byAggregate.GetValueOrDefault(CSharpModelWriter.Identifiers.Sanitize(aggregate ?? ""));
 
-    /// <summary>What an identity type wraps (<c>Guid</c> or <c>string</c>), or null for anything else.</summary>
+    /// <summary>What an identity type wraps (<c>Guid</c> or <c>string</c>), or null for a compound identity and for anything else.</summary>
     public string? Inner(string? type) => type is null ? null : _inner.GetValueOrDefault(type);
 
+    /// <summary>The members of a compound identity type (bobcat#851), or null for a wrapper over one value and for anything else.</summary>
+    public IReadOnlyList<(string Name, string Type)>? Components(string? type) => type is null ? null : _components.GetValueOrDefault(type);
+
     /// <summary>Whether <paramref name="type"/> is one of these identity types.</summary>
-    public bool Contains(string? type) => Inner(type) is not null;
+    public bool Contains(string? type) => Inner(type) is not null || Components(type) is not null;
 
     /// <summary>
     /// The type a member called <c>{Aggregate}Id</c> takes, or null when no aggregate of that name is

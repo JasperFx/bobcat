@@ -74,6 +74,21 @@ public static class CSharpModelWriter
         /// to an existing file and never touches one somebody edited.
         /// </summary>
         public StrongTypedIds Identities { get; init; } = StrongTypedIds.None;
+
+        /// <summary>
+        /// Every type written with its members (bobcat#851): the stubs, the streams the specifications need,
+        /// and the nested records a <c>Custom</c> field with subfields became — what the definition declares
+        /// with <c>model.Shape&lt;T&gt;()</c> and <see cref="ImportedModelMapper"/> puts on the descriptor, so
+        /// the two cannot disagree about a field.
+        /// </summary>
+        public IReadOnlyList<WrittenShape> Shapes { get; init; } = [];
+    }
+
+    /// <summary>One type the import wrote, with its members and the namespace it was declared in (bobcat#851).</summary>
+    public sealed record WrittenShape(string Type, IReadOnlyList<StubField> Fields, string Namespace)
+    {
+        /// <summary>The stub this nested record was written beside, or null for a stub of its own.</summary>
+        public string? Owner { get; init; }
     }
 
     public static Output Write(ImportedEventModel model, string? namespaceName = null)
@@ -162,22 +177,123 @@ public static class CSharpModelWriter
             streams = streams.Where(x => !minted.Contains(x)).ToList();
         }
 
-        var stubFiles = writeStubs(layout, model, stubs, streams, documents, extra, ids).ToList();
+        var fields = stubFields(model, stubs, streams, documents, extra, ids);
+        var shapes = shapesOf(layout, stubs, streams, fields);
+
+        // A nested record is a type the definition may be generic over, like any stub
+        var declared = stubs.Concat(shapes.Where(x => x.Owner is not null).Select(x => x.Type)).Distinct(StringComparer.Ordinal).ToList();
+
+        var stubFiles = writeStubs(layout, model, stubs, streams, fields, shapes, ids).ToList();
         if (ids.Any) stubFiles.Insert(0, writeIdentities(ns, ids));
 
         if (!perChapter)
         {
-            return new Output(stubFiles, writeDefinition(ns, model, stubs, layout, ids), stubs.Count + streams.Count, layout)
+            return new Output(stubFiles, writeDefinition(ns, model, declared, layout, ids, shapes), stubs.Count + streams.Count, layout)
             {
-                Identities = ids
+                Identities = ids,
+                Shapes = shapes,
             };
         }
 
         return new Output(stubFiles, "", stubs.Count + streams.Count, layout)
         {
-            DefinitionFiles = writeChapterDefinitions(ns, model, stubs, layout, ids),
-            Identities = ids
+            DefinitionFiles = writeChapterDefinitions(ns, model, declared, layout, ids, shapes),
+            Identities = ids,
+            Shapes = shapes,
         };
+    }
+
+    /// <summary>
+    /// Every type an import of <paramref name="model"/> writes, with its members (bobcat#851), as
+    /// <see cref="Write(ImportedEventModel, string?, StubAdditions?, bool, StrongTypedIds)"/> would write them —
+    /// for a caller that wants the shapes without the files, such as the descriptor push.
+    /// </summary>
+    public static IReadOnlyList<WrittenShape> Shapes(ImportedEventModel model, string? namespaceName = null, StrongTypedIds? identities = null)
+    {
+        var ns = namespaceName ?? (string.IsNullOrWhiteSpace(model.Namespace) ? null : model.Namespace) ?? Identifiers.Sanitize(model.Model);
+        var ids = identities ?? StrongTypedIds.None;
+        var stubs = StubNames(model).ToList();
+        if (ids.Any)
+        {
+            var minted = ids.Declarations.Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
+            stubs = stubs.Where(x => !minted.Contains(x)).ToList();
+        }
+
+        var fields = stubFields(model, stubs, [], new HashSet<string>(StringComparer.Ordinal), new Dictionary<string, IReadOnlyList<StubField>>(), ids);
+        return shapesOf(Layout(model, ns), stubs, [], fields);
+    }
+
+    /// <summary>
+    /// The members of every stub and stream (bobcat#851): the fields the board names, the <c>{Aggregate}Id</c>
+    /// members a several-stream command needs (bobcat#444), and the conventional <c>Id</c> where the model
+    /// marks no identity (bobcat#438).
+    /// </summary>
+    private static Dictionary<string, IReadOnlyList<StubField>> stubFields(ImportedEventModel model, IReadOnlyList<string> stubs,
+        IReadOnlyList<string> streams, HashSet<string> documents, IReadOnlyDictionary<string, IReadOnlyList<StubField>> extra, StrongTypedIds ids)
+    {
+        var aggregates = model.Slices.SelectMany(AggregatesOf)
+            .Select(x => Identifiers.Sanitize(x ?? ""))
+            .Concat(streams)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return stubs.Concat(streams).Distinct(StringComparer.Ordinal).ToDictionary(x => x, x =>
+        {
+            var named = FieldsOf(model, x, ids)
+                .Concat(Retyped(x, extra.GetValueOrDefault(x) ?? [], ids))
+                .ToList();
+
+            // bobcat#444: a command deciding against several streams names each one's identity,
+            // {Aggregate}Id, which is how each [WriteModel] IEventStream<T> finds its stream
+            foreach (var streamId in StreamIdFieldsOf(model, x).Where(id => named.All(f => f.Name != id)))
+            {
+                named.Add(new StubField(streamId, ids.IdOfMember(streamId) ?? "Guid") { Identity = true });
+            }
+
+            // bobcat#438: a command, aggregate or read model the model gives no identity is
+            // identified by Id, Wolverine's own convention, so a specification can address it and
+            // [WriteModel] resolves it with nothing declared. A document the specs load by id
+            // needs one whatever its kind.
+            var wantsId = documents.Contains(x) || aggregates.Contains(x) || GetsDefaultId(model, x, named);
+            if (wantsId && named.All(f => f.Name != "Id"))
+            {
+                return (IReadOnlyList<StubField>)[new StubField("Id", DefaultIdType(model, x, ids)) { Identity = true }, .. named];
+            }
+
+            // An Id a specification added comes first too, where a reader looks for the identity
+            return named.FirstOrDefault(f => f.Name == "Id") is { } id ? [id, .. named.Where(f => f != id)] : named;
+        }, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// The shapes in writing order: each stub and stream, then the nested records its <c>Custom</c> fields
+    /// became, each beside the first owner that names it (bobcat#851). A nested record whose name a stub
+    /// already takes is that stub, and is not written twice.
+    /// </summary>
+    private static IReadOnlyList<WrittenShape> shapesOf(ModelLayout layout, IReadOnlyList<string> stubs, IReadOnlyList<string> streams,
+        IReadOnlyDictionary<string, IReadOnlyList<StubField>> fields)
+    {
+        var shapes = new List<WrittenShape>();
+        var taken = stubs.Concat(streams).ToHashSet(StringComparer.Ordinal);
+
+        void nested(string owner, string ns, IReadOnlyList<StubField> members)
+        {
+            foreach (var field in members)
+            {
+                if (field.Nested is null || !taken.Add(field.ElementType)) continue;
+
+                shapes.Add(new WrittenShape(field.ElementType, field.Nested, ns) { Owner = owner });
+                nested(owner, ns, field.Nested);
+            }
+        }
+
+        foreach (var type in stubs.Concat(streams).Distinct(StringComparer.Ordinal))
+        {
+            var ns = layout.NamespaceOf(type);
+            shapes.Add(new WrittenShape(type, fields[type], ns));
+            nested(type, ns, fields[type]);
+        }
+
+        return shapes;
     }
 
     /// <summary>
@@ -232,7 +348,7 @@ public static class CSharpModelWriter
     }
 
     private static IReadOnlyList<GeneratedFile> writeStubs(ModelLayout layout, ImportedEventModel model, IReadOnlyList<string> stubs,
-        IReadOnlyList<string> streams, HashSet<string> documents, IReadOnlyDictionary<string, IReadOnlyList<StubField>> extra,
+        IReadOnlyList<string> streams, IReadOnlyDictionary<string, IReadOnlyList<StubField>> fields, IReadOnlyList<WrittenShape> shapes,
         StrongTypedIds ids)
     {
         var aggregates = model.Slices.SelectMany(AggregatesOf)
@@ -240,34 +356,11 @@ public static class CSharpModelWriter
             .Concat(streams)
             .ToHashSet(StringComparer.Ordinal);
 
-        var fields = stubs.Concat(streams).Distinct(StringComparer.Ordinal).ToDictionary(x => x, x =>
-        {
-            var named = FieldsOf(model, x, ids)
-                .Concat(Retyped(x, extra.GetValueOrDefault(x) ?? [], ids))
-                .ToList();
-
-            // bobcat#444: a command deciding against several streams names each one's identity,
-            // {Aggregate}Id, which is how each [WriteModel] IEventStream<T> finds its stream
-            foreach (var streamId in StreamIdFieldsOf(model, x).Where(id => named.All(f => f.Name != id)))
-            {
-                named.Add(new StubField(streamId, ids.IdOfMember(streamId) ?? "Guid"));
-            }
-
-            // bobcat#438: a command, aggregate or read model the model gives no identity is
-            // identified by Id, Wolverine's own convention, so a specification can address it and
-            // [WriteModel] resolves it with nothing declared. A document the specs load by id
-            // needs one whatever its kind.
-            var wantsId = documents.Contains(x) || aggregates.Contains(x) || GetsDefaultId(model, x, named);
-            if (wantsId && named.All(f => f.Name != "Id")) return [new StubField("Id", DefaultIdType(model, x, ids)), .. named];
-
-            // An Id a specification added comes first too, where a reader looks for the identity
-            return named.FirstOrDefault(f => f.Name == "Id") is { } id ? [id, .. named.Where(f => f != id)] : named;
-        }, StringComparer.Ordinal);
-
         var files = new List<GeneratedFile>();
         foreach (var group in stubs.Concat(streams).Distinct(StringComparer.Ordinal).GroupBy(layout.FileOf))
         {
             var types = group.ToList();
+            var nested = shapes.Where(x => x.Owner is not null && types.Contains(x.Owner)).ToList();
             using var writer = new SourceWriter();
 
             writer.WriteLine("// Imported from an event model by `bobcat import-event-model`.");
@@ -277,14 +370,21 @@ public static class CSharpModelWriter
             writer.WriteLine("// behaviour takes shape. Nothing regenerates this file, so your edits are safe.");
             writer.BlankLine();
 
-            var typeFields = types.SelectMany(x => fields[x]).ToList();
+            var typeFields = types.SelectMany(x => fields[x]).Concat(nested.SelectMany(x => x.Fields)).ToList();
+
+            // bobcat#851: an optional field is a nullable member, which the consumer's project may not have
+            // nullable reference types on for (CS8632 on every one), so the file says so itself
+            if (typeFields.Any(f => f.Optional))
+            {
+                writer.WriteLine("#nullable enable");
+                writer.BlankLine();
+            }
+
             if (typeFields.Count > 0)
             {
                 writer.WriteLine("using System;");
-                if (typeFields.Any(f => f.Type.StartsWith("List<", StringComparison.Ordinal)))
-                {
-                    writer.WriteLine("using System.Collections.Generic;");
-                }
+                if (typeFields.Any(f => f.Many)) writer.WriteLine("using System.Collections.Generic;");
+                if (typeFields.Any(f => f.Generated || f.Pii)) writer.WriteLine("using JasperFx;");
                 writer.BlankLine();
             }
 
@@ -293,20 +393,24 @@ public static class CSharpModelWriter
 
             foreach (var name in types)
             {
-                foreach (var line in describe(model, name)) writer.WriteLine($"/// {line}");
-                if (aggregates.Contains(name))
-                {
-                    if (!describe(model, name).Any()) writer.WriteLine("/// <summary>A stream the generated specifications arrange events on.</summary>");
-                    writeAggregate(writer, name, fields[name], ids);
-                }
-                else
-                {
-                    writer.WriteLine(fields[name].Count == 0
-                        ? $"public record {name};"
-                        : $"public record {name}({string.Join(", ", fields[name].Select(x => $"{x.Type} {x.Name}"))});");
-                }
+                var isAggregate = aggregates.Contains(name);
+                var documented = describe(model, name, isAggregate ? null : fields[name]).ToList();
+                if (documented.Count == 0 && isAggregate) documented.Add("<summary>A stream the generated specifications arrange events on.</summary>");
+                foreach (var line in documented) writer.WriteLine($"/// {line}");
+
+                if (isAggregate) writeAggregate(writer, name, fields[name], ids);
+                else writeRecord(writer, name, fields[name]);
 
                 writer.BlankLine();
+
+                // The nested records this stub's Custom fields became, right after their owner
+                foreach (var shape in nested.Where(x => x.Owner == name))
+                {
+                    writer.WriteLine($"/// <summary>The {shape.Type} of {name}, as the model declares it.</summary>");
+                    foreach (var line in parameterDocs(shape.Fields)) writer.WriteLine($"/// {line}");
+                    writeRecord(writer, shape.Type, shape.Fields);
+                    writer.BlankLine();
+                }
             }
 
             files.Add(new GeneratedFile(group.Key, writer.Code()));
@@ -315,6 +419,12 @@ public static class CSharpModelWriter
         return files;
     }
 
+    /// <summary>A command, event, message or read model: a positional record of exactly the fields the model names.</summary>
+    private static void writeRecord(ISourceWriter writer, string name, IReadOnlyList<StubField> fields)
+        => writer.WriteLine(fields.Count == 0
+            ? $"public record {name};"
+            : $"public record {name}({string.Join(", ", fields.Select(x => $"{attributes(x)}{x.Written} {x.Name}"))});");
+
     /// <summary>
     /// An aggregate is a class with settable properties rather than a positional record: it is the
     /// write model the event store folds, and every Critter Stack store (Marten, Polecat, Fisher)
@@ -322,7 +432,8 @@ public static class CSharpModelWriter
     /// </summary>
     private static void writeAggregate(ISourceWriter writer, string name, IReadOnlyList<StubField> fields, StrongTypedIds identities)
     {
-        if (fields.Count == 1 && fields[0] is { Name: "Id" } id && (id.Type == "Guid" || identities.Contains(id.Type)))
+        if (fields.Count == 1 && fields[0] is { Name: "Id", Optional: false, Generated: false, Pii: false } id
+            && (id.Type == "Guid" || identities.Contains(id.Type)))
         {
             writer.WriteLine($"public class {name} {{ public {id.Type} Id {{ get; set; }} }}");
             return;
@@ -331,10 +442,45 @@ public static class CSharpModelWriter
         writer.Write($"BLOCK:public class {name}");
         foreach (var field in fields)
         {
-            writer.WriteLine($"public {field.Type} {field.Name} {{ get; set; }}{(field.Type.StartsWith("List<", StringComparison.Ordinal) ? " = [];" : field.Type == "string" ? " = string.Empty;" : "")}");
+            if (field.Description is { Length: > 0 } description) writer.WriteLine($"/// <summary>{xml(description)}</summary>");
+            writer.WriteLine($"{attributes(field)}public {field.Written} {field.Name} {{ get; set; }}{initializer(field)}");
         }
         writer.FinishBlock();
     }
+
+    /// <summary>
+    /// What a non-nullable reference property starts as, so the class is complete under nullable reference
+    /// types: an empty list, an empty string, and <c>null!</c> for a nested record the store fills.
+    /// </summary>
+    private static string initializer(StubField field)
+    {
+        if (field.Optional) return "";
+        if (field.Many) return " = [];";
+        if (field.Type == "string") return " = string.Empty;";
+        return field.Nested is not null ? " = null!;" : "";
+    }
+
+    /// <summary>The attributes a member carries from the board's flags (bobcat#851): <c>[Generated]</c>, <c>[Pii]</c>.</summary>
+    private static string attributes(StubField field)
+    {
+        var names = new List<string>();
+        if (field.Generated) names.Add("Generated");
+        if (field.Pii) names.Add("Pii");
+        return names.Count == 0 ? "" : $"[{string.Join(", ", names)}] ";
+    }
+
+    /// <summary>The <c>&lt;param&gt;</c> lines for the fields the model describes.</summary>
+    private static IEnumerable<string> parameterDocs(IReadOnlyList<StubField> fields)
+    {
+        foreach (var field in fields)
+        {
+            if (field.Description is { Length: > 0 } description) yield return $"<param name=\"{field.Name}\">{xml(description)}</param>";
+        }
+    }
+
+    /// <summary>Text as a doc comment holds it: on one line, with the XML characters escaped.</summary>
+    private static string xml(string text)
+        => text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r", "").Replace("\n", " ").Trim();
 
     /// <summary>
     /// Whether <paramref name="stub"/> gets the conventional <c>Id</c> (bobcat#438): a command,
@@ -415,6 +561,35 @@ public static class CSharpModelWriter
         }
 
         return "Guid";
+    }
+
+    /// <summary>
+    /// The members of a stream's identity when the model marks several (bobcat#851): the <c>idAttribute</c>
+    /// fields of the aggregate itself, else of the first element stored on its stream that marks more than
+    /// one, each with its type. One or none means the identity is a single value, which
+    /// <see cref="StreamIdentityType"/> types.
+    /// </summary>
+    public static IReadOnlyList<(string Name, string Type)> IdentityComponents(ImportedEventModel model, string stream)
+    {
+        var aggregate = Identifiers.Sanitize(stream);
+        var stored = model.EventStreams.Where(x => Identifiers.Sanitize(x.Value) == aggregate).Select(x => Identifiers.Sanitize(x.Key));
+
+        foreach (var element in new[] { aggregate }.Concat(stored).Distinct(StringComparer.Ordinal))
+        {
+            var marked = model.Slices.SelectMany(s => s.Elements)
+                .Where(x => Identifiers.Sanitize(x.Key) == element)
+                .SelectMany(x => x.Value.Identities)
+                .Select(x => Identifiers.Sanitize(Emlang.EmlangImport.PascalName(x)))
+                .Where(x => x.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (marked.Count < 2) continue;
+
+            var fields = FieldsOf(model, element);
+            return marked.Select(name => (name, fields.FirstOrDefault(f => f.Name == name)?.Type ?? "string")).ToList();
+        }
+
+        return [];
     }
 
     /// <summary>
@@ -522,8 +697,48 @@ public static class CSharpModelWriter
         return slice.Aggregates.Select(a => Identifiers.Sanitize(a) + "Id").Where(x => x.Length > 2).Distinct(StringComparer.Ordinal).ToList();
     }
 
-    /// <summary>One field of a stub record, as the writer emits it.</summary>
-    public sealed record StubField(string Name, string Type);
+    /// <summary>
+    /// One field of a stub record, as the writer emits it. <paramref name="Type"/> is the C# spelling, a
+    /// <c>List&lt;T&gt;</c> for a list; the board's flags ride beside it (bobcat#851).
+    /// </summary>
+    public sealed record StubField(string Name, string Type)
+    {
+        /// <summary>The field may be absent or null: written as a nullable member.</summary>
+        public bool Optional { get; init; }
+
+        /// <summary>The field is (part of) the type's identity.</summary>
+        public bool Identity { get; init; }
+
+        /// <summary>The system fills the value: written with <c>[Generated]</c>.</summary>
+        public bool Generated { get; init; }
+
+        /// <summary>Personally identifiable information: written with <c>[Pii]</c>.</summary>
+        public bool Pii { get; init; }
+
+        /// <summary>The DCB tag the value is, by the board's name for it; null when none.</summary>
+        public string? Tag { get; init; }
+
+        /// <summary>The type the value is mapped from (the board's <c>mapping</c>, resolved to an element), with <see cref="MappedFromField"/>; null when none.</summary>
+        public string? MappedFromType { get; init; }
+
+        /// <summary>The member of <see cref="MappedFromType"/> the value is mapped from.</summary>
+        public string? MappedFromField { get; init; }
+
+        /// <summary>Plain text describing the field, when the model has one.</summary>
+        public string? Description { get; init; }
+
+        /// <summary>The members of the nested record <see cref="ElementType"/> names, for a <c>Custom</c> field with subfields; null otherwise.</summary>
+        public IReadOnlyList<StubField>? Nested { get; init; }
+
+        /// <summary>Whether the type is a <c>List&lt;T&gt;</c>.</summary>
+        public bool Many => Type.StartsWith("List<", StringComparison.Ordinal);
+
+        /// <summary>The type, or the element type of a list.</summary>
+        public string ElementType => Many ? Type[5..^1] : Type;
+
+        /// <summary>The type as a member is written: nullable when optional.</summary>
+        public string Written => Optional ? Type + "?" : Type;
+    }
 
     /// <summary>
     /// The fields the model names for one stub, gathered from every slice's element hints in model
@@ -575,12 +790,81 @@ public static class CSharpModelWriter
                     if (name == stub) name += "Value";
                     if (fields.Any(x => x.Name == name)) continue;
 
-                    fields.Add(new StubField(name, typeOf(name, sketch)));
+                    // bobcat#851: the board's declaration wins over the sketch, where it made one
+                    fields.Add(element.DeclaredFields.TryGetValue(fieldName, out var declared)
+                        ? declaredField(model, slice, stub, name, declared)
+                        : new StubField(name, typeOf(name, sketch)));
                 }
             }
         }
 
         return fields;
+    }
+
+    /// <summary>
+    /// A field as the board declares it (bobcat#851): its type, a <c>List&lt;T&gt;</c> for a list, the flags,
+    /// and the nested record of a <c>Custom</c> field with subfields. A <c>mapping</c> is resolved to the
+    /// element it names a field of: the slice's consumed events first, then its command, then any element
+    /// of the slice, then of the model; unresolved, it is left off rather than guessed.
+    /// </summary>
+    private static StubField declaredField(ImportedEventModel model, CuratedSlice slice, string owner, string name, CuratedField declared)
+    {
+        // A primitive keeps its C# spelling; a named type is an identifier, sanitized like any other
+        var type = Primitives.ContainsKey(declared.Type) ? declared.Type : Identifiers.Sanitize(declared.Type);
+        if (type.Length == 0) type = "string";
+        if (type == owner && declared.Subfields.Count > 0) type += "Value";
+
+        var nested = declared.Subfields.Count == 0
+            ? null
+            : declared.Subfields
+                .Select(x => (Name: Identifiers.Sanitize(Emlang.EmlangImport.PascalName(x.Name)), Field: x))
+                .Where(x => x.Name.Length > 0)
+                .DistinctBy(x => x.Name, StringComparer.Ordinal)
+                .Select(x => declaredField(model, slice, type, x.Name == type ? x.Name + "Value" : x.Name, x.Field))
+                .ToList();
+
+        var (mappedType, mappedField) = declared.Mapping is { Length: > 0 } mapping ? resolveMapping(model, slice, owner, mapping) : (null, null);
+
+        return new StubField(name, declared.Many ? $"List<{type}>" : type)
+        {
+            Optional = declared.Optional,
+            Identity = declared.Identity,
+            Generated = declared.Generated,
+            Pii = declared.Pii,
+            Tag = declared.Tag ? declared.Name : null,
+            MappedFromType = mappedType,
+            MappedFromField = mappedField,
+            Description = declared.Description,
+            Nested = nested,
+        };
+    }
+
+    /// <summary>
+    /// The element a board <c>mapping</c> names a field of, and that field's member name; nulls when no
+    /// element the model knows declares a field of that name.
+    /// </summary>
+    private static (string? Type, string? Field) resolveMapping(ImportedEventModel model, CuratedSlice slice, string owner, string mapping)
+    {
+        var wanted = Identifiers.Sanitize(Emlang.EmlangImport.PascalName(mapping));
+        if (wanted.Length == 0) return (null, null);
+
+        var candidates = slice.ConsumedEvents.Concat(slice.Command is null ? [] : [slice.Command])
+            .Concat(slice.Elements.Keys)
+            .Concat(model.Slices.SelectMany(s => s.Elements.Keys))
+            .Select(x => Identifiers.Sanitize(x ?? ""))
+            .Where(x => x.Length > 0 && x != owner)
+            .Distinct(StringComparer.Ordinal);
+
+        foreach (var candidate in candidates)
+        {
+            var declares = model.Slices.SelectMany(s => s.Elements)
+                .Where(x => Identifiers.Sanitize(x.Key) == candidate)
+                .SelectMany(x => x.Value.Fields.Keys)
+                .Any(x => Identifiers.Sanitize(Emlang.EmlangImport.PascalName(x)) == wanted);
+            if (declares) return (candidate, wanted);
+        }
+
+        return (null, null);
     }
 
     /// <summary>
@@ -597,11 +881,17 @@ public static class CSharpModelWriter
     }
 
     /// <summary>
-    /// A stub's doc comment: what the board said this type is, which is the one thing the name
-    /// alone does not carry.
+    /// A stub's doc comment: the board's description of the type, when it has one (bobcat#851), and what
+    /// the board said this type is, which is the one thing the name alone does not carry; then a
+    /// <c>&lt;param&gt;</c> for each described field of a record.
     /// </summary>
-    private static IEnumerable<string> describe(ImportedEventModel model, string name)
+    private static IEnumerable<string> describe(ImportedEventModel model, string name, IReadOnlyList<StubField>? fields = null)
     {
+        var description = model.Slices.SelectMany(s => s.Elements)
+            .Where(x => Identifiers.Sanitize(x.Key) == name)
+            .Select(x => x.Value.Description)
+            .FirstOrDefault(x => x is { Length: > 0 });
+
         var roles = new List<string>();
 
         void note(string role, Func<CuratedSlice, IEnumerable<string>> pick)
@@ -624,11 +914,18 @@ public static class CSharpModelWriter
         note("the read model of", s => s.ReadModels);
         note("read by", s => s.ReadsFrom);
 
-        if (roles.Count == 0) yield break;
+        if (roles.Count == 0 && description is null) yield break;
 
         yield return "<summary>";
+        if (description is not null)
+        {
+            foreach (var line in description.Replace("\r\n", "\n").Split('\n').Select(x => x.TrimEnd()).Where(x => x.Length > 0))
+                yield return xml(line);
+        }
         foreach (var role in roles) yield return role + ".";
         yield return "</summary>";
+
+        foreach (var line in parameterDocs(fields ?? [])) yield return line;
     }
 
     /// <summary>
@@ -676,6 +973,20 @@ public static class CSharpModelWriter
         foreach (var (name, inner) in ids.Declarations)
         {
             var aggregate = name[..^2];
+
+            // bobcat#851: a compound identity is a record struct of its members. It has no single value, so it
+            // gets no IParsable and no converter: the stores key a stream by one Guid or string, and how a
+            // compound identity becomes one is a decision the import leaves to the code.
+            if (ids.Components(name) is { } components)
+            {
+                writer.WriteLine($"/// <summary>The identity of {aggregate}, and of everything that addresses its stream: {string.Join(" and ", components.Select(x => x.Name))} together.</summary>");
+                writer.WriteLine("/// <remarks>A compound identity. The event store keys a stream by one value, so give this a conversion to the stream key before it is used as one.</remarks>");
+                writer.Write($"BLOCK:public readonly record struct {name}({string.Join(", ", components.Select(x => $"{x.Type} {x.Name}"))})");
+                writer.Write($"public override string ToString() => $`{string.Join("/", components.Select(x => "{" + x.Name + "}"))}`;");
+                writer.FinishBlock();
+                writer.BlankLine();
+                continue;
+            }
 
             writer.WriteLine($"/// <summary>The identity of {aggregate}, and of everything that addresses its stream.</summary>");
             writer.WriteLine($"[JsonConverter(typeof({name}.Converter))]");
@@ -746,7 +1057,7 @@ public static class CSharpModelWriter
     }
 
     private static string writeDefinition(string ns, ImportedEventModel model, IReadOnlyList<string> stubs, ModelLayout layout,
-        StrongTypedIds ids)
+        StrongTypedIds ids, IReadOnlyList<WrittenShape> shapes)
     {
         var className = DefinitionClassName(model.Model, ns);
 
@@ -759,6 +1070,7 @@ public static class CSharpModelWriter
         writer.WriteLine("// This is ordinary C# and nothing regenerates it. The segmentation an import performs is a");
         writer.WriteLine("// set of reported guesses, so a wrong guess is a one-line edit here rather than a re-import.");
         writer.BlankLine();
+        if (needsSystem(shapes)) writer.WriteLine("using System;");
         writer.WriteLine("using JasperFx.Events.EventModeling;");
         foreach (var chapter in layout.Namespaces.Where(x => x != ns)) writer.WriteLine($"using {chapter};");
         writer.BlankLine();
@@ -791,10 +1103,83 @@ public static class CSharpModelWriter
             writer.BlankLine();
         }
 
+        writeShapes(writer, shapes, stubbed, ids);
+
         writer.FinishBlock();
         writer.FinishBlock();
 
         return writer.Code();
+    }
+
+    /// <summary>
+    /// The fields the board declares, as <c>model.Shape&lt;T&gt;()</c> statements (bobcat#851, jasperfx#1299), so the
+    /// Declared rung carries them before the code does and a stub somebody retypes shows up as a disagreement
+    /// rather than vanishing. One statement per type with members, a <c>.Field(…)</c> per line.
+    /// </summary>
+    private static void writeShapes(ISourceWriter writer, IReadOnlyList<WrittenShape> shapes, HashSet<string> stubbed, StrongTypedIds ids)
+    {
+        var withFields = shapes.Where(x => x.Fields.Count > 0).ToList();
+        if (withFields.Count == 0) return;
+
+        writer.WriteLine("// The fields the board declares, so the model carries them before the code does (jasperfx#1299).");
+        writer.WriteLine("// Once a type has members, what the code says wins; a field declared here that the code lacks is a hotspot.");
+        foreach (var shape in withFields)
+        {
+            writer.Write(ShapeStatement(shape, stubbed, ids));
+            writer.BlankLine();
+        }
+    }
+
+    /// <summary>Whether a definition's shapes name a <c>System</c> type (<c>Guid</c>, <c>DateOnly</c>…), so it needs the using.</summary>
+    private static bool needsSystem(IEnumerable<WrittenShape> shapes)
+        => shapes.SelectMany(x => x.Fields).Any(f => f.ElementType is "Guid" or "DateTimeOffset" or "DateOnly" or "TimeSpan");
+
+    /// <summary>One type's <c>model.Shape&lt;T&gt;()</c> statement, the shape the additive re-import appends too.</summary>
+    internal static string ShapeStatement(WrittenShape shape, IReadOnlyCollection<string> stubbed, StrongTypedIds ids)
+    {
+        var known = stubbed as HashSet<string> ?? stubbed.ToHashSet(StringComparer.Ordinal);
+        var lines = new List<string> { declare("model.Shape", shape.Type, known) };
+        foreach (var field in shape.Fields) lines.Add(fieldCall(field, known, ids));
+
+        return string.Join("\n", lines.Select((x, i) => (i == 0 ? "" : "    ") + x + (i == lines.Count - 1 ? ";" : "")));
+    }
+
+    /// <summary>The C# primitives a field may be, as the type the generic <c>OfType&lt;T&gt;()</c> names.</summary>
+    internal static readonly IReadOnlyDictionary<string, Type> Primitives = new Dictionary<string, Type>(StringComparer.Ordinal)
+    {
+        ["Guid"] = typeof(Guid),
+        ["string"] = typeof(string),
+        ["int"] = typeof(int),
+        ["long"] = typeof(long),
+        ["bool"] = typeof(bool),
+        ["decimal"] = typeof(decimal),
+        ["double"] = typeof(double),
+        ["DateTimeOffset"] = typeof(DateTimeOffset),
+        ["DateOnly"] = typeof(DateOnly),
+        ["TimeSpan"] = typeof(TimeSpan),
+    };
+
+    private static string fieldCall(StubField field, HashSet<string> stubbed, StrongTypedIds ids)
+    {
+        var element = field.ElementType;
+        var call = new StringBuilder($".Field(`{escape(field.Name)}`)");
+        call.Append(Primitives.ContainsKey(element) || stubbed.Contains(element) || ids.Contains(element)
+            ? $".OfType<{element}>()"
+            : $".OfType(`{escape(element)}`)");
+
+        if (field.Many) call.Append(".Many()");
+        if (field.Optional) call.Append(".Optional()");
+        if (field.Identity) call.Append(".Identity()");
+        if (field.Tag is { Length: > 0 } tag) call.Append($".Tagged(`{escape(tag)}`)");
+        if (field.Generated) call.Append(".Generated()");
+        if (field.Pii) call.Append(".Pii()");
+        if (field.MappedFromType is { Length: > 0 } source && field.MappedFromField is { Length: > 0 } member)
+        {
+            call.Append(stubbed.Contains(source) ? $".From<{source}>(`{escape(member)}`)" : $".From(`{escape(source)}`, `{escape(member)}`)");
+        }
+
+        if (field.Description is { Length: > 0 } description) call.Append($".Describe(`{escape(description)}`)");
+        return call.ToString();
     }
 
     /// <summary>What a per-chapter definition already says at the top, so its slices do not repeat it.</summary>
@@ -806,13 +1191,20 @@ public static class CSharpModelWriter
     /// with the default drops its own <c>.Against</c>, one that does not keeps it.
     /// </summary>
     private static IReadOnlyList<GeneratedFile> writeChapterDefinitions(string ns, ImportedEventModel model, IReadOnlyList<string> stubs,
-        ModelLayout layout, StrongTypedIds ids)
+        ModelLayout layout, StrongTypedIds ids, IReadOnlyList<WrittenShape> shapes)
     {
         var stubbed = stubs.ToHashSet(StringComparer.Ordinal);
         var files = new List<GeneratedFile>();
         var declared = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var chapter in model.Slices.GroupBy(x => ModelLayout.ChapterFolder(x.Chapter)))
+        // A shape goes in the definition of the chapter its type was written under (a nested record under its
+        // owner's); a type under no chapter with a definition goes in the first one written
+        var chapters = model.Slices.GroupBy(x => ModelLayout.ChapterFolder(x.Chapter)).ToList();
+        var folders = chapters.Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
+        string? folderOf(WrittenShape shape) => layout.ChapterOf(shape.Owner ?? shape.Type);
+        var placedShapes = shapes.ToLookup(x => folderOf(x) is { } f && folders.Contains(f) ? f : chapters.Count > 0 ? chapters[0].Key : null, StringComparer.Ordinal);
+
+        foreach (var chapter in chapters)
         {
             var slices = chapter.ToList();
             var folder = chapter.Key;
@@ -824,12 +1216,15 @@ public static class CSharpModelWriter
             var sharedDomain = domains.Count == 1 && domains[0] is { Length: > 0 } ? domains[0] : null;
             var (dominant, agreeing, deciding, inferred) = dominantAggregate(slices);
 
+            var chapterShapes = placedShapes[folder].ToList();
+
             using var writer = new SourceWriter();
             writer.WriteLine("// Imported from an eventmodelers.ai board by `bobcat import-event-model`.");
             writer.WriteLine("//");
             writer.WriteLine("// This is ordinary C# and nothing regenerates it. The segmentation an import performs is a");
             writer.WriteLine("// set of reported guesses, so a wrong guess is a one-line edit here rather than a re-import.");
             writer.BlankLine();
+            if (needsSystem(chapterShapes)) writer.WriteLine("using System;");
             writer.WriteLine("using JasperFx.Events.EventModeling;");
             foreach (var other in layout.Namespaces.Where(x => x != chapterNs)) writer.WriteLine($"using {other};");
             writer.BlankLine();
@@ -867,6 +1262,8 @@ public static class CSharpModelWriter
                 writeSlice(writer, slice, stubbed, defaults, model.EventStreams);
                 writer.BlankLine();
             }
+
+            writeShapes(writer, chapterShapes, stubbed, ids);
 
             writer.FinishBlock();
             writer.FinishBlock();
@@ -1123,6 +1520,20 @@ public static class CSharpModelWriter
         foreach (var hotspot in slice.Hotspots)
         {
             if (hotspot is { Length: > 0 }) calls.Add($".Hotspot(`{escape(hotspot)}`)");
+        }
+
+        // bobcat#851 / jasperfx#1298: the board's prose, on the slice and on its elements, so a canvas shows it
+        if (slice.Description is { Length: > 0 } description) calls.Add($".Describe(`{escape(description.Trim())}`)");
+        foreach (var (element, hints) in slice.Elements)
+        {
+            if (hints.Description is not { Length: > 0 } text) continue;
+
+            var elementName = Identifiers.Sanitize(Emlang.EmlangImport.PascalName(element));
+            if (elementName.Length == 0) continue;
+
+            calls.Add(stubbed.Contains(elementName)
+                ? $".Describe<{elementName}>(`{escape(text.Trim())}`)"
+                : $".Describe(`{escape(elementName)}`, `{escape(text.Trim())}`)");
         }
 
         if (calls.Count == 0)

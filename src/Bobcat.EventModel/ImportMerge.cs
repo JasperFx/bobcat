@@ -74,8 +74,13 @@ public static class ImportMerge
         if (tree is null) return Result.Unchanged(unparseable(path, error));
 
         var fresh = CSharpSyntaxTree.ParseText(generated, Parse).GetCompilationUnitRoot();
+        var root = tree.GetCompilationUnitRoot();
         var callouts = new List<ImportCallout>();
         var toAdd = new List<BaseTypeDeclarationSyntax>();
+        var text = existing;
+        var newline = newlineOf(text);
+        var edits = new List<(int Position, string Text)>();
+        var appended = new List<string>();
 
         foreach (var type in TopLevelTypes(fresh))
         {
@@ -87,19 +92,69 @@ public static class ImportMerge
                 continue;
             }
 
-            // The file's own declaration first, else wherever the project declares it
-            var match = declared.Where(x => samePath(x.Path, path)).DefaultIfEmpty(declared[0]).First();
-            if (Differences(type, match.Declaration) is { Count: > 0 } differences)
+            // The file's own declaration first, else wherever the project declares it. The live node from THIS
+            // parse is what positions are taken from, so an edit lands in the text being edited
+            var live = TopLevelTypes(root).FirstOrDefault(x => x.Identifier.ValueText == name);
+            var match = live is not null ? (Path: path, Declaration: live) : declared[0];
+            var file = Path.GetFileName(match.Path);
+            var comparison = Compare(type, match.Declaration);
+            var stub = IsStub(match.Declaration);
+
+            // bobcat#851: a new board field is appended while the type is still the stub the import wrote;
+            // once the type has grown behaviour, the member is the code's to add
+            if (stub && live is not null && comparison.Missing.Count > 0)
             {
-                callouts.Add(callout(ImportCalloutCodes.TypeDiffersFromBoard, match.Path,
-                    $"{name} in {Path.GetFileName(match.Path)} differs from the board ({string.Join("; ", differences)}). "
-                    + "It was left as it is: the code is the correction, so change it by hand if the board is right.") with { Type = name });
+                edits.Add(appendMembers(text, live, comparison.Missing, newline));
+                foreach (var member in comparison.Missing)
+                {
+                    appended.Add($"{name}.{member.Name}");
+                    callouts.Add(callout(ImportCalloutCodes.MergedField, path,
+                            $"Added {member.Type} {member.Name} to {name} in {file}: the board names it and the type is still the stub the import wrote.")
+                        with { Type = name, Field = member.Name });
+                }
+            }
+            else
+            {
+                foreach (var member in comparison.Missing)
+                {
+                    callouts.Add(callout(ImportCalloutCodes.FieldDiffersFromBoard, match.Path,
+                            $"The board names {member.Type} {member.Name} on {name}, which the code in {file} does not declare. "
+                            + "Nothing was changed: the code is the correction, so add it by hand if the board is right.")
+                        with { Type = name, Field = member.Name, Fix = $"Add {member.Text} to {name} in {file}." });
+                }
+            }
+
+            foreach (var (member, actual) in comparison.Differing)
+            {
+                callouts.Add(callout(ImportCalloutCodes.FieldDiffersFromBoard, match.Path,
+                        $"The board types {name}.{member.Name} as {member.Type}; the code in {file} types it as {actual}. "
+                        + "Nothing was changed: the code is the correction, so retype it by hand if the board is right.")
+                    with { Type = name, Field = member.Name, Fix = $"Type {member.Name} as {member.Type} in {name} in {file}, or keep {actual} if the code is right." });
+            }
+
+            // A member a stub has and the board does not: removed on the board, or added by hand — the two look
+            // the same, so it is said and nothing is removed. A type with behaviour of its own is past comparing
+            if (stub)
+            {
+                foreach (var extra in comparison.Extra)
+                {
+                    callouts.Add(callout(ImportCalloutCodes.FieldRemovedOnBoard, match.Path,
+                            $"{name} in {file} declares {extra.Type} {extra.Name}, which the board does not give it. "
+                            + "Nothing was removed: if the board removed it, delete the member; if you added it by hand, leave it.")
+                        with { Type = name, Field = extra.Name, Fix = $"Delete {extra.Name} from {name} in {file}." });
+                }
             }
         }
 
-        if (toAdd.Count == 0) return new Result(null, [], callouts);
+        if (toAdd.Count == 0)
+        {
+            if (edits.Count == 0) return new Result(null, [], callouts);
 
-        var root = tree.GetCompilationUnitRoot();
+            edits.AddRange(missingUsings(text, root, fresh, NamespaceOf(fresh), newline));
+            edits.AddRange(nullableDirective(text, root, generated, newline));
+            return new Result(apply(text, edits), appended, callouts) { Description = counted(appended, "field") };
+        }
+
         var ns = NamespaceOf(fresh);
         var candidates = root.DescendantNodes().OfType<BaseNamespaceDeclarationSyntax>()
             .Where(x => x.Name.ToString() == ns)
@@ -120,11 +175,8 @@ public static class ImportMerge
             return new Result(null, [], callouts);
         }
 
-        var text = existing;
-        var newline = newlineOf(text);
         var block = string.Join("\n\n", toAdd.Select(x => x.ToFullString()).Select(x => Reindent(x, "")));
 
-        var edits = new List<(int Position, string Text)>();
         if (candidates.Count == 0)
         {
             // Global namespace: after the last top-level member
@@ -154,12 +206,72 @@ public static class ImportMerge
         }
 
         edits.AddRange(missingUsings(text, root, fresh, ns, newline));
+        edits.AddRange(nullableDirective(text, root, generated, newline));
 
         var added = toAdd.Select(x => x.Identifier.ValueText).ToList();
         callouts.InsertRange(0, added.Select(x => callout(ImportCalloutCodes.MergedType, path,
             $"Added {x} to {Path.GetFileName(path)}: the board names it and the project declared no type of that name.") with { Type = x }));
 
-        return new Result(apply(text, edits), added, callouts);
+        var description = appended.Count == 0 ? null : counted(added, "type") + " and " + counted(appended, "field");
+        return new Result(apply(text, edits), added.Concat(appended).ToList(), callouts) { Description = description };
+    }
+
+    /// <summary>
+    /// Whether a declaration is still the stub the import wrote (bobcat#851): a record with no members beyond its
+    /// positional parameters, or a class of nothing but settable auto-properties. Anything more is behaviour,
+    /// and a type with behaviour is the code's to grow.
+    /// </summary>
+    internal static bool IsStub(BaseTypeDeclarationSyntax declaration) => declaration switch
+    {
+        RecordDeclarationSyntax record => record.Members.Count == 0,
+        ClassDeclarationSyntax type => type.Members.All(x => x is PropertyDeclarationSyntax
+        {
+            AccessorList: { } accessors, ExpressionBody: null
+        } && accessors.Accessors.All(a => a.Body is null && a.ExpressionBody is null)),
+        _ => false
+    };
+
+    /// <summary>
+    /// The edit appending <paramref name="members"/> to a stub, in board order: into a record's parameter list
+    /// (opening one when it has none), or as properties before a class's closing brace.
+    /// </summary>
+    private static (int Position, string Text) appendMembers(string text, BaseTypeDeclarationSyntax live, IReadOnlyList<Member> members, string newline)
+    {
+        if (live is RecordDeclarationSyntax record)
+        {
+            if (record.ParameterList is { } parameters)
+            {
+                var joined = string.Join(", ", members.Select(x => x.Text));
+                return (parameters.CloseParenToken.SpanStart, parameters.Parameters.Count > 0 ? ", " + joined : joined);
+            }
+
+            return (record.Identifier.Span.End, "(" + string.Join(", ", members.Select(x => x.Text)) + ")");
+        }
+
+        var type = (ClassDeclarationSyntax)live;
+        var close = type.CloseBraceToken;
+        var sameLine = text.LastIndexOf('\n', Math.Max(0, close.SpanStart - 1)) < type.OpenBraceToken.SpanStart;
+        if (sameLine)
+        {
+            // public class Order { public Guid Id { get; set; } } — stays one line
+            return (close.SpanStart, string.Join(" ", members.Select(x => x.Text)) + " ");
+        }
+
+        var lineStart = text.LastIndexOf('\n', Math.Max(0, close.SpanStart - 1)) + 1;
+        var indent = type.Members.Count > 0 ? IndentOf(text, type.Members[0].SpanStart) : IndentOf(text, type.SpanStart) + "    ";
+        return (lineStart, string.Join(newline, members.Select(x => indent + x.Text)) + newline);
+    }
+
+    /// <summary>
+    /// The <c>#nullable enable</c> a fresh stub carries for its optional members (bobcat#851), inserted above the
+    /// usings when the existing file has no nullable directive of its own; nothing otherwise.
+    /// </summary>
+    private static IEnumerable<(int, string)> nullableDirective(string text, CompilationUnitSyntax root, string generated, string newline)
+    {
+        if (!generated.Contains("#nullable enable", StringComparison.Ordinal) || text.Contains("#nullable", StringComparison.Ordinal)) yield break;
+
+        var at = root.Usings.FirstOrDefault()?.SpanStart ?? ((SyntaxNode?)root.Members.FirstOrDefault())?.SpanStart ?? root.EndOfFileToken.FullSpan.Start;
+        yield return (at, "#nullable enable" + newline + newline);
     }
 
     /// <summary>
@@ -181,36 +293,56 @@ public static class ImportMerge
     }
 
     /// <summary>
-    /// The members the board names that the code's type lacks or types differently. Members the code
-    /// adds beyond the board's are expected — that is the behaviour taking shape — and never reported.
+    /// The members the board names that the code's type lacks or types differently, as sentences. Members the
+    /// code adds beyond the board's are not here: that is the behaviour taking shape.
     /// </summary>
     public static IReadOnlyList<string> Differences(BaseTypeDeclarationSyntax board, BaseTypeDeclarationSyntax code)
     {
-        var have = membersOf(code).GroupBy(x => x.Name).ToDictionary(x => x.Key, x => x.First().Type, StringComparer.Ordinal);
-        var differences = new List<string>();
-        foreach (var (name, type) in membersOf(board))
-        {
-            if (!have.TryGetValue(name, out var actual)) differences.Add($"the board names {type} {name}, which the code does not declare");
-            else if (normalizeType(actual) != normalizeType(type)) differences.Add($"the board types {name} as {type}, the code as {actual}");
-        }
-
-        return differences;
+        var comparison = Compare(board, code);
+        return comparison.Missing.Select(x => $"the board names {x.Type} {x.Name}, which the code does not declare")
+            .Concat(comparison.Differing.Select(x => $"the board types {x.Member.Name} as {x.Member.Type}, the code as {x.Actual}"))
+            .ToList();
     }
 
-    private static IEnumerable<(string Name, string Type)> membersOf(BaseTypeDeclarationSyntax type)
+    /// <summary>One member of a stub: its name, its type as written, and the whole member as the fresh stub writes it.</summary>
+    internal sealed record Member(string Name, string Type, string Text);
+
+    /// <summary>What the board's stub says against the code's type, member by member (bobcat#851).</summary>
+    /// <param name="Missing">Board members the code lacks.</param>
+    /// <param name="Differing">Board members the code types differently, with the code's type.</param>
+    /// <param name="Extra">Code members the board does not name.</param>
+    internal sealed record Comparison(IReadOnlyList<Member> Missing, IReadOnlyList<(Member Member, string Actual)> Differing, IReadOnlyList<Member> Extra);
+
+    internal static Comparison Compare(BaseTypeDeclarationSyntax board, BaseTypeDeclarationSyntax code)
+    {
+        var have = membersOf(code).GroupBy(x => x.Name).ToDictionary(x => x.Key, x => x.First(), StringComparer.Ordinal);
+        var wanted = membersOf(board).ToList();
+        var missing = new List<Member>();
+        var differing = new List<(Member, string)>();
+        foreach (var member in wanted)
+        {
+            if (!have.TryGetValue(member.Name, out var actual)) missing.Add(member);
+            else if (normalizeType(actual.Type) != normalizeType(member.Type)) differing.Add((member, actual.Type));
+        }
+
+        var named = wanted.Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
+        return new Comparison(missing, differing, have.Values.Where(x => !named.Contains(x.Name)).ToList());
+    }
+
+    private static IEnumerable<Member> membersOf(BaseTypeDeclarationSyntax type)
     {
         if (type is RecordDeclarationSyntax { ParameterList: { } parameters })
         {
             foreach (var parameter in parameters.Parameters)
             {
-                if (parameter.Type is not null) yield return (parameter.Identifier.ValueText, parameter.Type.ToString());
+                if (parameter.Type is not null) yield return new Member(parameter.Identifier.ValueText, parameter.Type.ToString(), parameter.ToString());
             }
         }
 
         if (type is TypeDeclarationSyntax declaration)
         {
             foreach (var property in declaration.Members.OfType<PropertyDeclarationSyntax>())
-                yield return (property.Identifier.ValueText, property.Type.ToString());
+                yield return new Member(property.Identifier.ValueText, property.Type.ToString(), property.ToString());
         }
     }
 
@@ -363,6 +495,12 @@ public static class ImportMerge
 
         statements.AddRange(missing.Select(x => CSharpModelWriter.SliceDeclaration(x, stubbed, chapter, domain, aggregate)));
         statements.AddRange(reopens.Select(x => x.Statement));
+
+        // bobcat#851: the field shapes the fresh definition declares for types no definition declares the fields of
+        var fresh = CSharpSyntaxTree.ParseText(generated, Parse).GetCompilationUnitRoot();
+        var shapes = ShapeStatements(fresh).Where(x => !index.DeclaresShape(x.Type)).ToList();
+        statements.AddRange(shapes.Select(x => Reindent(x.Statement.ToFullString(), "")));
+
         if (statements.Count == 0) return Result.Unchanged(reported.ToArray());
 
         var text = existing;
@@ -380,13 +518,14 @@ public static class ImportMerge
             edits.Add(insertion(text, body.OpenBraceToken.FullSpan.End, Reindent(block, indent), newline, blankBefore: false));
         }
 
-        var fresh = CSharpSyntaxTree.ParseText(generated, Parse).GetCompilationUnitRoot();
         edits.AddRange(missingUsings(text, root, fresh, NamespaceOf(fresh), newline));
 
         var callouts = missing.Select(x => callout(ImportCalloutCodes.MergedSliceDeclaration, path,
                 $"Declared slice {x.Name} in {file}: the board has it and no definition in the project declared it.") with { Slice = x.Name })
             .Concat(aggregates.Select(x => callout(ImportCalloutCodes.MergedAggregateDeclaration, path,
                 $"Declared aggregate {x} in {file}: a slice added there names it and no definition declared it.") with { Type = x }))
+            .Concat(shapes.Select(x => callout(ImportCalloutCodes.MergedShape, path,
+                $"Declared the fields of {x.Type} in {file} (model.Shape): the board declares them and no definition did.") with { Type = x.Type }))
             .Concat(reopens.Select(x => callout(ImportCalloutCodes.MergedSliceRoles, path,
                     $"Added {displays(x.Roles)} to slice {x.Slice.Name} in {file}: the board gives it {(x.Roles.Count == 1 ? "that role" : "those roles")} and no declaration said {(x.Roles.Count == 1 ? "it" : "them")}. "
                     + $"A statement at the end of Configure reopens the slice by name; its declaration is unchanged.")
@@ -403,8 +542,11 @@ public static class ImportMerge
             parts.Add($"{roles} role{(roles == 1 ? "" : "s")} ({string.Join("; ", reopens.Select(x => $"{x.Slice.Name}: {displays(x.Roles)}"))})");
         }
 
+        if (shapes.Count > 0) parts.Add(counted(shapes.Select(x => x.Type).ToList(), "field shape"));
+
         var added = missing.Select(x => x.Name).Concat(aggregates)
             .Concat(reopens.SelectMany(x => x.Roles.Select(r => $"{x.Slice.Name}.{r.Display}")))
+            .Concat(shapes.Select(x => $"Shape({x.Type})"))
             .ToList();
         return new Result(apply(text, edits), added, callouts) { Description = string.Join(" and ", parts) };
     }
@@ -582,7 +724,7 @@ public static class ImportMerge
 
     /// <summary>
     /// A definition file that does not exist yet, minus the slices another definition in the project
-    /// already declares. Null when nothing is left to declare.
+    /// already declares, and the field shapes another declares (bobcat#851). Null when nothing is left to declare.
     /// </summary>
     public static string? WithoutDeclaredSlices(string generated, SourceIndex index, out IReadOnlyList<string> skipped)
     {
@@ -595,14 +737,39 @@ public static class ImportMerge
                 .Select(Named).FirstOrDefault(n => n is not null)))
             .Where(x => x.Slice is not null)
             .ToList();
+        var shapes = ShapeStatements(root).ToList();
 
         var declared = statements.Where(x => index.DeclaresSlice(x.Slice!)).ToList();
+        var declaredShapes = shapes.Where(x => index.DeclaresShape(x.Type)).ToList();
         skipped = declared.Select(x => x.Slice!).ToList();
-        if (declared.Count == 0) return generated;
-        if (declared.Count == statements.Count) return null;
+        if (declared.Count == 0 && declaredShapes.Count == 0) return generated;
+        if (declared.Count == statements.Count && declaredShapes.Count == shapes.Count) return null;
 
-        return remove(generated, declared.Select(x => (x.Statement.FullSpan.Start, x.Statement.FullSpan.Length)).ToList());
+        return remove(generated, declared.Select(x => (x.Statement.FullSpan.Start, x.Statement.FullSpan.Length))
+            .Concat(declaredShapes.Select(x => (x.Statement.FullSpan.Start, x.Statement.FullSpan.Length))).ToList());
     }
+
+    /// <summary>
+    /// Every <c>model.Shape&lt;T&gt;()</c> / <c>model.Shape("T")</c> statement in a file's definitions (bobcat#851), with the
+    /// type whose fields it declares.
+    /// </summary>
+    internal static IEnumerable<(StatementSyntax Statement, string Type)> ShapeStatements(CompilationUnitSyntax root)
+        => DefinitionClasses(root)
+            .SelectMany(x => x.Members.OfType<MethodDeclarationSyntax>().Where(m => m.Identifier.ValueText == "Configure"))
+            .SelectMany(x => x.Body?.Statements ?? [])
+            .Select(x => (Statement: x, Type: shapeOf(x)))
+            .Where(x => x.Type is not null)
+            .Select(x => (x.Statement, x.Type!));
+
+    /// <summary>The type a statement opens a <c>Shape</c> for on the builder itself, or null for any other statement.</summary>
+    private static string? shapeOf(StatementSyntax statement)
+        => statement.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>()
+            .Where(x => x.Expression is MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax } access && memberName(access) == "Shape")
+            .Select(Named)
+            .FirstOrDefault(x => x is not null);
+
+    /// <summary>Every type whose fields a file's definitions declare with <c>Shape</c>.</summary>
+    public static IEnumerable<string> DeclaredShapes(CompilationUnitSyntax root) => ShapeStatements(root).Select(x => x.Type);
 
     /// <summary>
     /// The roles a slice is compared on and a re-import adds: what the board says the slice does, not how it is
@@ -986,7 +1153,11 @@ public sealed class SourceIndex
         IReadOnlyList<(string Feature, string Method)> Specs,
         IReadOnlyList<string> Features,
         IReadOnlyList<(string Slice, ImportMerge.DeclaredRole Role)> Roles,
-        bool ImportedDefinition);
+        bool ImportedDefinition)
+    {
+        /// <summary>The types whose fields the file's definitions declare with <c>Shape</c> (bobcat#851).</summary>
+        public IReadOnlyList<string> Shapes { get; init; } = [];
+    }
 
     /// <summary>The header the import writes atop a definition, which marks it as the import's own.</summary>
     internal const string ImportHeader = "by `bobcat import-event-model`";
@@ -1025,8 +1196,14 @@ public sealed class SourceIndex
         var imported = content.Contains(ImportHeader, StringComparison.Ordinal) && ImportMerge.DefinitionClasses(root).Any();
 
         _files[Path.GetFullPath(path)] = new FileFacts(ImportMerge.TopLevelTypes(root).ToList(), ImportMerge.DeclaredSlices(root).ToList(),
-            ImportMerge.DeclaredAggregates(root).ToList(), specs, features.Select(x => x.Feature!).ToList(), roles, imported);
+            ImportMerge.DeclaredAggregates(root).ToList(), specs, features.Select(x => x.Feature!).ToList(), roles, imported)
+        {
+            Shapes = ImportMerge.DeclaredShapes(root).ToList(),
+        };
     }
+
+    /// <summary>Whether a definition already declares the fields of this type with <c>Shape</c> (bobcat#851).</summary>
+    public bool DeclaresShape(string type) => _files.Values.Any(x => x.Shapes.Contains(type, StringComparer.Ordinal));
 
     /// <summary>Every declaration of a type of this simple name, and the file it is in.</summary>
     public IReadOnlyList<(string Path, BaseTypeDeclarationSyntax Declaration)> TypesNamed(string name)

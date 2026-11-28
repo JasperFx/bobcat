@@ -37,5 +37,23 @@ public class OrderingModel : EventModelDefinition
         model.View<OrderSummary>()
             .On<OrderPlaced>()
             .On<OrderCancelled>();
+
+        // The fields the board declares, so the model carries them before the code does (jasperfx#1299).
+        // Once a type has members, what the code says wins; a field declared here that the code lacks is a hotspot.
+        model.Shape<Order>()
+            .Field("Id").OfType<OrderId>().Identity();
+
+        model.Shape<PlaceOrder>()
+            .Field("OrderId").OfType<OrderId>()
+            .Field("Total").OfType<decimal>();
+
+        model.Shape<CancelOrder>()
+            .Field("OrderId").OfType<OrderId>();
+
+        model.Shape<OrderPlaced>()
+            .Field("OrderId").OfType<OrderId>();
+
+        model.Shape<OrderSummary>()
+            .Field("Id").OfType<OrderId>().Identity();
     }
 }

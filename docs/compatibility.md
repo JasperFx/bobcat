@@ -30,7 +30,7 @@ hands Bobcat the JSON to publish. Without JasperFx.Events, no Event Model is gen
 The runtime packages are unchanged from 1.1: `net9.0;net10.0;net11.0`, no JasperFx or Wolverine. What moves is the
 tooling (bobcat#776), with the Critter Stack .NET 11 release train:
 
-- **`Bobcat.EventModel` and the `bobcat` tool are built against JasperFx / JasperFx.Events 3.16.0 and the
+- **`Bobcat.EventModel` and the `bobcat` tool are built against JasperFx / JasperFx.Events 3.17.0 and the
   WolverineFx 7.0 packages.** An `import-event-model` consumer is therefore on JasperFx 3, which means Wolverine 7
   and Marten 10 beside it. Until Wolverine 7 is released the pin is its current prerelease from nuget.org.
 - **`Bobcat.EventModel` targets `net10.0;net11.0`.** JasperFx 3 ships no `net9.0` assembly, so neither can a package

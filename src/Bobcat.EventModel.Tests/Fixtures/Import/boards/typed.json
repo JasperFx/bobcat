@@ -1,0 +1,77 @@
+{
+  "context": "Clinic",
+  "slices": [
+    {
+      "title": "Book Appointment",
+      "chapter": "Scheduling",
+      "sliceType": "STATE_CHANGE",
+      "description": "A patient books a visit from the schedule page.",
+      "aggregates": ["Appointment"],
+      "screens": [ { "title": "Schedule Page", "fields": [] } ],
+      "commands": [
+        {
+          "title": "Book Appointment",
+          "description": "Books one visit for a patient.",
+          "fields": [
+            { "name": "appointmentId", "type": "UUID", "cardinality": "Single", "idAttribute": true, "generated": true },
+            { "name": "patientEmail", "type": "String", "cardinality": "Single", "pii": true },
+            { "name": "slots", "type": "Int", "cardinality": "List" },
+            { "name": "notes", "type": "String", "cardinality": "Single", "optional": true },
+            { "name": "window", "type": "Custom", "cardinality": "Single", "subfields": [
+              { "name": "day", "type": "Date", "cardinality": "Single" },
+              { "name": "from", "type": "DateTime", "cardinality": "Single" },
+              { "name": "flexible", "type": "Boolean", "cardinality": "Single" } ] }
+          ]
+        }
+      ],
+      "events": [
+        {
+          "title": "Appointment Booked",
+          "aggregate": "Appointment",
+          "fields": [
+            { "name": "appointmentId", "type": "UUID", "cardinality": "Single", "idAttribute": true },
+            { "name": "patientEmail", "type": "String", "cardinality": "Single", "pii": true },
+            { "name": "bookedAt", "type": "DateTime", "cardinality": "Single", "generated": true },
+            { "name": "deposit", "type": "Decimal", "cardinality": "Single", "optional": true }
+          ]
+        }
+      ],
+      "readmodels": [],
+      "processors": [],
+      "specifications": [
+        {
+          "title": "Books a visit",
+          "given": [],
+          "when": [ { "title": "Book Appointment", "type": "SPEC_COMMAND", "fields": [ { "name": "patientEmail", "example": "ann@example.com" }, { "name": "slots", "example": "1, 2" } ] } ],
+          "then": [ { "title": "Appointment Booked", "type": "SPEC_EVENT", "fields": [ { "name": "patientEmail", "example": "ann@example.com" } ] } ]
+        }
+      ]
+    },
+    {
+      "title": "Appointment List",
+      "chapter": "Scheduling",
+      "sliceType": "STATE_VIEW",
+      "aggregates": [],
+      "screens": [],
+      "commands": [],
+      "events": [
+        { "title": "Appointment Booked", "aggregate": "Appointment", "fields": [
+          { "name": "appointmentId", "type": "UUID", "cardinality": "Single", "idAttribute": true },
+          { "name": "patientEmail", "type": "String", "cardinality": "Single", "pii": true } ] }
+      ],
+      "readmodels": [
+        {
+          "title": "Appointment List",
+          "description": "Every booked visit, for the front desk.",
+          "fields": [
+            { "name": "appointmentId", "type": "UUID", "cardinality": "Single", "idAttribute": true },
+            { "name": "email", "type": "String", "cardinality": "Single", "mapping": "patientEmail", "pii": true },
+            { "name": "visits", "type": "Long", "cardinality": "Single" }
+          ]
+        }
+      ],
+      "processors": [],
+      "specifications": []
+    }
+  ]
+}

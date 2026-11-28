@@ -3,6 +3,7 @@
 // This is ordinary C# and nothing regenerates it. The segmentation an import performs is a
 // set of reported guesses, so a wrong guess is a one-line edit here rather than a re-import.
 
+using System;
 using JasperFx.Events.EventModeling;
 using Shelter;
 using Shelter.Booking;
@@ -66,5 +67,29 @@ public class VolunteeringModel : EventModelDefinition
             .Emits<HomeCheckAssignmentAccepted>()
             .OnStream<HomeCheck>()
             .LinksToSpecification("AcceptHomeCheckAssignment/accepted");
+
+        // The fields the board declares, so the model carries them before the code does (jasperfx#1299).
+        // Once a type has members, what the code says wins; a field declared here that the code lacks is a hotspot.
+        model.Shape<VolunteerApplication>()
+            .Field("Id").OfType<Guid>().Identity();
+
+        model.Shape<HomeCheck>()
+            .Field("Id").OfType<Guid>().Identity();
+
+        model.Shape<ReviewVolunteerApplication>()
+            .Field("Id").OfType<Guid>().Identity();
+
+        model.Shape<ApproveVolunteer>()
+            .Field("Id").OfType<Guid>().Identity();
+
+        model.Shape<RejectVolunteerApplication>()
+            .Field("Id").OfType<Guid>().Identity();
+
+        model.Shape<RequestHomeCheck>()
+            .Field("Id").OfType<Guid>().Identity();
+
+        model.Shape<AcceptHomeCheckAssignment>()
+            .Field("HomeCheckId").OfType<Guid>().Identity()
+            .Field("VolunteerApplicationId").OfType<Guid>().Identity();
     }
 }

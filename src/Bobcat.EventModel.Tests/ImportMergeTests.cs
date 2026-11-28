@@ -138,8 +138,11 @@ public sealed class ImportMergeTests : IDisposable
         var inserted = insertedOnly(before, after);
         inserted.ShouldContain("model.Command<AcceptHomeCheckAssignment>()");
         writer.Callouts.ShouldContain(x => x.Code == ImportCalloutCodes.MergedSliceDeclaration && x.Slice == "AcceptHomeCheckAssignment");
-        // The full board infers a HomeCheck aggregate the smaller one did not, so it is declared beside the slice
-        writer.Lines.ShouldContain($"Added 1 slice declaration (AcceptHomeCheckAssignment) and 1 aggregate declaration (HomeCheck) to {Path.Combine("Features", "Volunteering", "VolunteeringModel.cs")}.");
+        // The full board infers a HomeCheck aggregate the smaller one did not, so it is declared beside the slice,
+        // and both new types get their field shapes (bobcat#851)
+        writer.Lines.ShouldContain($"Added 1 slice declaration (AcceptHomeCheckAssignment) and 1 aggregate declaration (HomeCheck) and 2 field shapes (HomeCheck, AcceptHomeCheckAssignment) to {Path.Combine("Features", "Volunteering", "VolunteeringModel.cs")}.");
+        inserted.ShouldContain("model.Shape<AcceptHomeCheckAssignment>()");
+        writer.Callouts.ShouldContain(x => x.Code == ImportCalloutCodes.MergedShape && x.Type == "HomeCheck");
         writer.Files.ShouldContain(x => x.Path.EndsWith("VolunteeringModel.cs") && x.Mode == "merge");
 
         // Its stub is a new file, so it is simply written
@@ -409,9 +412,20 @@ public sealed class ImportMergeTests : IDisposable
         var writer = import(withoutAcceptSlice());
 
         // Without that slice the board infers another aggregate for RequestHomeCheck, whose stub is a new file;
-        // every file that was there is as it was
+        // every file that was there is as it was, except that the definition gains that new type's field shape
+        // (bobcat#851) and nothing else
         var now = snapshot();
-        foreach (var (path, content) in before) now[path].ShouldBe(content, path);
+        foreach (var (path, content) in before)
+        {
+            if (path.EndsWith("VolunteeringModel.cs", StringComparison.Ordinal))
+            {
+                insertedOnly(content, now[path]).ShouldContain("model.Shape<Application>()");
+                continue;
+            }
+
+            now[path].ShouldBe(content, path);
+        }
+
         var removed = writer.Callouts.Single(x => x.Code == ImportCalloutCodes.SliceRemovedOnBoard);
         removed.Slice.ShouldBe("AcceptHomeCheckAssignment");
         removed.File.ShouldBe(Path.Combine(app, "Features", "Volunteering", "VolunteeringModel.cs"));
@@ -462,9 +476,15 @@ public sealed class ImportMergeTests : IDisposable
 
         var writer = import(Full);
 
-        var differs = writer.Callouts.Single(x => x.Code == ImportCalloutCodes.TypeDiffersFromBoard);
+        // bobcat#851: per field, not per type. Id is typed differently; Note is a member the board does not give
+        var differs = writer.Callouts.Single(x => x.Code == ImportCalloutCodes.FieldDiffersFromBoard);
         differs.Type.ShouldBe("ConfirmAppointment");
-        differs.Message.ShouldContain("the board types Id as Guid, the code as string");
+        differs.Field.ShouldBe("Id");
+        differs.Message.ShouldContain("The board types ConfirmAppointment.Id as Guid; the code in ConfirmAppointment.cs types it as string");
+        var extra = writer.Callouts.Single(x => x.Code == ImportCalloutCodes.FieldRemovedOnBoard);
+        extra.Field.ShouldBe("Note");
+        extra.Message.ShouldContain("if you added it by hand, leave it");
+        writer.Callouts.ShouldNotContain(x => x.Code == ImportCalloutCodes.TypeDiffersFromBoard);
 
         // The differing type is untouched; the new event still goes in beside it
         var after = File.ReadAllText(path);
@@ -473,13 +493,94 @@ public sealed class ImportMergeTests : IDisposable
     }
 
     [Fact]
-    public void members_the_code_added_beyond_the_board_are_not_a_difference()
+    public void a_member_the_code_added_to_a_stub_is_never_a_difference_and_never_removed()
     {
         import(Full);
         var path = Path.Combine(app, "Features", "Booking", "ConfirmAppointment.cs");
         File.WriteAllText(path, File.ReadAllText(path).Replace("public record ConfirmAppointment(Guid Id);", "public record ConfirmAppointment(Guid Id, DateTimeOffset At);"));
 
-        import(Full).Callouts.ShouldNotContain(x => x.Code == ImportCalloutCodes.TypeDiffersFromBoard);
+        var writer = import(Full);
+
+        // The stub cannot tell a hand-added member from one the board removed, so it says so and leaves it (bobcat#851)
+        writer.Callouts.ShouldNotContain(x => x.Code == ImportCalloutCodes.FieldDiffersFromBoard);
+        var removed = writer.Callouts.Single(x => x.Code == ImportCalloutCodes.FieldRemovedOnBoard);
+        removed.Type.ShouldBe("ConfirmAppointment");
+        removed.Field.ShouldBe("At");
+        File.ReadAllText(path).ShouldContain("public record ConfirmAppointment(Guid Id, DateTimeOffset At);");
+    }
+
+    [Fact]
+    public void a_member_the_code_added_to_a_type_with_behaviour_is_not_reported_at_all()
+    {
+        import(Full);
+        var path = Path.Combine(app, "Features", "Booking", "ConfirmAppointment.cs");
+        File.WriteAllText(path, File.ReadAllText(path).Replace("public record ConfirmAppointment(Guid Id);",
+            "public record ConfirmAppointment(Guid Id, DateTimeOffset At) { public bool IsLate => At < DateTimeOffset.UtcNow; }"));
+
+        var writer = import(Full);
+
+        // Once the type has grown behaviour it is the code's, and its extra members are nobody's business
+        writer.Callouts.ShouldNotContain(x => x.Code == ImportCalloutCodes.FieldRemovedOnBoard && x.Type == "ConfirmAppointment");
+        writer.Callouts.ShouldNotContain(x => x.Code == ImportCalloutCodes.FieldDiffersFromBoard && x.Type == "ConfirmAppointment");
+    }
+
+    [Fact]
+    public void a_new_board_field_is_appended_to_a_type_that_is_still_a_stub()
+    {
+        import(Full);
+        var path = Path.Combine(app, "Features", "Booking", "ConfirmAppointment.cs");
+        var before = File.ReadAllText(path);
+        before.ShouldContain("public record ConfirmAppointment(Guid Id);");
+
+        // The board gives the command a field, and the code's record is still the stub the import wrote
+        var writer = import(Full.Replace("      - c: Member / Confirm appointment\n", "      - c: Member / Confirm appointment\n        props: { note: string, at: datetime }\n"));
+
+        var after = File.ReadAllText(path);
+        after.ShouldContain("public record ConfirmAppointment(Guid Id, string Note, DateTimeOffset At);");
+        var inserted = insertedOnly(before, after);
+        inserted.ShouldBe(", string Note, DateTimeOffset At");
+
+        var merged = writer.Callouts.Where(x => x.Code == ImportCalloutCodes.MergedField).ToList();
+        merged.Select(x => x.Field).ShouldBe(["Note", "At"]);
+        merged.ShouldAllBe(x => x.Type == "ConfirmAppointment" && x.File == path);
+        writer.Lines.ShouldContain($"Added 2 fields (ConfirmAppointment.Note, ConfirmAppointment.At) to {Path.Combine("Features", "Booking", "ConfirmAppointment.cs")}.");
+        writer.Files.ShouldContain(x => x.Path == path && x.Mode == "merge");
+
+        buildApp();
+    }
+
+    [Fact]
+    public void a_new_board_field_is_not_appended_once_the_type_has_behaviour()
+    {
+        import(Full);
+        var path = Path.Combine(app, "Features", "Booking", "ConfirmAppointment.cs");
+        var edited = File.ReadAllText(path).Replace("public record ConfirmAppointment(Guid Id);",
+            "public record ConfirmAppointment(Guid Id) { public bool IsValid => Id != Guid.Empty; }");
+        File.WriteAllText(path, edited);
+
+        var writer = import(Full.Replace("      - c: Member / Confirm appointment\n", "      - c: Member / Confirm appointment\n        props: { note: string }\n"));
+
+        File.ReadAllText(path).ShouldBe(edited);
+        var differs = writer.Callouts.Single(x => x.Code == ImportCalloutCodes.FieldDiffersFromBoard);
+        differs.Field.ShouldBe("Note");
+        differs.Message.ShouldContain("which the code in ConfirmAppointment.cs does not declare");
+        differs.Fix.ShouldBe("Add string Note to ConfirmAppointment in ConfirmAppointment.cs.");
+        writer.Callouts.ShouldNotContain(x => x.Code == ImportCalloutCodes.MergedField);
+    }
+
+    [Fact]
+    public void a_new_board_field_is_appended_to_an_aggregate_that_is_still_a_stub()
+    {
+        import(Full);
+        var path = Path.Combine(app, "Features", "Booking", "Appointment.cs");
+        var before = File.ReadAllText(path);
+        before.ShouldContain("public class Appointment { public Guid Id { get; set; } }");
+
+        // An aggregate's fields come from an element of its name; the one-line class stays one line
+        var writer = import(Full.Replace("      - e: Member / Appointment confirmed\n", "      - e: Member / Appointment confirmed\n        props: { appointmentId: uuid, when: datetime }\n"));
+
+        writer.Callouts.ShouldNotContain(x => x.Code == ImportCalloutCodes.MergeSkippedUnparseable);
+        buildApp();
     }
 
     [Fact]

@@ -42,9 +42,52 @@ public static class ImportedModelMapper
     /// declared full names are the ones the code will have; null keeps every name bare.
     /// </summary>
     public static EventModelDescriptor ToDescriptor(ImportedEventModel file, ModelLayout? layout)
+        => ToDescriptor(file, layout, CSharpModelWriter.Shapes(file, layout?.RootNamespace));
+
+    /// <summary>
+    /// Map <paramref name="file"/> with the field shapes the stubs were written with
+    /// (<see cref="CSharpModelWriter.Output.Shapes"/>, bobcat#851), so the descriptor declares exactly the members
+    /// the code has — strong-typed identities and nested records included.
+    /// </summary>
+    public static EventModelDescriptor ToDescriptor(ImportedEventModel file, ModelLayout? layout, IReadOnlyList<CSharpModelWriter.WrittenShape> shapes)
     {
         var slices = file.Slices.Select(x => toSlice(x, file.EventStreams, layout)).ToList();
-        return new EventModelDescriptor(file.Model, slices);
+        return new EventModelDescriptor(file.Model, slices)
+        {
+            Shapes = shapes.Where(x => x.Fields.Count > 0).Select(x => toShape(x, shapes, layout)).ToList(),
+        };
+    }
+
+    /// <summary>
+    /// One written type's fields as a <see cref="TypeShapeDescriptor"/> (jasperfx#1299): a primitive is the CLR type
+    /// the generated <c>OfType&lt;T&gt;()</c> names, anything else a name-only declaration where the import put it.
+    /// </summary>
+    private static TypeShapeDescriptor toShape(CSharpModelWriter.WrittenShape shape, IReadOnlyList<CSharpModelWriter.WrittenShape> all, ModelLayout? layout)
+    {
+        TypeDescriptor declared(string name)
+        {
+            // A nested record lives in its owner's namespace, an identity type in the root, a stub where the layout put it
+            var written = all.FirstOrDefault(x => x.Type == name);
+            var ns = written?.Namespace ?? (layout is not null && layout.Contains(name) ? null : layout?.RootNamespace);
+            return new TypeDescriptor(name, written is not null ? $"{written.Namespace}.{name}" : layout?.FullNameOf(name) ?? (ns is null ? name : $"{ns}.{name}"), string.Empty);
+        }
+
+        TypeDescriptor fieldType(string type)
+            => CSharpModelWriter.Primitives.TryGetValue(type, out var clr) ? TypeDescriptor.For(clr) : declared(type);
+
+        return new TypeShapeDescriptor(declared(shape.Type), shape.Fields.Select(f => new FieldDescriptor(f.Name, fieldType(f.ElementType))
+        {
+            Cardinality = f.Many ? FieldCardinality.Many : FieldCardinality.One,
+            Optional = f.Optional,
+            Identity = f.Identity,
+            Tag = f.Tag,
+            Generated = f.Generated,
+            Pii = f.Pii,
+            Mapping = f.MappedFromType is { Length: > 0 } source && f.MappedFromField is { Length: > 0 } member
+                ? new FieldMappingDescriptor(declared(source), member)
+                : null,
+            Description = f.Description,
+        }).ToList());
     }
 
     /// <summary>
@@ -108,6 +151,14 @@ public static class ImportedModelMapper
                 .ToList(),
             Hotspots = slice.Hotspots.Select(HotspotDescriptor.Prose).ToList(),
             Specifications = specifications,
+            // bobcat#851 / jasperfx#1298: the board's prose, as the generated definition's Describe calls say it
+            Description = slice.Description is { Length: > 0 } description ? description.Trim() : null,
+            ElementDescriptions = slice.Elements
+                .Where(x => x.Value.Description is { Length: > 0 })
+                .Select(x => (Name: CSharpModelWriter.Identifiers.Sanitize(Emlang.EmlangImport.PascalName(x.Key)), Text: x.Value.Description!.Trim()))
+                .Where(x => x.Name.Length > 0)
+                .Select(x => new ElementDescription(type(x.Name), x.Text))
+                .ToList(),
         };
     }
 

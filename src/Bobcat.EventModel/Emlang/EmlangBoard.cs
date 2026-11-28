@@ -59,6 +59,13 @@ public sealed record EmlangStep(
     /// <summary>The props the model marks as DCB tags (<c>tag: true</c>), whose values tag the event.</summary>
     public IReadOnlyList<string> TagFields { get; init; } = [];
 
+    /// <summary>
+    /// The element's fields as the model declares them (bobcat#851): the type, cardinality, optionality
+    /// and flags an EM Spec <c>fields[]</c> entry carries, which <see cref="Props"/>'s one-line sketches
+    /// cannot. Empty for emlang, whose props are sketches and nothing more.
+    /// </summary>
+    public IReadOnlyList<EmlangField> Fields { get; init; } = [];
+
     /// <summary>A command's HTTP endpoint as the board writes it (<c>apiEndpoint</c>, e.g. <c>POST /carts/{cartId}/items</c>); null when none.</summary>
     public string? ApiEndpoint { get; init; }
 
@@ -67,6 +74,45 @@ public sealed record EmlangStep(
 
     /// <summary>The board's id for the element, when it has one, so a scenario step can be resolved to it.</summary>
     public string? SourceId { get; init; }
+}
+
+/// <summary>
+/// One field of an element as the model declares it (bobcat#851). <paramref name="Type"/> is the model's
+/// own word — an EM Spec field's <c>String</c>, <c>Boolean</c>, <c>Int</c>, <c>Long</c>, <c>Double</c>,
+/// <c>Decimal</c>, <c>Number</c>, <c>Date</c>, <c>DateTime</c>, <c>UUID</c> or <c>Custom</c> — which the
+/// import turns into a C# type; a <c>Custom</c> field with <see cref="Subfields"/> is a nested record.
+/// </summary>
+public sealed record EmlangField(string Name, string Type)
+{
+    /// <summary>The field holds a list of its type (<c>cardinality: List</c>).</summary>
+    public bool List { get; init; }
+
+    /// <summary>The field may be absent or null (<c>optional</c>).</summary>
+    public bool Optional { get; init; }
+
+    /// <summary>The field is (part of) the element's identity (<c>idAttribute</c>).</summary>
+    public bool Identity { get; init; }
+
+    /// <summary>The system fills the value (<c>generated</c>).</summary>
+    public bool Generated { get; init; }
+
+    /// <summary>The value is personally identifiable information (<c>pii</c>).</summary>
+    public bool Pii { get; init; }
+
+    /// <summary>The value is a DCB tag (<c>tag</c>).</summary>
+    public bool Tag { get; init; }
+
+    /// <summary>The field the value is mapped from on another element (<c>mapping</c>), by name; null when none.</summary>
+    public string? Mapping { get; init; }
+
+    /// <summary>The named type a <c>Custom</c> field is of (<c>schema</c>), when the model names one.</summary>
+    public string? Schema { get; init; }
+
+    /// <summary>A <c>Custom</c> field's own fields (<c>subfields</c>).</summary>
+    public IReadOnlyList<EmlangField> Subfields { get; init; } = [];
+
+    /// <summary>Plain text describing the field, when the source has one.</summary>
+    public string? Description { get; init; }
 }
 
 /// <summary>

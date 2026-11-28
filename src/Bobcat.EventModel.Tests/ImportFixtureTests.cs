@@ -42,6 +42,9 @@ public class ImportFixtureTests
 
         // A re-import: the second board gives an existing slice a new event
         new("noshow", "Shelter", ["noshow-v1.yaml", "noshow-v2.yaml"]),
+
+        // bobcat#851: an EM Spec board with typed fields, flags, a nested Custom field and descriptions
+        new("typed", "Clinic", ["typed.json"]),
     ];
 
     public static TheoryData<string> Scenarios => new(scenarios.Select(x => x.Name));
@@ -62,7 +65,8 @@ public class ImportFixtureTests
             foreach (var board in scenario.Boards)
             {
                 var yaml = File.ReadAllText(Path.Combine(fixtures(), "boards", board));
-                last = EventModelImport.Run(EmlangReader.Read(yaml), actual, new EventModelImportOptions(
+                var read = EventModelersJsonReader.LooksLikeJson(yaml) ? EventModelersJsonReader.Read(yaml) : EmlangReader.Read(yaml);
+                last = EventModelImport.Run(read, actual, new EventModelImportOptions(
                     scenario.Model, Chapters: scenario.Chapters, StrongTypedIds: scenario.StrongTypedIds));
             }
 

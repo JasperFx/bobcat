@@ -1,0 +1,11 @@
+{
+  "model": "Clinic",
+  "callouts": [],
+  "report": [
+    "chapter \u0027Book Appointment\u0027: Command slice \u0027BookAppointment\u0027 triggered by \u0027Schedule Page\u0027 (pattern from the board\u0027s sliceType).",
+    "chapter \u0027Appointment List\u0027: View slice \u0027AppointmentList\u0027.",
+    "chapter \u0027Appointment List\u0027: View slice \u0027AppointmentList\u0027 consumes 1 event(s): AppointmentBooked.",
+    "2 slice(s) from 2 chapter(s)."
+  ],
+  "files": []
+}

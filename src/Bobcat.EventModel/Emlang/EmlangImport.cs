@@ -283,9 +283,10 @@ public static class EmlangImport
                     ? null
                     : new CuratedTrigger { Kind = "Human", Label = pendingScreen },
             Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step, chapter),
+            Description = chapter.Description,
         };
 
-        hints(slice, name, sketches(step.Props, step.Values), description: null, step.Identities);
+        hints(slice, name, sketches(step.Props, step.Values), step.Description, step.Identities, step.Fields);
         model.Slices.Add(slice);
         byName[name] = slice;
         report.Add($"chapter '{chapter.Name}': {slice.Pattern} slice '{name}'"
@@ -299,7 +300,7 @@ public static class EmlangImport
         var name = PascalName(step.Label);
         if (!slice.Events.Contains(name)) slice.Events.Add(name);
 
-        hints(slice, name, sketches(step.Props, step.Values), description: null, step.Identities);
+        hints(slice, name, sketches(step.Props, step.Values), step.Description, step.Identities, step.Fields);
     }
 
     private static CuratedSlice viewSlice(EmlangChapter chapter, EmlangStep step, List<string> consumed,
@@ -314,7 +315,7 @@ public static class EmlangImport
                 existing.ConsumedEvents.Add(name);
             }
 
-            hints(existing, readModel, sketches(step.Props, step.Values), description: null, step.Identities);
+            hints(existing, readModel, sketches(step.Props, step.Values), step.Description, step.Identities, step.Fields);
             report.Add($"chapter '{chapter.Name}': view '{step.Label}' folded into existing slice '{readModel}'."
                        + keptChapter(existing, chapter));
             reportConsumed(chapter, existing, report);
@@ -330,9 +331,10 @@ public static class EmlangImport
             ReadModels = [readModel],
             ConsumedEvents = [.. consumed],
             Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step, chapter),
+            Description = chapter.Description,
         };
 
-        hints(slice, readModel, sketches(step.Props, step.Values), description: null, step.Identities);
+        hints(slice, readModel, sketches(step.Props, step.Values), step.Description, step.Identities, step.Fields);
         model.Slices.Add(slice);
         byName[readModel] = slice;
         report.Add($"chapter '{chapter.Name}': View slice '{readModel}'.");
@@ -368,7 +370,7 @@ public static class EmlangImport
     /// (<c>email: string</c>) is never displaced by a test's sample value.
     /// </summary>
     private static void hints(CuratedSlice slice, string typeName, IReadOnlyDictionary<string, string> props, string? description,
-        IReadOnlyList<string>? identities = null)
+        IReadOnlyList<string>? identities = null, IReadOnlyList<EmlangField>? declared = null)
     {
         var fields = props.Where(x => !SpecialProps.Contains(x.Key)).ToList();
         if (fields.Count == 0 && description is null && (identities is null || identities.Count == 0)) return;
@@ -385,11 +387,59 @@ public static class EmlangImport
             element.Fields.TryAdd(key, value);
         }
 
+        // bobcat#851: the typed declaration beside the sketch, first declaration wins like the sketch does
+        foreach (var field in declared ?? [])
+        {
+            if (!SpecialProps.Contains(field.Name)) element.DeclaredFields.TryAdd(field.Name, Curated(field));
+        }
+
         foreach (var identity in identities ?? [])
         {
             if (!element.Identities.Contains(identity)) element.Identities.Add(identity);
         }
     }
+
+    /// <summary>
+    /// A board field in the import's terms (bobcat#851): the EM Spec type word as the C# type the stub writer
+    /// emits, and a <c>Custom</c> field with subfields as a nested record named by its <c>schema</c>, else by
+    /// the field itself. A <c>Custom</c> field with no subfields is a <c>string</c>, as its sketch always was.
+    /// </summary>
+    public static CuratedField Curated(EmlangField field)
+    {
+        var custom = field.Type.Trim().Equals("Custom", StringComparison.OrdinalIgnoreCase);
+        var type = custom
+            ? field.Subfields.Count > 0 ? CSharpModelWriter.Identifiers.Sanitize(PascalName(field.Schema ?? field.Name)) : "string"
+            : CuratedFieldTypes.TryInfer(boardTypeWord(field.Type), out var inferred) ? inferred : "string";
+
+        return new CuratedField
+        {
+            Name = field.Name,
+            Type = type.Length > 0 ? type : "string",
+            Many = field.List,
+            Optional = field.Optional,
+            Identity = field.Identity,
+            Generated = field.Generated,
+            Pii = field.Pii,
+            Tag = field.Tag,
+            Mapping = field.Mapping,
+            Description = field.Description,
+            Subfields = custom ? field.Subfields.Select(Curated).ToList() : [],
+        };
+    }
+
+    /// <summary>The EM Spec type enum in the spellings <see cref="CuratedFieldTypes"/> knows.</summary>
+    private static string boardTypeWord(string type) => type.Trim().ToLowerInvariant() switch
+    {
+        "uuid" => "uuid",
+        "int" or "integer" => "int",
+        "long" => "long",
+        "double" => "double",
+        "decimal" or "number" => "decimal",
+        "boolean" or "bool" => "boolean",
+        "date" => "date",
+        "datetime" => "datetime",
+        _ => "string",
+    };
 
     private static string? note(string provenance, EmlangStep step)
     {

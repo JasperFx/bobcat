@@ -101,8 +101,38 @@ public static class ImportCalloutCodes
     /// <summary>A <c>global using</c> the specifications need was added to an existing GlobalUsings.cs.</summary>
     public const string MergedUsing = "merged-using";
 
-    /// <summary>A type the project declares lacks a member the board names, or types it differently. The type was left alone.</summary>
+    /// <summary>
+    /// A type the project declares lacks a member the board names, or types it differently. The type was left alone.
+    /// <b>No longer raised since Bobcat 1.2 (bobcat#851)</b>: the difference is reported per field as
+    /// <see cref="FieldDiffersFromBoard"/>, and a missing field is appended where the type is still a stub
+    /// (<see cref="MergedField"/>). The code stays, because codes are never removed.
+    /// </summary>
     public const string TypeDiffersFromBoard = "type-differs-from-board";
+
+    /// <summary>
+    /// The board gives an existing type a field no declaration of it has, and the type is still the stub the
+    /// import wrote (a positional record, or a class of settable properties), so the member was appended to it
+    /// (bobcat#851). <see cref="ImportCallout.Type"/> and <see cref="ImportCallout.Field"/> name it.
+    /// </summary>
+    public const string MergedField = "merged-field";
+
+    /// <summary>
+    /// A <c>model.Shape&lt;T&gt;()</c> statement declaring a type's fields was added at the end of a definition's
+    /// <c>Configure</c>, because the board declares the type's fields and no definition did (bobcat#851).
+    /// </summary>
+    public const string MergedShape = "merged-shape";
+
+    /// <summary>
+    /// A field the board names is typed differently in the code, or is missing from a type that is no longer a
+    /// stub. Report only: the code is the correction, so nothing was changed (bobcat#851).
+    /// </summary>
+    public const string FieldDiffersFromBoard = "field-differs-from-board";
+
+    /// <summary>
+    /// A stub declares a field the board does not give its type, because the board removed it or because it was
+    /// added by hand. Report only: nothing is ever removed (bobcat#851).
+    /// </summary>
+    public const string FieldRemovedOnBoard = "field-removed-on-board";
 
     /// <summary>
     /// The board gives an existing slice roles no declaration of it says (an event it emits, a message it
@@ -190,8 +220,11 @@ public sealed record ImportCallout(string Slice, string Code, IReadOnlyList<stri
     /// <summary>The exact line, package or command that settles a project-level callout; null when the message says it all.</summary>
     public string? Fix { get; init; }
 
-    /// <summary>The type a merge callout is about (<c>merged-type</c>, <c>type-differs-from-board</c>); null otherwise.</summary>
+    /// <summary>The type a merge callout is about (<c>merged-type</c>, <c>merged-field</c>, <c>field-differs-from-board</c>); null otherwise.</summary>
     public string? Type { get; init; }
+
+    /// <summary>The field of <see cref="Type"/> a merge callout is about (<c>merged-field</c>, <c>field-differs-from-board</c>, <c>field-removed-on-board</c>); null otherwise.</summary>
+    public string? Field { get; init; }
 
     /// <summary>
     /// The slice roles a merge callout is about, each as <c>Verb(Name)</c>, e.g. <c>Emits(AppointmentNoShowRecorded)</c>:
@@ -245,6 +278,7 @@ public static class ImportJson
                 if (callout.File is not null) json.WriteString("file", callout.File);
                 if (callout.Fix is not null) json.WriteString("fix", callout.Fix);
                 if (callout.Type is not null) json.WriteString("type", callout.Type);
+                if (callout.Field is not null) json.WriteString("field", callout.Field);
                 if (callout.Roles.Count > 0) strings(json, "roles", callout.Roles);
                 json.WriteEndObject();
             }
