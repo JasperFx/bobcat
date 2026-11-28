@@ -485,7 +485,7 @@ bobcat import-event-model board.yaml --model K9Crush
 ```
 
 Reads an [eventmodelers.ai](https://eventmodelers.ai) board export (or a
-[dcb.events Playground model](#dcb-playground)), segments it into slices, and
+[dcb.events Playground model](#dcb-playground), or [ESDM documents](#esdm)), segments it into slices, and
 writes the design out as **C#**:
 
 ```
@@ -570,6 +570,31 @@ The slices carry no `.Against` and no `.StartsStream`: the **consistency boundar
 the reads (`EventModelDescriptor.BoundaryQueryFor`), never declared by the import, which is the dcb.events
 rule too. The nine worked examples on dcb.events import this way; `DcbPlaygroundReaderTests` runs them
 (see the vendored fixtures' README for their provenance).
+
+### An ESDM model, read-only {#esdm}
+
+[ESDM](https://www.esdm.io/) (the native web's event-sourced domain model, `.esdm.yaml`, schemas
+`schema.esdm.io/core/v1` and `given-when-then/v1`) is read the same way (bobcat#850): a file of
+`---`-separated documents, or a **directory**, since an ESDM model is usually one kind per file — every
+`*.esdm.yaml` under it is read as one model. A document says what it is (`apiVersion: schema.esdm.io/…`),
+so no flag is needed. There is no writer: Bobcat reads ESDM and writes C#.
+
+| In ESDM | In the import |
+|---|---|
+| `command` scoped to an aggregate | a Command slice `.Against<Aggregate>()`, in the bounded context's chapter and the domain's domain; its `data` properties typed from their JSON Schema (`format: uuid` → `Guid`, `date` → `DateOnly`, `date-time` → `DateTimeOffset`, an array → `List<T>`, an object → a nested record; `required` decides optional); the member named like the aggregate's `identifiedBy` field is the identity |
+| `command` scoped to a `dynamic-consistency-boundary` | a DCB Command slice reading the boundary by each of its `identifiedBy` tags: `.Reads<MemberLoans>().By("memberId", "MemberId")`, the member being the `command-payload` field |
+| `dynamic-consistency-boundary` | a View slice over the events it `consults`, read by its identifiers — so JasperFx derives the command's boundary from the read; `criteria` become notes |
+| aggregate and DCB `invariants`, a command's `constraints` | `.Refuses("<rule>")` on the commands they govern |
+| `read-model` | a View slice over its `projections` events; a tabular schema's row is the document |
+| `query` | a Query slice reading the read model |
+| `policy`, `event-handler`, `process-manager` | an Automation slice on the events it handles (or starts and reacts to), `.Publishes` the commands it emits, an outbound external system per `external-call` side effect; timers and delivery guarantees become notes |
+| `actors` on a command or query | the trigger: `Human`, or `External` for a `system` actor |
+| `feature` scenarios | the scenario model, scoped as the feature is: Given events (bare or fully referenced), When a command (with its `actor`), an event, a `timer` or a `query`, Then events, emitted commands, set timers, a read model's `result`, or a `rejection` whose `invariant` becomes a `Refusal` naming that invariant's rule |
+| `domain`, `subdomain`, `bounded-context`, `context-mapping`, `entity`, `value-object`, `domain-service`, `external-system`, `actor` | counted in the report, lowered to nothing: the Event Model has no element for them |
+
+ESDM names the aggregate a command decides against but never whether the command **starts** its stream, so every
+aggregate-scoped command carries a `stream-start-unknown` callout and `--starts-stream Command=Aggregate` settles it,
+as it does for a board. The repository's own guide model is the vendored fixture (`EsdmReaderTests`).
 
 ### Typed stubs from the field model {#typed-stubs}
 

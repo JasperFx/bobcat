@@ -99,13 +99,23 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
     public override async Task<bool> Execute(ImportEventModelInput input)
     {
-        if (!File.Exists(input.FilePath))
+        // bobcat#850: a directory is an ESDM model split one kind per file; its documents are sniffed as one text
+        var directory = Directory.Exists(input.FilePath);
+        if (!directory && !File.Exists(input.FilePath))
         {
             System.Console.Error.WriteLine($"No file at {input.FilePath}");
             return false;
         }
 
-        var yaml = await File.ReadAllTextAsync(input.FilePath);
+        if (directory && esdmFiles(input.FilePath).Count == 0)
+        {
+            System.Console.Error.WriteLine($"No *.esdm.yaml under {input.FilePath}. A directory is read only as an ESDM model, one kind per file.");
+            return false;
+        }
+
+        var yaml = directory
+            ? string.Join("\n---\n", esdmFiles(input.FilePath).Select(File.ReadAllText))
+            : await File.ReadAllTextAsync(input.FilePath);
 
         // bobcat#454: with --json nothing but the JSON reaches stdout, so a tool can parse it whole
         var run = new ImportRun(input.JsonFlag ? TextWriter.Null : System.Console.Out);
@@ -115,6 +125,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
             EventModelFileKind.Emlang => importEmlang(input, yaml, run),
             EventModelFileKind.EventModelersBoard or EventModelFileKind.EventModelersConfig => importEmlang(input, yaml, run),
             EventModelFileKind.DcbPlayground => importDcb(input, yaml, run),
+            EventModelFileKind.Esdm => importEsdm(input, run),
             EventModelFileKind.Curated => refuseCurated(input.FilePath),
             _ => describeUnrecognized(input.FilePath),
         };
@@ -159,7 +170,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         System.Console.Error.WriteLine(
             $"{path} is not an emlang file. Expected a top-level `slices:` map, each slice a list of "
             + "steps or a map of `steps:` and `tests:`. (An eventmodelers.ai export is a board backup or a config.json; "
-            + "a dcb.events Playground model says dcbModelVersion.)");
+            + "a dcb.events Playground model says dcbModelVersion; an ESDM document says apiVersion: schema.esdm.io/….)");
         return null;
     }
 
@@ -217,6 +228,32 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         return import(input, run, curated.Model.Model, (options, outDirectory) => EventModelImport.Run(curated, outDirectory, options));
     }
+
+    /// <summary>
+    /// bobcat#850: ESDM documents, read-only. A model is usually split one kind per <c>.esdm.yaml</c> file, so the
+    /// path may be a directory, in which case every <c>*.esdm.yaml</c> under it is read as one model.
+    /// </summary>
+    private static Imported? importEsdm(ImportEventModelInput input, ImportRun run)
+    {
+        EmlangImportResult curated;
+        try
+        {
+            curated = Bobcat.EventModel.Esdm.EsdmReader.ToCurated(esdmFiles(input.FilePath).Select(File.ReadAllText), input.ModelFlag, input.NamespaceFlag);
+        }
+        catch (EmlangFormatException e)
+        {
+            System.Console.Error.WriteLine($"Not readable: {e.Message}");
+            return null;
+        }
+
+        return import(input, run, curated.Model.Model, (options, outDirectory) => EventModelImport.Run(curated, outDirectory, options));
+    }
+
+    /// <summary>The file given, or every <c>*.esdm.yaml</c> under the directory given, in name order.</summary>
+    internal static IReadOnlyList<string> esdmFiles(string path)
+        => Directory.Exists(path)
+            ? Directory.EnumerateFiles(path, "*.esdm.yaml", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToList()
+            : [path];
 
     private static Imported? import(ImportEventModelInput input, ImportRun run, string model,
         Func<EventModelImportOptions, string, EventModelImportResult> importer)
