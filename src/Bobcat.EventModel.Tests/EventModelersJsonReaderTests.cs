@@ -327,6 +327,265 @@ public class EventModelersJsonReaderTests
         EventModelersJsonReader.Read(command).Chapters[0].Steps[0].Stream.ShouldBe("Installation");
     }
 
+    // ---- bobcat#846: the EM Spec reader completed against the scenario model ------------------------
+
+    /// <summary>
+    /// A board in the shapes the platform's API reference and schema describe (dilgerma/event-modeling-spec,
+    /// the Build Kits' learn-eventmodelers-api): a command with an apiEndpoint, a generated and a tagged field,
+    /// a linked copy of the event in a second slice, a list read model, scenarios with context, an inline
+    /// QUERY, examples rows, expectEmptyList and a contextNote, slice status, description and actors.
+    /// </summary>
+    private const string Rich =
+        """
+        {
+          "slices": [
+            {
+              "title": "Place Order",
+              "chapter": "Ordering",
+              "sliceType": "STATE_CHANGE",
+              "status": "Blocked",
+              "description": "An order needs at least one line.\nOrders over 1000 need approval.",
+              "actors": [ { "name": "Customer", "authRequired": true, "rolesRequired": ["buyer"] } ],
+              "aggregates": ["Order"],
+              "commands": [
+                { "id": "cmd-1", "linkedId": "cmd-1", "elementCopy": false, "title": "Place Order", "type": "COMMAND",
+                  "apiEndpoint": "POST /orders/{orderId}", "aggregate": "default",
+                  "fields": [
+                    { "name": "orderId", "type": "UUID", "idAttribute": true },
+                    { "name": "total", "type": "Number" } ] }
+              ],
+              "events": [
+                { "id": "evt-1", "linkedId": "evt-1", "elementCopy": false, "title": "Order Placed", "type": "EVENT", "aggregate": "Order",
+                  "fields": [
+                    { "name": "orderId", "type": "UUID", "idAttribute": true, "tag": true },
+                    { "name": "placedAt", "type": "DateTime", "generated": true },
+                    { "name": "total", "type": "Decimal" } ] }
+              ],
+              "readmodels": [],
+              "screens": [],
+              "processors": [],
+              "specifications": [
+                {
+                  "id": "spec-1",
+                  "title": "Places an order over the approval limit",
+                  "contextNote": "Approval is a manual step outside the system.",
+                  "context": [ { "id": "rm-limits", "title": "Approval Limits", "type": "SPEC_READMODEL",
+                                 "fields": [ { "name": "limit", "example": "1000" } ] } ],
+                  "given": [],
+                  "when": [ { "id": "cmd-1", "title": "Place Order", "type": "SPEC_COMMAND",
+                              "fields": [ { "name": "orderId", "example": "o-1" }, { "name": "total", "example": "1500" } ] } ],
+                  "then": [ { "id": "evt-copy", "title": "Order Placed (copy)", "type": "SPEC_EVENT",
+                              "fields": [ { "name": "orderId", "example": "o-1" }, { "name": "total", "example": "1500" } ] } ]
+                }
+              ]
+            },
+            {
+              "title": "Open Orders",
+              "chapter": "Ordering",
+              "sliceType": "STATE_VIEW",
+              "status": "Done",
+              "aggregates": [],
+              "commands": [],
+              "events": [
+                { "id": "evt-copy", "linkedId": "evt-1", "elementCopy": true, "title": "Order Placed (copy)", "type": "EVENT", "aggregate": "default", "fields": [] }
+              ],
+              "readmodels": [
+                { "id": "rm-1", "linkedId": "rm-1", "elementCopy": false, "title": "Open Orders", "type": "READMODEL", "listElement": true,
+                  "fields": [ { "name": "orderId", "type": "UUID" }, { "name": "total", "type": "Decimal" } ] }
+              ],
+              "screens": [], "processors": [],
+              "specifications": [
+                {
+                  "id": "spec-2",
+                  "title": "Lists the open orders",
+                  "given": [ { "id": "evt-copy", "title": "Order Placed", "type": "SPEC_EVENT", "fields": [ { "name": "orderId", "example": "o-1" } ] } ],
+                  "when": [],
+                  "then": [ { "id": "rm-1", "title": "Open Orders", "type": "SPEC_READMODEL" } ],
+                  "examples": [ { "orderId": "o-1", "total": 1500 } ]
+                },
+                {
+                  "id": "spec-3",
+                  "title": "No open orders at the start",
+                  "given": [],
+                  "when": [],
+                  "then": [ { "id": "rm-1", "title": "Open Orders", "type": "SPEC_READMODEL" } ],
+                  "expectEmptyList": true,
+                  "examples": []
+                },
+                {
+                  "id": "spec-4",
+                  "title": "Asked for one customer",
+                  "given": [ { "id": "evt-copy", "title": "Order Placed", "type": "SPEC_EVENT" } ],
+                  "when": [ { "id": "rm-1", "title": "Open Orders", "type": "QUERY", "fields": [ { "name": "customerId", "example": "c-9" } ] } ],
+                  "then": [ { "id": "rm-1", "title": "Open Orders", "type": "SPEC_READMODEL", "fields": [ { "name": "total", "example": "1500" } ] } ]
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private static EmlangBoard rich() => EventModelersJsonReader.Read(Rich);
+
+    [Fact]
+    public void a_commands_api_endpoint_makes_the_act_an_http_request_with_its_route_values()
+    {
+        var model = rich().Chapters[0].Tests.Single().Model;
+
+        var act = model.Act.ShouldBeOfType<Scenarios.HttpRequest>();
+        act.Method.ShouldBe("POST");
+        act.Route.ShouldBe("/orders/{orderId}");
+        act.Body.ShouldBe("Place Order");
+        act.Values["total"].ShouldBe("1500");
+        act.RouteValues.ShouldBe(new Dictionary<string, string> { ["orderId"] = "o-1" });
+    }
+
+    [Theory]
+    [InlineData("POST /orders/{id}", "POST", "/orders/{id}")]
+    [InlineData("put /orders/{id}/lines", "PUT", "/orders/{id}/lines")]
+    [InlineData("/orders", "POST", "/orders")]
+    [InlineData("  DELETE   /orders/{id}  ", "DELETE", "/orders/{id}")]
+    public void an_api_endpoint_reads_as_a_verb_and_a_route_and_a_bare_route_is_a_post(string endpoint, string verb, string route)
+    {
+        var act = EventModelersJsonReader.httpRequest(endpoint, "C", new Dictionary<string, string>());
+        act.Method.ShouldBe(verb);
+        act.Route.ShouldBe(route);
+    }
+
+    [Fact]
+    public void a_context_read_model_and_a_context_note_are_carried()
+    {
+        var model = rich().Chapters[0].Tests.Single().Model;
+
+        model.Context.Single().ShouldSatisfyAllConditions(
+            x => x.ReadModel.ShouldBe("Approval Limits"),
+            x => x.Values["limit"].ShouldBe("1000"),
+            x => x.Rows.ShouldBeNull());
+        model.Note.ShouldBe("Approval is a manual step outside the system.");
+        model.SourceId.ShouldBe("spec-1");
+
+        // The element-naming shape sees the context as a view given, as before
+        rich().Chapters[0].Tests.Single().Given.Single().Kind.ShouldBe(EmlangElementKind.View);
+    }
+
+    [Fact]
+    public void a_then_event_carries_its_stream_tags_and_the_generated_members_to_ignore()
+    {
+        var emitted = rich().Chapters[0].Tests.Single().Model.Outcomes.Single().ShouldBeOfType<Scenarios.EventEmitted>();
+
+        // Resolved through the linked copy to the origin element, not by the step's title
+        emitted.Event.ShouldBe("Order Placed");
+        emitted.Stream.ShouldBe("Order");
+        emitted.Tags.ShouldBe(new Dictionary<string, string> { ["orderId"] = "o-1" });
+        emitted.IgnoredMembers.ShouldBe(["placedAt"]);
+    }
+
+    [Fact]
+    public void a_step_naming_a_linked_copy_resolves_to_the_origin_in_both_shapes()
+    {
+        var test = rich().Chapters[1].Tests.Single(x => x.Name == "Lists the open orders");
+
+        test.Given.Single().Label.ShouldBe("Order Placed");
+        test.Model.GivenEvents.Single().Stream.ShouldBe("Order", "the origin's aggregate, though the copy says default");
+    }
+
+    [Fact]
+    public void a_list_read_models_rows_are_the_exact_set_and_an_empty_list_is_no_items()
+    {
+        var tests = rich().Chapters[1].Tests;
+
+        var rows = tests.Single(x => x.Name == "Lists the open orders").Model.Outcomes.Single().ShouldBeOfType<Scenarios.ReadModelOutcome>();
+        rows.Shape.ShouldBe(Scenarios.ReadModelShape.Rows);
+        rows.Match.ShouldBe(Scenarios.MatchMode.Exact);
+        rows.Rows.Single().ShouldBe(new Dictionary<string, string> { ["orderId"] = "o-1", ["total"] = "1500" });
+
+        var none = tests.Single(x => x.Name == "No open orders at the start").Model.Outcomes.Single().ShouldBeOfType<Scenarios.ReadModelOutcome>();
+        none.Shape.ShouldBe(Scenarios.ReadModelShape.None);
+    }
+
+    [Fact]
+    public void an_inline_query_is_the_act_and_the_then_read_model_is_partial()
+    {
+        var model = rich().Chapters[1].Tests.Single(x => x.Name == "Asked for one customer").Model;
+
+        var query = model.Act.ShouldBeOfType<Scenarios.ReadModelQueried>();
+        query.ReadModel.ShouldBe("Open Orders");
+        query.Parameters["customerId"].ShouldBe("c-9");
+        model.Outcomes.Single().ShouldBeOfType<Scenarios.ReadModelOutcome>().Shape.ShouldBe(Scenarios.ReadModelShape.Partial);
+
+        // The element-naming shape has no word for a query: its when is empty, so the writer keeps working
+        rich().Chapters[1].Tests.Single(x => x.Name == "Asked for one customer").When.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void slice_status_description_and_actors_are_read_and_the_import_binds_them()
+    {
+        var chapter = rich().Chapters[0];
+        chapter.Status.ShouldBe("Blocked");
+        chapter.ScenarioStatus.ShouldBe(Scenarios.ScenarioStatus.Pending);
+        chapter.Description.ShouldBe("An order needs at least one line.\nOrders over 1000 need approval.");
+        chapter.Actors.Single().ShouldSatisfyAllConditions(
+            x => x.Name.ShouldBe("Customer"),
+            x => x.AuthRequired.ShouldBeTrue(),
+            x => x.Roles.ShouldBe(["buyer"]));
+        rich().Chapters[1].ScenarioStatus.ShouldBe(Scenarios.ScenarioStatus.Normal);
+
+        var result = EmlangImport.ToCurated(rich(), "Shop");
+        var slice = result.Model.Slices.Single(x => x.Name == "PlaceOrder");
+        var model = slice.Specifications!.Scenarios.Single().Model!;
+        model.Status.ShouldBe(Scenarios.ScenarioStatus.Pending);
+        model.Actor.ShouldBe("Customer");
+        model.Slice.ShouldBe("PlaceOrder");
+        model.Chapter.ShouldBe("Ordering");
+        slice.Notes.ShouldContain("Orders over 1000 need approval.");
+    }
+
+    [Fact]
+    public void an_elements_flags_and_endpoint_reach_its_step()
+    {
+        var command = rich().Chapters[0].Steps.Single(x => x.Kind == EmlangElementKind.Command);
+        command.ApiEndpoint.ShouldBe("POST /orders/{orderId}");
+        command.Identities.ShouldBe(["orderId"]);
+        command.Props["total"].ShouldBe("decimal", "Number is the EM Spec's spelling of a decimal");
+        command.SourceId.ShouldBe("cmd-1");
+
+        var @event = rich().Chapters[0].Steps.Single(x => x.Kind == EmlangElementKind.Event);
+        @event.Generated.ShouldBe(["placedAt"]);
+        @event.TagFields.ShouldBe(["orderId"]);
+    }
+
+    [Fact]
+    public void expect_error_is_a_refusal_in_the_model_and_an_x_in_the_element_shape()
+    {
+        var test = EventModelersJsonReader.Read(Config).Chapters.Single().Tests[1];
+
+        var refusal = test.Model.Outcomes.Single().ShouldBeOfType<Scenarios.Refusal>();
+        refusal.Reason.ShouldBe("Quantity over limit");
+        refusal.Kind.ShouldBe(Scenarios.RefusalKind.Refused);
+        test.Then.Single().Kind.ShouldBe(EmlangElementKind.Error);
+    }
+
+    [Fact]
+    public void a_board_backup_resolves_a_linked_node_to_its_origin_and_reads_the_borders_status_and_description()
+    {
+        var json = Board
+            .Replace("\"border-1\": { \"meta\": { \"type\": \"SLICE_BORDER\", \"title\": \"Initialize\", \"colId\": \"c1\" } }",
+                "\"border-1\": { \"meta\": { \"type\": \"SLICE_BORDER\", \"title\": \"Initialize\", \"colId\": \"c1\", \"sliceStatus\": \"Informational\", \"description\": \"Runs once.\" } }")
+            .Replace("{ \"title\": \"Initialize System\", \"type\": \"COMMAND\", \"fields\": [ { \"name\": \"version\", \"example\": \"3\" } ] }",
+                "{ \"id\": \"cmd-copy\", \"title\": \"Initialize System (copy)\", \"type\": \"COMMAND\", \"fields\": [ { \"name\": \"version\", \"example\": \"3\" } ] }")
+            .Replace("\"auto\": { \"meta\": { \"type\": \"AUTOMATION\", \"title\": \"On Startup\" } },",
+                "\"auto\": { \"meta\": { \"type\": \"AUTOMATION\", \"title\": \"On Startup\" } },\n              \"cmd-copy\": { \"meta\": { \"type\": \"COMMAND\", \"title\": \"Initialize System (copy)\", \"linkedTo\": \"cmd\" } },");
+
+        var chapter = EventModelersJsonReader.Read(json).Chapters[0];
+        chapter.Status.ShouldBe("Informational");
+        chapter.ScenarioStatus.ShouldBe(Scenarios.ScenarioStatus.Informational);
+        chapter.Description.ShouldBe("Runs once.");
+
+        var test = chapter.Tests.Single();
+        test.When.Single().Label.ShouldBe("Initialize System");
+        test.Model.Act.ShouldBeOfType<Scenarios.MessageReceived>().Message.ShouldBe("Initialize System");
+    }
+
     private sealed class EmlangRefComparer : IEqualityComparer<EmlangRef>
     {
         public bool Equals(EmlangRef? x, EmlangRef? y) => x is not null && y is not null && x.Kind == y.Kind && x.Actor == y.Actor && x.Label == y.Label;

@@ -282,7 +282,7 @@ public static class EmlangImport
                 : pendingScreen is null
                     ? null
                     : new CuratedTrigger { Kind = "Human", Label = pendingScreen },
-            Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step),
+            Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step, chapter),
         };
 
         hints(slice, name, sketches(step.Props, step.Values), description: null, step.Identities);
@@ -329,7 +329,7 @@ public static class EmlangImport
             Chapter = chapter.ChapterTitle,
             ReadModels = [readModel],
             ConsumedEvents = [.. consumed],
-            Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step),
+            Notes = note($"From chapter '{chapter.Name}', actor '{step.Actor}'.", step, chapter),
         };
 
         hints(slice, readModel, sketches(step.Props, step.Values), description: null, step.Identities);
@@ -395,6 +395,16 @@ public static class EmlangImport
     {
         var cascaded = step.Props.GetValueOrDefault("cascadedTo");
         return cascaded is null ? provenance : $"{provenance} Cascades to: {cascaded}.";
+    }
+
+    /// <summary>The slice's board description (bobcat#846) under the provenance line, one note per line.</summary>
+    private static string? note(string provenance, EmlangStep step, EmlangChapter chapter)
+    {
+        var text = note(provenance, step);
+        if (chapter.Description is not { Length: > 0 } description) return text;
+
+        var lines = description.Replace("\r\n", "\n").Split('\n').Select(x => x.TrimEnd()).Where(x => x.Length > 0);
+        return text + "\n" + string.Join("\n", lines);
     }
 
     private static void attachTests(EmlangChapter chapter, List<CuratedSlice> touched,
@@ -463,6 +473,15 @@ public static class EmlangImport
                 Name = scenario,
                 Source = test,
                 SourceChapter = chapter,
+                // bobcat#846: the typed record, bound to the slice it landed on
+                Model = test.Model with
+                {
+                    Slice = target.Name,
+                    Chapter = chapter.ChapterTitle,
+                    Pattern = target.Pattern,
+                    Status = test.Model.Status == Scenarios.ScenarioStatus.Normal ? chapter.ScenarioStatus : test.Model.Status,
+                    Actor = test.Model.Actor ?? (chapter.Actors.Count == 1 ? chapter.Actors[0].Name : null),
+                },
                 Given = test.Given
                     .Where(x => x.Kind == EmlangElementKind.Event)
                     .Select(x => new CuratedGiven { Event = PascalName(x.Label), With = values(x) })
