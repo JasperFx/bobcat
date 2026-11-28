@@ -1,0 +1,453 @@
+{
+  "$schema": "https://dcb.events/schemas/model/v10.json",
+  "dcbModelVersion": "10.1",
+  "name": "Opt-in token (expiring)",
+  "customTypeDefinitions": [
+    {
+      "name": "EmailAddress",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    },
+    {
+      "name": "Otp",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    },
+    {
+      "name": "Minute",
+      "schema": {
+        "type": "integer"
+      }
+    }
+  ],
+  "eventDefinitions": [
+    {
+      "name": "SignUpInitiated",
+      "properties": [
+        {
+          "name": "emailAddress",
+          "propertyType": "EmailAddress",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "otp",
+          "propertyType": "Otp",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "name",
+          "propertyType": "string",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "expiresAt",
+          "propertyType": "Minute",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "emailAddress",
+        "otp"
+      ]
+    },
+    {
+      "name": "SignUpConfirmed",
+      "properties": [
+        {
+          "name": "emailAddress",
+          "propertyType": "EmailAddress",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "otp",
+          "propertyType": "Otp",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "name",
+          "propertyType": "string",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "emailAddress",
+        "otp"
+      ]
+    }
+  ],
+  "entityDefinitions": [],
+  "projectionDefinitions": [
+    {
+      "name": "SignUpPending",
+      "tags": [
+        {
+          "name": "emailAddress",
+          "tagType": "EmailAddress"
+        },
+        {
+          "name": "otp",
+          "tagType": "Otp"
+        }
+      ],
+      "valueType": "boolean",
+      "isList": false,
+      "initialValue": false,
+      "handlers": [
+        {
+          "event": "SignUpInitiated",
+          "operation": "set",
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "SignUpName",
+      "tags": [
+        {
+          "name": "emailAddress",
+          "tagType": "EmailAddress"
+        },
+        {
+          "name": "otp",
+          "tagType": "Otp"
+        }
+      ],
+      "valueType": "string",
+      "isList": false,
+      "initialValue": null,
+      "handlers": [
+        {
+          "event": "SignUpInitiated",
+          "operation": "set",
+          "value": {
+            "eventProperty": "name"
+          }
+        }
+      ]
+    },
+    {
+      "name": "OtpUsed",
+      "tags": [
+        {
+          "name": "emailAddress",
+          "tagType": "EmailAddress"
+        },
+        {
+          "name": "otp",
+          "tagType": "Otp"
+        }
+      ],
+      "valueType": "boolean",
+      "isList": false,
+      "initialValue": false,
+      "handlers": [
+        {
+          "event": "SignUpConfirmed",
+          "operation": "set",
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "OtpExpiresAt",
+      "tags": [
+        {
+          "name": "emailAddress",
+          "tagType": "EmailAddress"
+        },
+        {
+          "name": "otp",
+          "tagType": "Otp"
+        }
+      ],
+      "valueType": "Minute",
+      "isList": false,
+      "initialValue": 0,
+      "handlers": [
+        {
+          "event": "SignUpInitiated",
+          "operation": "set",
+          "value": {
+            "eventProperty": "expiresAt"
+          }
+        }
+      ]
+    }
+  ],
+  "commandDefinitions": [
+    {
+      "name": "ConfirmSignUp",
+      "properties": [
+        {
+          "name": "emailAddress",
+          "propertyType": "EmailAddress",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "otp",
+          "propertyType": "Otp",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "now",
+          "propertyType": "Minute",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [
+        {
+          "alias": "pending",
+          "projection": "SignUpPending",
+          "tags": {
+            "emailAddress": {
+              "parameterName": "emailAddress"
+            },
+            "otp": {
+              "parameterName": "otp"
+            }
+          }
+        },
+        {
+          "alias": "used",
+          "projection": "OtpUsed",
+          "tags": {
+            "emailAddress": {
+              "parameterName": "emailAddress"
+            },
+            "otp": {
+              "parameterName": "otp"
+            }
+          }
+        },
+        {
+          "alias": "expiresAt",
+          "projection": "OtpExpiresAt",
+          "tags": {
+            "emailAddress": {
+              "parameterName": "emailAddress"
+            },
+            "otp": {
+              "parameterName": "otp"
+            }
+          }
+        },
+        {
+          "alias": "name",
+          "projection": "SignUpName",
+          "tags": {
+            "emailAddress": {
+              "parameterName": "emailAddress"
+            },
+            "otp": {
+              "parameterName": "otp"
+            }
+          }
+        }
+      ],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "alias": "pending"
+          },
+          "predicate": "isTrue",
+          "rejection": "No sign-up is pending for this code"
+        },
+        {
+          "leftHandSide": {
+            "alias": "used"
+          },
+          "predicate": "isFalse",
+          "rejection": "Code was already used"
+        },
+        {
+          "leftHandSide": {
+            "alias": "expiresAt"
+          },
+          "predicate": "greaterThan",
+          "rightHandSide": {
+            "parameterName": "now"
+          },
+          "rejection": "Code has expired"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "SignUpConfirmed",
+          "parameters": {
+            "emailAddress": {
+              "parameterName": "emailAddress"
+            },
+            "otp": {
+              "parameterName": "otp"
+            },
+            "name": {
+              "alias": "name"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "scenarioDefinitions": [
+    {
+      "id": "17dc7b23-76ac-41f1-ab95-38b5557655d5",
+      "name": "Confirm SignUp for non-existing OTP",
+      "command": "ConfirmSignUp",
+      "given": [],
+      "when": {
+        "arguments": {
+          "emailAddress": "john.doe@example.com",
+          "otp": "000000",
+          "now": 100
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "No sign-up is pending for this code"
+      }
+    },
+    {
+      "id": "11240758-ab48-4ee0-9ef5-c22ed99b5964",
+      "name": "Confirm SignUp for OTP assigned to different email address",
+      "command": "ConfirmSignUp",
+      "given": [
+        {
+          "event": "SignUpInitiated",
+          "data": {
+            "emailAddress": "john.doe@example.com",
+            "otp": "111111",
+            "name": "John Doe",
+            "expiresAt": 160
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "emailAddress": "jane.doe@example.com",
+          "otp": "111111",
+          "now": 100
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "No sign-up is pending for this code"
+      }
+    },
+    {
+      "id": "ab697b8a-69ae-44d5-adcb-3c7d5fde93aa",
+      "name": "Confirm SignUp for already used OTP",
+      "command": "ConfirmSignUp",
+      "given": [
+        {
+          "event": "SignUpInitiated",
+          "data": {
+            "emailAddress": "john.doe@example.com",
+            "otp": "222222",
+            "name": "John Doe",
+            "expiresAt": 160
+          }
+        },
+        {
+          "event": "SignUpConfirmed",
+          "data": {
+            "emailAddress": "john.doe@example.com",
+            "otp": "222222",
+            "name": "John Doe"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "emailAddress": "john.doe@example.com",
+          "otp": "222222",
+          "now": 100
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Code was already used"
+      }
+    },
+    {
+      "id": "f0bc2977-deb9-4c69-b5e8-bfa96e890da9",
+      "name": "Confirm SignUp for valid OTP",
+      "command": "ConfirmSignUp",
+      "given": [
+        {
+          "event": "SignUpInitiated",
+          "data": {
+            "emailAddress": "john.doe@example.com",
+            "otp": "444444",
+            "name": "John Doe",
+            "expiresAt": 160
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "emailAddress": "john.doe@example.com",
+          "otp": "444444",
+          "now": 100
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "SignUpConfirmed",
+            "data": {
+              "emailAddress": "john.doe@example.com",
+              "otp": "444444",
+              "name": "John Doe"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "97a4ecbe-9341-4cce-94c2-e7606d6ed8bb",
+      "name": "Confirm SignUp for expired OTP",
+      "command": "ConfirmSignUp",
+      "given": [
+        {
+          "event": "SignUpInitiated",
+          "data": {
+            "emailAddress": "john.doe@example.com",
+            "otp": "333333",
+            "name": "John Doe",
+            "expiresAt": 99
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "emailAddress": "john.doe@example.com",
+          "otp": "333333",
+          "now": 100
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Code has expired"
+      }
+    }
+  ]
+}

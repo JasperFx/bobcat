@@ -343,6 +343,8 @@ public static class CSharpModelWriter
         take(model.Slices.SelectMany(s => s.Messages));
         take(model.Slices.SelectMany(s => s.ReadModels));
         take(model.Slices.SelectMany(s => s.ReadsFrom));
+        take(model.Slices.SelectMany(s => s.Reads.Select(r => r.Type)));
+        take(model.Slices.SelectMany(s => s.UntaggedProjections));
 
         return names;
     }
@@ -831,7 +833,7 @@ public static class CSharpModelWriter
             Identity = declared.Identity,
             Generated = declared.Generated,
             Pii = declared.Pii,
-            Tag = declared.Tag ? declared.Name : null,
+            Tag = declared.Tag,
             MappedFromType = mappedType,
             MappedFromField = mappedField,
             Description = declared.Description,
@@ -913,6 +915,7 @@ public static class CSharpModelWriter
         note("published by", s => s.Messages);
         note("the read model of", s => s.ReadModels);
         note("read by", s => s.ReadsFrom);
+        note("the decider model of", s => s.Reads.Where(r => r.Kind == "Model").Select(r => r.Type));
 
         if (roles.Count == 0 && description is null) yield break;
 
@@ -1070,7 +1073,7 @@ public static class CSharpModelWriter
         writer.WriteLine("// This is ordinary C# and nothing regenerates it. The segmentation an import performs is a");
         writer.WriteLine("// set of reported guesses, so a wrong guess is a one-line edit here rather than a re-import.");
         writer.BlankLine();
-        if (needsSystem(shapes)) writer.WriteLine("using System;");
+        if (needsSystem(shapes, model)) writer.WriteLine("using System;");
         writer.WriteLine("using JasperFx.Events.EventModeling;");
         foreach (var chapter in layout.Namespaces.Where(x => x != ns)) writer.WriteLine($"using {chapter};");
         writer.BlankLine();
@@ -1096,6 +1099,8 @@ public static class CSharpModelWriter
             foreach (var aggregate in aggregates) writer.Write(declare("model.Aggregate", aggregate, stubbed) + identifiedBy(aggregate, ids) + ";");
             writer.BlankLine();
         }
+
+        writeTags(writer, model, model.Slices);
 
         foreach (var slice in model.Slices)
         {
@@ -1129,6 +1134,35 @@ public static class CSharpModelWriter
             writer.BlankLine();
         }
     }
+
+    /// <summary>
+    /// The model's consistency tags the given slices use (bobcat#849, jasperfx#1297), declared on the builder with
+    /// their value type where the source says it: <c>model.Tag("courseId", typeof(string))</c>. Tags merge by name
+    /// across definitions, so each chapter's definition declares the ones its slices use.
+    /// </summary>
+    private static void writeTags(ISourceWriter writer, ImportedEventModel model, IReadOnlyList<CuratedSlice> slices)
+    {
+        var used = slices.SelectMany(s => s.EventTags.Values.SelectMany(x => x).Concat(s.Reads.Select(r => r.Tag)))
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var tags = model.Tags.Keys.Where(used.Contains).Concat(used.Where(x => !model.Tags.ContainsKey(x))).ToList();
+        if (tags.Count == 0) return;
+
+        foreach (var tag in tags)
+        {
+            var inner = model.Tags.GetValueOrDefault(tag);
+            writer.Write(inner is { Length: > 0 } && Primitives.ContainsKey(inner)
+                ? $"model.Tag(`{escape(tag)}`, typeof({inner}));"
+                : $"model.Tag(`{escape(tag)}`);");
+        }
+
+        writer.BlankLine();
+    }
+
+    /// <summary>Whether a definition's shapes or tags name a <c>System</c> type (<c>Guid</c>, <c>DateOnly</c>…), so it needs the using.</summary>
+    private static bool needsSystem(IEnumerable<WrittenShape> shapes, ImportedEventModel model)
+        => needsSystem(shapes) || model.Tags.Values.Any(x => x is "Guid" or "DateTimeOffset" or "DateOnly" or "TimeSpan");
 
     /// <summary>Whether a definition's shapes name a <c>System</c> type (<c>Guid</c>, <c>DateOnly</c>…), so it needs the using.</summary>
     private static bool needsSystem(IEnumerable<WrittenShape> shapes)
@@ -1224,7 +1258,7 @@ public static class CSharpModelWriter
             writer.WriteLine("// This is ordinary C# and nothing regenerates it. The segmentation an import performs is a");
             writer.WriteLine("// set of reported guesses, so a wrong guess is a one-line edit here rather than a re-import.");
             writer.BlankLine();
-            if (needsSystem(chapterShapes)) writer.WriteLine("using System;");
+            if (needsSystem(chapterShapes, model)) writer.WriteLine("using System;");
             writer.WriteLine("using JasperFx.Events.EventModeling;");
             foreach (var other in layout.Namespaces.Where(x => x != chapterNs)) writer.WriteLine($"using {other};");
             writer.BlankLine();
@@ -1255,6 +1289,8 @@ public static class CSharpModelWriter
                 .Distinct(StringComparer.Ordinal).Where(declared.Add).ToList();
             foreach (var aggregate in aggregates) writer.Write(declare("model.Aggregate", aggregate, stubbed) + identifiedBy(aggregate, ids) + ";");
             writer.BlankLine();
+
+            writeTags(writer, model, slices);
 
             var defaults = new SliceDefaults(Chapter: true, Domain: sharedDomain is not null, Aggregate: dominant);
             foreach (var slice in slices)
@@ -1472,14 +1508,40 @@ public static class CSharpModelWriter
             : ImportedModelMapper.StreamLanes(slice, eventStreams)
                 .GroupBy(x => Identifiers.Sanitize(x.Event), StringComparer.Ordinal)
                 .ToDictionary(x => x.Key, x => Identifiers.Sanitize(x.First().Aggregate), StringComparer.Ordinal);
+        // bobcat#849 / jasperfx#1297: the tags an emitted event carries, right after its Emits (and its lane)
+        var eventTags = slice.EventTags.ToDictionary(x => Identifiers.Sanitize(x.Key), x => x.Value, StringComparer.Ordinal);
         foreach (var @event in sanitized(slice.Events))
         {
             calls.Add(role(".Emits", @event, stubbed));
             if (lanes.TryGetValue(@event, out var lane)) calls.Add(role(".OnStream", lane, stubbed));
+            foreach (var tag in eventTags.GetValueOrDefault(@event) ?? []) calls.Add($".TaggedBy(`{escape(tag)}`)");
         }
         foreach (var message in sanitized(slice.Messages)) calls.Add(role(".Publishes", message, stubbed));
         foreach (var consumed in sanitized(slice.ConsumedEvents)) calls.Add(role(".On", consumed, stubbed));
-        foreach (var read in sanitized(slice.ReadsFrom)) calls.Add(role(".Reads", read, stubbed));
+
+        // A decider model read by tag: Decides<T>() once per model, then a ByTag per binding
+        foreach (var group in slice.Reads.Where(r => r.Kind == "Model").GroupBy(r => Identifiers.Sanitize(r.Type), StringComparer.Ordinal))
+        {
+            if (group.Key.Length == 0) continue;
+            calls.Add(role(".Decides", group.Key, stubbed));
+            calls.AddRange(group.Select(r => byTag(".ByTag", r)));
+        }
+
+        // A projection read by tag: Reads<T>() once per projection, then a By per binding; a projection read
+        // with no tag binding stays a plain Reads
+        var tagged = slice.Reads.Where(r => r.Kind != "Model").GroupBy(r => Identifiers.Sanitize(r.Type), StringComparer.Ordinal)
+            .Where(g => g.Key.Length > 0)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+        foreach (var read in sanitized(slice.ReadsFrom).Concat(tagged.Keys).Distinct(StringComparer.Ordinal))
+        {
+            calls.Add(role(".Reads", read, stubbed));
+            foreach (var binding in tagged.GetValueOrDefault(read) ?? []) calls.Add(byTag(".By", binding));
+        }
+
+        foreach (var untagged in sanitized(slice.UntaggedProjections)) calls.Add(role(".UntaggedProjection", untagged, stubbed));
+        foreach (var reason in slice.RejectionReasons.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.Ordinal))
+            calls.Add($".Refuses(`{escape(reason.Trim())}`)");
+
         foreach (var projection in sanitized(slice.Projections))
             calls.Add($".Projects(`{escape(projection)}`)");
 
@@ -1552,6 +1614,15 @@ public static class CSharpModelWriter
         }
 
         writer.IndentionLevel--;
+    }
+
+    /// <summary>The tag binding of a read: <c>.By("courseId", "CourseId")</c>, or by the tag alone when no member supplies it.</summary>
+    private static string byTag(string method, CuratedRead read)
+    {
+        var member = read.Member is { Length: > 0 } ? Identifiers.Sanitize(Emlang.EmlangImport.PascalName(read.Member)) : "";
+        return member.Length > 0
+            ? $"{method}(`{escape(read.Tag)}`, `{escape(member)}`)"
+            : $"{method}(`{escape(read.Tag)}`)";
     }
 
     private static IEnumerable<string> sanitized(IEnumerable<string>? values)

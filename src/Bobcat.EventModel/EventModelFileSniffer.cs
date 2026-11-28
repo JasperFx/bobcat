@@ -22,6 +22,9 @@ public enum EventModelFileKind
     /// <summary>An eventmodelers.ai <c>config.json</c> / slice export: JSON with <c>slices[]</c> (bobcat#424).</summary>
     EventModelersConfig,
 
+    /// <summary>A dcb.events Playground model: JSON with <c>dcbModelVersion</c>, or whose <c>$schema</c> is dcb.events' model schema (bobcat#849).</summary>
+    DcbPlayground,
+
     Unknown,
 }
 

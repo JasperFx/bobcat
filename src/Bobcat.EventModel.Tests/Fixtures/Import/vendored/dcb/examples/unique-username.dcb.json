@@ -1,0 +1,762 @@
+{
+  "$schema": "https://dcb.events/schemas/model/v10.json",
+  "dcbModelVersion": "10.1",
+  "name": "Unique username",
+  "customTypeDefinitions": [
+    {
+      "name": "Username",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    },
+    {
+      "name": "Day",
+      "schema": {
+        "type": "integer"
+      }
+    }
+  ],
+  "eventDefinitions": [
+    {
+      "name": "AccountRegistered",
+      "properties": [
+        {
+          "name": "username",
+          "propertyType": "Username",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "username"
+      ]
+    },
+    {
+      "name": "AccountClosed",
+      "properties": [
+        {
+          "name": "username",
+          "propertyType": "Username",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "closedOn",
+          "propertyType": "Day",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "username"
+      ]
+    },
+    {
+      "name": "UsernameReleased",
+      "properties": [
+        {
+          "name": "username",
+          "propertyType": "Username",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "releasedOn",
+          "propertyType": "Day",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "username"
+      ]
+    },
+    {
+      "name": "UsernameClaimed",
+      "properties": [
+        {
+          "name": "username",
+          "propertyType": "Username",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "username"
+      ]
+    }
+  ],
+  "entityDefinitions": [],
+  "projectionDefinitions": [
+    {
+      "name": "UsernameTaken",
+      "tags": [
+        {
+          "name": "username",
+          "tagType": "Username"
+        }
+      ],
+      "valueType": "boolean",
+      "isList": false,
+      "initialValue": false,
+      "handlers": [
+        {
+          "event": "AccountRegistered",
+          "operation": "set",
+          "value": true
+        },
+        {
+          "event": "AccountClosed",
+          "operation": "set",
+          "value": false
+        },
+        {
+          "event": "UsernameReleased",
+          "operation": "set",
+          "value": false
+        },
+        {
+          "event": "UsernameClaimed",
+          "operation": "set",
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "UsernameReleasedOn",
+      "tags": [
+        {
+          "name": "username",
+          "tagType": "Username"
+        }
+      ],
+      "valueType": "Day",
+      "isList": false,
+      "initialValue": -1000,
+      "handlers": [
+        {
+          "event": "AccountClosed",
+          "operation": "set",
+          "value": {
+            "eventProperty": "closedOn"
+          }
+        },
+        {
+          "event": "UsernameReleased",
+          "operation": "set",
+          "value": {
+            "eventProperty": "releasedOn"
+          }
+        }
+      ]
+    },
+    {
+      "name": "UsernameRetainedUntil",
+      "tags": [
+        {
+          "name": "username",
+          "tagType": "Username"
+        }
+      ],
+      "valueType": "Day",
+      "isList": false,
+      "derived": {
+        "leftHandSide": {
+          "projection": "UsernameReleasedOn",
+          "tags": {
+            "username": {
+              "parameterName": "username"
+            }
+          }
+        },
+        "operator": "add",
+        "rightHandSide": 3
+      }
+    }
+  ],
+  "commandDefinitions": [
+    {
+      "name": "RegisterAccount",
+      "properties": [
+        {
+          "name": "username",
+          "propertyType": "Username",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "today",
+          "propertyType": "Day",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "UsernameTaken",
+            "tags": {
+              "username": {
+                "parameterName": "username"
+              }
+            }
+          },
+          "predicate": "isFalse",
+          "rejection": "Username is already taken"
+        },
+        {
+          "leftHandSide": {
+            "projection": "UsernameRetainedUntil",
+            "tags": {
+              "username": {
+                "parameterName": "username"
+              }
+            }
+          },
+          "predicate": "lessThan",
+          "rightHandSide": {
+            "parameterName": "today"
+          },
+          "rejection": "Username is already taken"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "AccountRegistered",
+          "parameters": {
+            "username": {
+              "parameterName": "username"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ChangeUsername",
+      "properties": [
+        {
+          "name": "username",
+          "propertyType": "Username",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "newUsername",
+          "propertyType": "Username",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "today",
+          "propertyType": "Day",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "UsernameTaken",
+            "tags": {
+              "username": {
+                "parameterName": "username"
+              }
+            }
+          },
+          "predicate": "isTrue",
+          "rejection": "Username is not in use"
+        },
+        {
+          "leftHandSide": {
+            "projection": "UsernameTaken",
+            "tags": {
+              "username": {
+                "parameterName": "newUsername"
+              }
+            }
+          },
+          "predicate": "isFalse",
+          "rejection": "Username is already taken"
+        },
+        {
+          "leftHandSide": {
+            "projection": "UsernameRetainedUntil",
+            "tags": {
+              "username": {
+                "parameterName": "newUsername"
+              }
+            }
+          },
+          "predicate": "lessThan",
+          "rightHandSide": {
+            "parameterName": "today"
+          },
+          "rejection": "Username is already taken"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "UsernameReleased",
+          "parameters": {
+            "username": {
+              "parameterName": "username"
+            },
+            "releasedOn": {
+              "parameterName": "today"
+            }
+          }
+        },
+        {
+          "name": "UsernameClaimed",
+          "parameters": {
+            "username": {
+              "parameterName": "newUsername"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "scenarioDefinitions": [
+    {
+      "id": "69b87439-46db-4754-ab44-916019417f6b",
+      "name": "Register account with claimed username",
+      "command": "RegisterAccount",
+      "given": [
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "username": "u1",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Username is already taken"
+      }
+    },
+    {
+      "id": "766c3e7c-fc8c-430a-b19c-e858b59ddfd7",
+      "name": "Register account with unused username",
+      "command": "RegisterAccount",
+      "given": [],
+      "when": {
+        "arguments": {
+          "username": "u1",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "AccountRegistered",
+            "data": {
+              "username": "u1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "b3191b00-c989-4a8c-9c21-6ce68001a216",
+      "name": "Register account with username of closed account",
+      "command": "RegisterAccount",
+      "given": [
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u1"
+          }
+        },
+        {
+          "event": "AccountClosed",
+          "data": {
+            "username": "u1",
+            "closedOn": 1
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "username": "u1",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "AccountRegistered",
+            "data": {
+              "username": "u1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "50d6ae3a-0202-4fd6-adbb-382443d7b6a2",
+      "name": "Register account with a username that was previously used and then changed",
+      "command": "RegisterAccount",
+      "given": [
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u1"
+          }
+        },
+        {
+          "event": "UsernameReleased",
+          "data": {
+            "username": "u1",
+            "releasedOn": 1
+          }
+        },
+        {
+          "event": "UsernameClaimed",
+          "data": {
+            "username": "u1changed"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "username": "u1",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "AccountRegistered",
+            "data": {
+              "username": "u1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "9f35e819-96f9-48de-903a-41d404040ec0",
+      "name": "Register account with a username that another username was changed to",
+      "command": "RegisterAccount",
+      "given": [
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u1"
+          }
+        },
+        {
+          "event": "UsernameReleased",
+          "data": {
+            "username": "u1",
+            "releasedOn": 1
+          }
+        },
+        {
+          "event": "UsernameClaimed",
+          "data": {
+            "username": "u1changed"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "username": "u1changed",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Username is already taken"
+      }
+    },
+    {
+      "id": "badef54f-08dd-419c-bd95-9d8233f843ec",
+      "name": "Register username of closed account before retention period",
+      "command": "RegisterAccount",
+      "given": [
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u1"
+          }
+        },
+        {
+          "event": "AccountClosed",
+          "data": {
+            "username": "u1",
+            "closedOn": 7
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "username": "u1",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Username is already taken"
+      }
+    },
+    {
+      "id": "de9e1476-fb79-4a10-86e1-ed4afe6603f3",
+      "name": "Register changed username before retention period",
+      "command": "RegisterAccount",
+      "given": [
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u1"
+          }
+        },
+        {
+          "event": "UsernameReleased",
+          "data": {
+            "username": "u1",
+            "releasedOn": 7
+          }
+        },
+        {
+          "event": "UsernameClaimed",
+          "data": {
+            "username": "u1changed"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "username": "u1",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Username is already taken"
+      }
+    },
+    {
+      "id": "b4fb3937-dde5-47d4-a880-87c32eb0ef04",
+      "name": "Register username of closed account after retention period",
+      "command": "RegisterAccount",
+      "given": [
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u1"
+          }
+        },
+        {
+          "event": "AccountClosed",
+          "data": {
+            "username": "u1",
+            "closedOn": 6
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "username": "u1",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "AccountRegistered",
+            "data": {
+              "username": "u1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "5cc93236-4faf-4bc7-938c-d0cdc0364256",
+      "name": "Register changed username after retention period",
+      "command": "RegisterAccount",
+      "given": [
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u1"
+          }
+        },
+        {
+          "event": "UsernameReleased",
+          "data": {
+            "username": "u1",
+            "releasedOn": 6
+          }
+        },
+        {
+          "event": "UsernameClaimed",
+          "data": {
+            "username": "u1changed"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "username": "u1",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "AccountRegistered",
+            "data": {
+              "username": "u1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "1d82dea0-df3e-408f-9411-0882c4fdf748",
+      "name": "Change username",
+      "command": "ChangeUsername",
+      "given": [
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "username": "u1",
+          "newUsername": "u1changed",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "UsernameReleased",
+            "data": {
+              "username": "u1",
+              "releasedOn": 10
+            }
+          },
+          {
+            "type": "UsernameClaimed",
+            "data": {
+              "username": "u1changed"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "f1d7ec39-4049-4917-a266-e2913571b0c5",
+      "name": "Change username to a claimed username",
+      "command": "ChangeUsername",
+      "given": [
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u1"
+          }
+        },
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u2"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "username": "u1",
+          "newUsername": "u2",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Username is already taken"
+      }
+    },
+    {
+      "id": "7c3164b9-bff7-4eca-851f-ff08cf3602ee",
+      "name": "Change a username that is not in use",
+      "command": "ChangeUsername",
+      "given": [],
+      "when": {
+        "arguments": {
+          "username": "u1",
+          "newUsername": "u1changed",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Username is not in use"
+      }
+    },
+    {
+      "id": "c44c23e4-1cdb-4f38-b26f-84e72043f4cb",
+      "name": "Change username to one of a closed account before retention period",
+      "command": "ChangeUsername",
+      "given": [
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u1"
+          }
+        },
+        {
+          "event": "AccountRegistered",
+          "data": {
+            "username": "u2"
+          }
+        },
+        {
+          "event": "AccountClosed",
+          "data": {
+            "username": "u2",
+            "closedOn": 7
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "username": "u1",
+          "newUsername": "u2",
+          "today": 10
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Username is already taken"
+      }
+    }
+  ]
+}

@@ -52,9 +52,24 @@ public static class ImportedModelMapper
     public static EventModelDescriptor ToDescriptor(ImportedEventModel file, ModelLayout? layout, IReadOnlyList<CSharpModelWriter.WrittenShape> shapes)
     {
         var slices = file.Slices.Select(x => toSlice(x, file.EventStreams, layout)).ToList();
+
+        // bobcat#849: the tag catalogue is what the definition's model.Tag(…) calls say — the tags the slices use,
+        // with the value type where the source gave one — which is also what the builder folds from TaggedBy/By
+        var used = file.Slices.SelectMany(s => s.EventTags.Values.SelectMany(x => x).Concat(s.Reads.Select(r => r.Tag)))
+            .Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+        var tags = file.Tags.Keys.Where(used.Contains).Concat(used.Where(x => !file.Tags.ContainsKey(x)))
+            .Select(name => new EventTagDescriptor(name, null)
+            {
+                InnerType = file.Tags.GetValueOrDefault(name) is { Length: > 0 } inner && CSharpModelWriter.Primitives.TryGetValue(inner, out var clr)
+                    ? TypeDescriptor.For(clr)
+                    : null,
+            })
+            .ToList();
+
         return new EventModelDescriptor(file.Model, slices)
         {
             Shapes = shapes.Where(x => x.Fields.Count > 0).Select(x => toShape(x, shapes, layout)).ToList(),
+            Tags = tags,
         };
     }
 
@@ -126,6 +141,13 @@ public static class ImportedModelMapper
             .Select(x => new SpecificationDescriptor($"{feature}/{x.Name}"))
             .ToList() ?? [];
 
+        // bobcat#849: what the generated Decides / Reads…By / UntaggedProjection calls build
+        var sanitize = CSharpModelWriter.Identifiers.Sanitize;
+        var deciders = slice.Reads.Where(r => r.Kind == "Model").Select(r => sanitize(r.Type)).Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+        var projectionReads = slice.Reads.Where(r => r.Kind != "Model").Select(r => sanitize(r.Type)).Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+        var untagged = slice.UntaggedProjections.Select(sanitize).Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+        var readsFrom = slice.ReadsFrom.Select(sanitize).Concat(projectionReads).Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+
         return new EventModelSliceDescriptor(
             slice.Name,
             slice.Trigger?.Label,
@@ -133,7 +155,7 @@ public static class ImportedModelMapper
             CommandType: slice.Command is null ? null : type(slice.Command),
             HandlerType: slice.Handler is null ? null : beside(slice.Handler, slice.Command),
             EmittedEvents: types(slice.Events),
-            ProjectionTypes: slice.Projections.Select(x => beside(x, slice.ReadModels.FirstOrDefault())).ToList(),
+            ProjectionTypes: slice.Projections.Select(x => beside(x, slice.ReadModels.FirstOrDefault())).Concat(untagged.Select(type)).ToList(),
             ReadModelTypes: types(slice.ReadModels))
         {
             Pattern = parse<SlicePattern>(slice.Pattern),
@@ -145,7 +167,21 @@ public static class ImportedModelMapper
             StartsStream = slice.StartsStream is null ? null : type(slice.StartsStream),
             PublishedMessages = types(slice.Messages),
             ConsumedEvents = types(slice.ConsumedEvents),
-            ReadsFrom = types(slice.ReadsFrom),
+            ReadsFrom = readsFrom.Select(type).ToList(),
+            DeciderModel = deciders.Count > 0 ? type(deciders[0]) : null,
+            AggregateDeclaration = deciders.Count > 0 ? JasperFx.Events.EventModeling.AggregateDeclaration.DeciderModel : null,
+            EventTags = slice.Events.Select(sanitize)
+                .Where(e => slice.EventTags.Any(x => sanitize(x.Key) == e && x.Value.Count > 0))
+                .Select(e => new EmittedEventTags(type(e), slice.EventTags.First(x => sanitize(x.Key) == e).Value.Distinct(StringComparer.Ordinal).ToList()))
+                .ToList(),
+            Reads = slice.Reads
+                .Where(r => sanitize(r.Type).Length > 0 && r.Tag.Length > 0)
+                .Select(r => new BoundaryReadDescriptor(r.Kind == "Model" ? BoundaryReadKind.Model : BoundaryReadKind.Projection, type(sanitize(r.Type)), r.Tag,
+                    r.Member is { Length: > 0 } ? sanitize(Emlang.EmlangImport.PascalName(r.Member)) : null))
+                .Distinct()
+                .ToList(),
+            UntaggedProjections = untagged.Select(type).ToList(),
+            RejectionReasons = slice.RejectionReasons.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.Ordinal).ToList(),
             ExternalSystems = slice.ExternalSystems
                 .Select(x => new ExternalSystemDescriptor(x.Name, parse<ExternalSystemDirection>(x.Direction) ?? ExternalSystemDirection.Inbound))
                 .ToList(),

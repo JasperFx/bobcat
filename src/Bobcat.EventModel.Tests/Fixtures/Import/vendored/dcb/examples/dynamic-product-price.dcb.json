@@ -1,0 +1,427 @@
+{
+  "$schema": "https://dcb.events/schemas/model/v10.json",
+  "dcbModelVersion": "10.1",
+  "name": "Dynamic product price (shopping cart)",
+  "customTypeDefinitions": [
+    {
+      "name": "ProductId",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    },
+    {
+      "name": "Money",
+      "schema": {
+        "type": "number",
+        "minimum": 0
+      }
+    },
+    {
+      "name": "Minute",
+      "schema": {
+        "type": "integer"
+      }
+    },
+    {
+      "name": "Item",
+      "properties": [
+        {
+          "name": "productId",
+          "propertyType": "ProductId"
+        },
+        {
+          "name": "price",
+          "propertyType": "Money"
+        }
+      ]
+    }
+  ],
+  "eventDefinitions": [
+    {
+      "name": "ProductDefined",
+      "properties": [
+        {
+          "name": "productId",
+          "propertyType": "ProductId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "price",
+          "propertyType": "Money",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "at",
+          "propertyType": "Minute",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "productId"
+      ]
+    },
+    {
+      "name": "ProductPriceChanged",
+      "properties": [
+        {
+          "name": "productId",
+          "propertyType": "ProductId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "newPrice",
+          "propertyType": "Money",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "at",
+          "propertyType": "Minute",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "productId"
+      ]
+    },
+    {
+      "name": "ProductsOrdered",
+      "properties": [
+        {
+          "name": "items",
+          "propertyType": "Item",
+          "isOptional": false,
+          "isList": true
+        }
+      ],
+      "tags": [
+        "items.productId"
+      ]
+    }
+  ],
+  "entityDefinitions": [],
+  "projectionDefinitions": [
+    {
+      "name": "ProductPrice",
+      "tags": [
+        {
+          "name": "productId",
+          "tagType": "ProductId"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "now",
+          "propertyType": "Minute"
+        }
+      ],
+      "valueType": "Money",
+      "isList": true,
+      "handlers": [
+        {
+          "event": "ProductDefined",
+          "code": "[event.data.price]"
+        },
+        {
+          "event": "ProductPriceChanged",
+          "code": "args.now - event.data.at <= 10 ? [...state, event.data.newPrice] : [event.data.newPrice]"
+        }
+      ],
+      "script": {
+        "initialState": []
+      }
+    }
+  ],
+  "commandDefinitions": [
+    {
+      "name": "OrderProducts",
+      "properties": [
+        {
+          "name": "items",
+          "propertyType": "Item",
+          "isOptional": false,
+          "isList": true
+        },
+        {
+          "name": "now",
+          "propertyType": "Minute",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "ProductPrice",
+            "tags": {
+              "productId": {
+                "each": {
+                  "parameterName": "items",
+                  "property": "productId"
+                }
+              }
+            },
+            "arguments": {
+              "now": {
+                "parameterName": "now"
+              }
+            }
+          },
+          "predicate": "contains",
+          "rightHandSide": {
+            "parameterName": "items",
+            "property": "price"
+          },
+          "rejection": "Price is no longer valid"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "ProductsOrdered",
+          "parameters": {
+            "items": {
+              "parameterName": "items"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "scenarioDefinitions": [
+    {
+      "id": "d68c29e4-e7a2-4b9b-b6cc-5a0e936f31f8",
+      "name": "Order product with a displayed price that was never valid",
+      "command": "OrderProducts",
+      "given": [
+        {
+          "event": "ProductDefined",
+          "data": {
+            "productId": "p1",
+            "price": 123,
+            "at": 80
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "items": [
+            {
+              "productId": "p1",
+              "price": 100
+            }
+          ],
+          "now": 100
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Price is no longer valid"
+      }
+    },
+    {
+      "id": "7406aec3-4c6f-4353-ad36-96d71967fed8",
+      "name": "Order product with a price that was changed more than 10 minutes ago",
+      "command": "OrderProducts",
+      "given": [
+        {
+          "event": "ProductDefined",
+          "data": {
+            "productId": "p1",
+            "price": 123,
+            "at": 80
+          }
+        },
+        {
+          "event": "ProductPriceChanged",
+          "data": {
+            "productId": "p1",
+            "newPrice": 134,
+            "at": 80
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "items": [
+            {
+              "productId": "p1",
+              "price": 123
+            }
+          ],
+          "now": 100
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Price is no longer valid"
+      }
+    },
+    {
+      "id": "759767b1-3916-42ed-ba13-8c6523669091",
+      "name": "Order product with initial valid price",
+      "command": "OrderProducts",
+      "given": [
+        {
+          "event": "ProductDefined",
+          "data": {
+            "productId": "p1",
+            "price": 123,
+            "at": 80
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "items": [
+            {
+              "productId": "p1",
+              "price": 123
+            }
+          ],
+          "now": 100
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "ProductsOrdered",
+            "data": {
+              "items": [
+                {
+                  "productId": "p1",
+                  "price": 123
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "04079b5f-96cc-4c82-984d-a29b2a4a1b54",
+      "name": "Order product with a price that was changed less than 10 minutes ago",
+      "command": "OrderProducts",
+      "given": [
+        {
+          "event": "ProductDefined",
+          "data": {
+            "productId": "p1",
+            "price": 123,
+            "at": 80
+          }
+        },
+        {
+          "event": "ProductPriceChanged",
+          "data": {
+            "productId": "p1",
+            "newPrice": 134,
+            "at": 91
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "items": [
+            {
+              "productId": "p1",
+              "price": 123
+            }
+          ],
+          "now": 100
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "ProductsOrdered",
+            "data": {
+              "items": [
+                {
+                  "productId": "p1",
+                  "price": 123
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "4e1d33e4-2ec6-4ea9-8175-55d385def7c1",
+      "name": "Order multiple products with valid prices",
+      "command": "OrderProducts",
+      "given": [
+        {
+          "event": "ProductDefined",
+          "data": {
+            "productId": "p1",
+            "price": 123,
+            "at": 80
+          }
+        },
+        {
+          "event": "ProductPriceChanged",
+          "data": {
+            "productId": "p1",
+            "newPrice": 134,
+            "at": 91
+          }
+        },
+        {
+          "event": "ProductDefined",
+          "data": {
+            "productId": "p2",
+            "price": 321,
+            "at": 92
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "items": [
+            {
+              "productId": "p1",
+              "price": 123
+            },
+            {
+              "productId": "p2",
+              "price": 321
+            }
+          ],
+          "now": 100
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "ProductsOrdered",
+            "data": {
+              "items": [
+                {
+                  "productId": "p1",
+                  "price": 123
+                },
+                {
+                  "productId": "p2",
+                  "price": 321
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

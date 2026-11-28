@@ -420,7 +420,7 @@ public static class EmlangImport
             Identity = field.Identity,
             Generated = field.Generated,
             Pii = field.Pii,
-            Tag = field.Tag,
+            Tag = field.Tag ? field.Name : null,
             Mapping = field.Mapping,
             Description = field.Description,
             Subfields = custom ? field.Subfields.Select(Curated).ToList() : [],
