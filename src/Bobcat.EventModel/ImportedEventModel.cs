@@ -125,6 +125,13 @@ public sealed class CuratedSlice
     /// </summary>
     public string? Notes { get; set; }
 
+    /// <summary>
+    /// The slice's documentation as the board holds it (bobcat#851): what the generated definition says with
+    /// <c>.Describe(…)</c>, so the Declared rung carries it. <see cref="Notes"/> is the provenance line the
+    /// definition writes as a comment; this is the prose a canvas shows on hover.
+    /// </summary>
+    public string? Description { get; set; }
+
     /// <summary>Per-type hints (description, field sketches) for scaffolding. Keyed by bare type name.</summary>
     public Dictionary<string, CuratedElement> Elements { get; set; } = [];
 
@@ -160,6 +167,56 @@ public sealed class CuratedElement
     /// give a command, aggregate or read model the conventional <c>Id</c> (bobcat#438).
     /// </summary>
     public List<string> Identities { get; set; } = [];
+
+    /// <summary>
+    /// The fields as the model declares them (bobcat#851), keyed by the board's field name: the type,
+    /// cardinality, optionality and flags a <see cref="Fields"/> sketch cannot carry. A field here is also in
+    /// <see cref="Fields"/>; one only there is known by its sketch alone.
+    /// </summary>
+    public Dictionary<string, CuratedField> DeclaredFields { get; set; } = new(StringComparer.Ordinal);
+}
+
+/// <summary>
+/// One field of an element as the model declares it (bobcat#851), in the import's own terms: the C# type the
+/// stub writer emits, or the name of a nested record for a <c>Custom</c> field with <see cref="Subfields"/>.
+/// </summary>
+public sealed class CuratedField
+{
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The field's C# type (<c>Guid</c>, <c>string</c>, <c>decimal</c>, <c>DateOnly</c>…), or the bare name of the
+    /// record a <c>Custom</c> field with <see cref="Subfields"/> is written as. The element type when
+    /// <see cref="Many"/>.
+    /// </summary>
+    public string Type { get; set; } = "string";
+
+    /// <summary>The field holds a list of its type.</summary>
+    public bool Many { get; set; }
+
+    /// <summary>The field may be absent or null.</summary>
+    public bool Optional { get; set; }
+
+    /// <summary>The field is (part of) the element's identity.</summary>
+    public bool Identity { get; set; }
+
+    /// <summary>The system fills the value, so no command or event supplies it (<c>[Generated]</c>).</summary>
+    public bool Generated { get; set; }
+
+    /// <summary>The value is personally identifiable information (<c>[Pii]</c>).</summary>
+    public bool Pii { get; set; }
+
+    /// <summary>The value is a DCB tag.</summary>
+    public bool Tag { get; set; }
+
+    /// <summary>The field on another element the value is mapped from, by name; null when none.</summary>
+    public string? Mapping { get; set; }
+
+    /// <summary>Plain text describing the field, when the source has one.</summary>
+    public string? Description { get; set; }
+
+    /// <summary>A <c>Custom</c> field's own fields, which become the members of the nested record <see cref="Type"/> names.</summary>
+    public List<CuratedField> Subfields { get; set; } = [];
 }
 
 /// <summary>

@@ -3,6 +3,7 @@
 // This is ordinary C# and nothing regenerates it. The segmentation an import performs is a
 // set of reported guesses, so a wrong guess is a one-line edit here rather than a re-import.
 
+using System;
 using JasperFx.Events.EventModeling;
 using K9Crush;
 
@@ -44,5 +45,24 @@ public class TheSwiperModel : EventModelDefinition
             .On<DogPassed>()
             .On<MutualMatchDetected>()
             .LinksToSpecification("MatchList/matches show");
+
+        // The fields the board declares, so the model carries them before the code does (jasperfx#1299).
+        // Once a type has members, what the code says wins; a field declared here that the code lacks is a hotspot.
+        model.Shape<Dog>()
+            .Field("Id").OfType<Guid>().Identity();
+
+        model.Shape<MutualMatch>()
+            .Field("Id").OfType<Guid>().Identity();
+
+        model.Shape<SwipeOnDog>()
+            .Field("Id").OfType<Guid>().Identity();
+
+        model.Shape<DetectMutualMatch>()
+            .Field("Id").OfType<Guid>().Identity();
+
+        model.Shape<MatchList>()
+            .Field("Id").OfType<Guid>().Identity()
+            .Field("DogId").OfType<Guid>()
+            .Field("Name").OfType<string>();
     }
 }

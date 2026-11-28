@@ -529,8 +529,9 @@ round-trip. The `props` and `tests:` Bobcat reads follow the community
 [Emlang Project](https://github.com/emlang-project/spec) grammar (MIT, with a published JSON Schema),
 which does carry both. The lossless input from the platform is its EM Spec JSON (`config.json`, a
 `slice.json`, or a board backup): typed fields, `idAttribute`, each element's `aggregate`, the
-slice's `chapter` and its `sliceType`, and the specifications. Whatever the input, an event with no
-declared fields stays field-less. A command, an aggregate or a read model gets `Guid Id` when the model marks no
+slice's `chapter` and its `sliceType`, and the specifications. Whatever the input, an element the board gives no
+fields and no example values stays field-less; where the board declares typed fields, the stub is typed from them
+(see [Typed stubs](#typed-stubs) below). A command, an aggregate or a read model gets `Guid Id` when the model marks no
 identity for it, because that is Wolverine's own convention: a specification can address
 the stream through it, and a handler's `[WriteAggregate]` resolves it with nothing declared.
 
@@ -542,6 +543,43 @@ the new stream takes it.
 
 **A swimlane is not a stream.** In `Admin / Volunteer approved`, `Admin` is who acts, not where the
 event is stored.
+
+### Typed stubs from the field model {#typed-stubs}
+
+An EM Spec export declares each field's type, cardinality and flags, and the import writes exactly that
+(bobcat#851). This is the import of
+[`typed.json`](https://github.com/JasperFx/bobcat/blob/main/src/Bobcat.EventModel.Tests/Fixtures/Import/boards/typed.json),
+a board whose command carries every kind of field the platform can declare:
+
+<<< ../src/Bobcat.EventModel.Tests/Fixtures/Import/generated/typed/Features/Scheduling/BookAppointment.cs{cs}
+
+| On the board | In the stub |
+|---|---|
+| `type`: `String`, `Boolean`, `Int`, `Long`, `Double`, `Decimal`, `Number`, `Date`, `DateTime`, `UUID` | `string`, `bool`, `int`, `long`, `double`, `decimal`, `decimal`, `DateOnly`, `DateTimeOffset`, `Guid` |
+| `cardinality: List` | `List<T>` |
+| `optional: true` | a nullable member (`string?`, `decimal?`), and `#nullable enable` at the top of the file so the consumer's project need not have nullable reference types on |
+| `generated: true`, `pii: true` | `[Generated]`, `[Pii]` from JasperFx, which the Event Model's field shapes read back |
+| `type: Custom` with `subfields` | a nested positional record named for the field (`Window`), or for the field's `schema` when the board names one, written right after the type that owns it. A `Custom` field with no subfields stays a `string` |
+| one `idAttribute` | the element's identity, so no `Id` is invented |
+| several `idAttribute`s on one element | a compound identity: the members stay as declared, and with `--strong-typed-ids` the aggregate's identity type is a `readonly record struct` of them (see below) |
+| `mapping: patientEmail` | a declared mapping on the model's field shape, resolved to the element that declares a field of that name — the slice's consumed events first, then its command, then any element the model knows; unresolved, it is left off |
+| `description` on a slice, an element | a `<summary>` doc comment on the stub, and `.Describe(…)` on the slice's declaration, so a canvas shows the prose |
+
+The same fields go onto the chapter's `EventModelDefinition` through `model.Shape<T>()` (JasperFx 3.17's
+fluent verbs for jasperfx#1299), so the **Declared** rung carries them before the code does:
+
+<<< ../src/Bobcat.EventModel.Tests/Fixtures/Import/generated/typed/Features/Scheduling/SchedulingModel.cs#shapes{cs}
+
+Once a type has members, what the code says wins field by field; a field declared here that the code lacks is a
+`SourceDisagreement` hotspot on the model's `Fields` role, and a field the code has that the declaration lacks is
+not. That is the decision of record from 2026-11-27: the disagreement rule applies as soon as the type exists,
+an imported stub record included, so every declared field on an *empty* stub would be a disagreement until the
+stub is typed. Typing the stubs from the board is what closes that gap.
+
+<!-- JEREMY: a compound identity (several idAttributes on one element) with --strong-typed-ids is written as a
+record struct of its members with a ToString, but no IParsable and no JSON converter: the stores key a stream by
+one Guid or string and how a compound identity becomes one is a decision the import cannot make. The struct says
+so in a remark. Whether to leave the identity primitive instead (and call it out) is your call. -->
 
 ### What an example becomes: the scenario model
 
@@ -677,7 +715,11 @@ Non-ASCII characters such as `⚠` and `—` arrive escaped (`\u26A0`), as any J
 | `merged-slice-declaration` | A re-import declared a new slice at the end of its chapter's definition | nothing; review it |
 | `merged-aggregate-declaration` | A slice merged in names an aggregate no definition declared, so it was declared beside it | nothing; review it |
 | `merged-type` | A re-import added a type the board names to an existing stub file | nothing; review it |
-| `type-differs-from-board` | A type lacks a member the board names, or types it differently. The type was not touched | edit the type, if the board is right |
+| `merged-field` | The board gives an existing type a field it lacks, and the type is still the stub the import wrote (a positional record, or a class of settable properties), so the member was appended. `type` and `field` name it | nothing; review it |
+| `merged-shape` | A `model.Shape<T>()` statement declaring a type's fields was added at the end of a definition's `Configure`, because no definition declared them. `type` names it | nothing; review it |
+| `field-differs-from-board` | The board types a field differently from the code, or names a field a type that has grown behaviour lacks. Nothing was changed. `type` and `field` name it | the `fix`, if the board is right |
+| `field-removed-on-board` | A stub declares a field the board does not give its type, because the board removed it or you added it by hand. Nothing was removed. Only a type that is still a stub is compared this way | the `fix`, if the board is right; nothing, if you added the field |
+| `type-differs-from-board` | No longer raised since 1.2: the difference is said per field, as `field-differs-from-board`, and a missing field is appended while the type is still a stub (`merged-field`). The code stays, because codes are never removed | — |
 | `merged-slice-roles` | The board gives an existing slice roles (`Emits`, `Publishes`, `On`, `Reads`, `Produces`, `Projects`) no declaration of it says, so a statement reopening the slice by name was added at the end of the definition's `Configure`. `roles` lists them | nothing; review it |
 | `slice-differs-from-board` | The board gives an existing slice roles no declaration says, and they could not be added: the slice is declared in a file other than its chapter's definition | the `fix`: the calls to add, and where |
 | `slice-aggregate-differs` | The board's aggregate for an existing slice (the stream it starts, what it decides against) isn't what its declaration says. Nothing was changed | the `fix`, if the board is right; the `override` flags, when the board's aggregate is inferred and the code is right |
@@ -691,8 +733,9 @@ Non-ASCII characters such as `⚠` and `—` arrive escaped (`\u26A0`), as any J
 
 Callouts about the project rather than a slice have an empty `slice`, a `file` naming what they are
 about, and a `fix` holding the exact line, package or command. The merge callouts carry a `file`, a
-`type` when they are about one type, `roles` (each as `Emits(AppointmentNoShowRecorded)`) when they are
-about a slice's roles, and a `fix` when there is an edit to make by hand.
+`type` when they are about one type, a `field` when they are about one of its members, `roles` (each as
+`Emits(AppointmentNoShowRecorded)`) when they are about a slice's roles, and a `fix` when there is an edit to
+make by hand.
 
 The messages may be reworded; a code never is, and codes are only ever added (the same contract as
 `wolverine scaffold --json`).
@@ -795,8 +838,8 @@ does exist gets what the board has and the file lacks, and nothing in it is chan
 
 | File | What is added | What is never touched |
 |---|---|---|
-| The chapter's `EventModelDefinition` | a declaration for each slice no definition in `--out` declares, at the end of `Configure`, written to agree with the file's own `InChapter` / `InDomain` / `ForAggregate`; a `model.Aggregate<T>()` for an aggregate such a slice names that nothing declares; a statement reopening an existing slice by name with the roles the board now gives it (see below) | every existing declaration, even where the board now says something else (the `slice-*` callouts say what) |
-| A slice's stub file (`Features/{Chapter}/{Slice}.cs`) | each type the board names that no file in `--out` declares, at the end of the file's namespace, plus any `using` it needs | every existing type, even where its members differ from the board's (`type-differs-from-board`) |
+| The chapter's `EventModelDefinition` | a declaration for each slice no definition in `--out` declares, at the end of `Configure`, written to agree with the file's own `InChapter` / `InDomain` / `ForAggregate`; a `model.Aggregate<T>()` for an aggregate such a slice names that nothing declares; a statement reopening an existing slice by name with the roles the board now gives it (see below); a `model.Shape<T>()` for each type whose fields no definition declares (`merged-shape`) | every existing declaration, even where the board now says something else (the `slice-*` callouts say what) |
+| A slice's stub file (`Features/{Chapter}/{Slice}.cs`) | each type the board names that no file in `--out` declares, at the end of the file's namespace, plus any `using` it needs; each field the board now gives a type that is still the stub the import wrote, appended to its parameter list or its properties (`merged-field`) | every existing member, even where the board types it differently (`field-differs-from-board`), and every type that has grown behaviour of its own |
 
 - **The whole directory is checked, not just the file.** A type or slice you moved to
   another file is found there and never declared twice. A type a new stub file would declare is
@@ -804,8 +847,13 @@ does exist gets what the board has and the file lacks, and nothing in it is chan
 - **Roslyn finds the insertion point; the edit is a text insertion.** Every byte you wrote stays
   where it was, whatever your formatting. A file that doesn't parse, a missing class or namespace,
   or more than one candidate is skipped with a `merge-skipped-*` callout. Nothing is forced.
-- **A type is compared on the members the board names.** Members you added are not a difference.
-  A board member missing from the type, or typed differently, is.
+- **A type is compared field by field, and only while it is still a stub does the import touch it.** A positional
+  record with no body, or a class of nothing but settable properties, is still the stub the import wrote: a field
+  the board gives it is appended (`merged-field`), a field it has that the board does not is noted
+  (`field-removed-on-board`, which cannot tell a board removal from a member you added, so it says to leave what
+  you added), and a field typed differently is noted (`field-differs-from-board`). A type that has grown behaviour
+  is yours: a board field it lacks is a `field-differs-from-board` note with the member to add, and nothing else
+  about it is said.
 - **It is idempotent.** Run it twice and the second run changes nothing.
 - Each merge prints a line, e.g. `Added 1 slice declaration (SubmitHomeCheckReport) to
   Features/VolunteeringAndHomeChecks/VolunteeringAndHomeChecksModel.cs.` or `Added 1 role

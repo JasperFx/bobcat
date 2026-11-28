@@ -31,8 +31,8 @@
          and every Bobcat.EventModel consumer is on Wolverine 7 and Marten 10. 1.1.x stayed on 2.96.0 /
          WolverineFx 6.54.0 (bobcat#828). The Wolverine pin is the current prerelease, from nuget.org, never a
          local pack. -->
-    <PackageVersion Include="JasperFx" Version="3.16.0" />
-    <PackageVersion Include="JasperFx.Events" Version="3.16.0" />
+    <PackageVersion Include="JasperFx" Version="3.17.0" />
+    <PackageVersion Include="JasperFx.Events" Version="3.17.0" />
     <PackageVersion Include="WolverineFx.RuntimeCompilation" Version="7.0.0-rc.1" />
 
     <!-- Core's own references, received transitively through JasperFx before bobcat#744. -->

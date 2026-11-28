@@ -367,10 +367,42 @@ public static class EventModelersJsonReader
             Identities = flagged(element, "idAttribute"),
             Generated = flagged(element, "generated"),
             TagFields = flagged(element, "tag"),
+            Fields = fields(element),
             ApiEndpoint = text(element, "apiEndpoint") is { Length: > 0 } endpoint ? endpoint : null,
             Description = text(element, "description") is { Length: > 0 } description ? description : null,
             SourceId = id.Length > 0 ? id : null,
         };
+    }
+
+    /// <summary>
+    /// The element's fields as the board declares them (bobcat#851): the EM Spec <c>fields[]</c> entries whole,
+    /// with their <c>type</c>, <c>cardinality</c>, <c>optional</c>, <c>idAttribute</c>, <c>generated</c>, <c>pii</c>,
+    /// <c>tag</c>, <c>mapping</c>, <c>schema</c> and nested <c>subfields</c>. A field with no name is skipped.
+    /// </summary>
+    private static List<EmlangField> fields(JsonElement element, string property = "fields")
+    {
+        var result = new List<EmlangField>();
+        foreach (var field in items(element, property))
+        {
+            var name = text(field, "name");
+            if (name.Length == 0 || result.Any(x => x.Name == name)) continue;
+
+            result.Add(new EmlangField(name, text(field, "type") is { Length: > 0 } type ? type : "String")
+            {
+                List = text(field, "cardinality").Equals("List", StringComparison.OrdinalIgnoreCase),
+                Optional = flag(field, "optional"),
+                Identity = flag(field, "idAttribute"),
+                Generated = flag(field, "generated"),
+                Pii = flag(field, "pii"),
+                Tag = flag(field, "tag"),
+                Mapping = text(field, "mapping") is { Length: > 0 } mapping ? mapping : null,
+                Schema = text(field, "schema") is { Length: > 0 } schema ? schema : null,
+                Subfields = fields(field, "subfields"),
+                Description = text(field, "description") is { Length: > 0 } description ? description : null,
+            });
+        }
+
+        return result;
     }
 
     /// <summary>The names of the element's fields that carry <paramref name="flagName"/> as true.</summary>
@@ -383,8 +415,9 @@ public static class EventModelersJsonReader
 
     /// <summary>
     /// A declared field's type, in the spellings the stub writer's type table knows. The EM Spec enum is
-    /// String, Boolean, Int, Long, Double, Decimal, Number, Date, DateTime, UUID and Custom; a
-    /// <c>Custom</c> field (nested <c>subfields</c>) sketches as text until bobcat#851 writes it as a type.
+    /// String, Boolean, Int, Long, Double, Decimal, Number, Date, DateTime, UUID and Custom. The sketch is
+    /// the one-line form every reader shares; the typed form, nested <c>Custom</c> fields included, rides
+    /// <see cref="EmlangStep.Fields"/> (bobcat#851).
     /// </summary>
     internal static string sketch(JsonElement field)
     {

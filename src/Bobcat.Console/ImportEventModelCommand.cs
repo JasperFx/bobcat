@@ -122,7 +122,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         // The layout the stubs were written with, so the pushed model declares every type where the
         // code puts it (bobcat#383)
-        var descriptor = ImportedModelMapper.ToDescriptor(imported.Model, imported.Layout);
+        var descriptor = ImportedModelMapper.ToDescriptor(imported.Model, imported.Generated.Layout, imported.Generated.Shapes);
         run.Out.WriteLine(
             $"Model '{descriptor.Name}': {descriptor.Slices.Count} slice(s), "
             + $"{descriptor.Slices.Sum(x => x.Specifications.Count)} bound specification(s).");
@@ -261,11 +261,11 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         reportMerge(files, run);
 
-        return new Imported(result.Model, import.Generated.Layout);
+        return new Imported(result.Model, import.Generated);
     }
 
-    /// <summary>What an import produced: the model, and where its stubs put every type.</summary>
-    private sealed record Imported(ImportedEventModel Model, ModelLayout Layout);
+    /// <summary>What an import produced: the model, and what was written for it — where every type went and with what members.</summary>
+    private sealed record Imported(ImportedEventModel Model, CSharpModelWriter.Output Generated);
 
     /// <summary>
     /// What the additive re-import did: a line per file merged into, and every callout it raised. The

@@ -37,7 +37,7 @@ note that mode collects every project with `IsTestingPlatformApplication=true` â
 no longer opts a host out (see `Bobcat.Xunit.Samples.csproj`).
 
 **The tools are on JasperFx 3.x and Wolverine 7 (bobcat#776, Bobcat 1.2).** `src/Directory.Packages.props` pins
-JasperFx / JasperFx.Events 3.16.0 and the WolverineFx.* 7.0.0 packages from nuget.org (a prerelease until Wolverine 7
+JasperFx / JasperFx.Events 3.17.0 and the WolverineFx.* 7.0.0 packages from nuget.org (a prerelease until Wolverine 7
 ships); 1.1.x stayed on 2.96.0 / 6.54.0 (#828). JasperFx 3 targets net10.0 and net11.0 only, which is why
 Bobcat.EventModel dropped net9.0 while the runtime packages, which reference no JasperFx, keep it. `bobcat ui` sets
 `TypeLoadMode.Dynamic` itself because Wolverine 7's Production profile loads pre-generated code.
