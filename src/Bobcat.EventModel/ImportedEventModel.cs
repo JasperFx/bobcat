@@ -195,6 +195,13 @@ public sealed class CuratedScenario
     /// <summary>The chapter <see cref="Source"/> was written under.</summary>
     public Emlang.EmlangChapter? SourceChapter { get; internal set; }
 
+    /// <summary>
+    /// The example as a specification states it (bobcat#846), bound to this slice: the typed given, act
+    /// and outcomes the writer reads instead of guessing <c>WhenReceived</c> from <see cref="Source"/>'s
+    /// element kinds. Null for a scenario no board gave.
+    /// </summary>
+    public Scenarios.ScenarioModel? Model { get; internal set; }
+
     /// <summary>Prior events, oldest first. Events only — the grammar allows nothing else in a Given.</summary>
     public List<CuratedGiven> Given { get; set; } = [];
 

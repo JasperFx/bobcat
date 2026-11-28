@@ -543,6 +543,40 @@ the new stream takes it.
 **A swimlane is not a stream.** In `Admin / Volunteer approved`, `Admin` is who acts, not where the
 event is stored.
 
+### What an example becomes: the scenario model
+
+Every board example is lowered to one record, `Bobcat.EventModel.Scenarios.ScenarioModel` (bobcat#846),
+whichever reader produced it, and the import binds it to the slice the example landed on
+(`CuratedScenario.Model`: the slice, its chapter and pattern). Wolverine's `write-specs` reads that record
+rather than guessing from element kinds, so it can write `WhenPosted` for an HTTP act and a row table for a
+list read model instead of hard-coding `WhenReceived`.
+
+- **Givens**: prior events, each with its values, the stream the model puts it on and its DCB tags; the
+  read models the command decides against (an EM Spec `context`, an emlang `v:` in a `given`); and, when
+  the source says, the clock, the tenant and the actor (a slice with exactly one actor).
+- **The act**, one of: a message received (a command), a message published, an HTTP request (verb, route,
+  body and route values, from a command's `apiEndpoint`), a read model queried with parameters (an inline
+  `QUERY`), time advancing, a foreign event entering a translation, or the scheduled messages executing. An
+  example that only asserts how events project has no act.
+- **Outcomes**: events emitted (values, stream, tags, and the members a comparison leaves out because the
+  model marks them `generated`); a read model as a single document, a partial one, the rows of a list, or
+  none; a refusal with its reason, its kind (validation, refused, problem details, not found) and the values
+  the reason mentions; messages caused or scheduled; and, for a DCB slice, the boundary query expected and
+  the events that would or would not conflict.
+- **Status**: a board's `Blocked` slice makes its examples pending specifications and an `Informational`
+  one informational, so a scaffolded skeleton is skipped rather than red.
+
+Three decisions of record: a list read model's rows are the **exact set, in any order**; an empty list
+(`expectEmptyList`) is "no items", not "nothing asserted"; and a source with its own match mode (prooph
+board's `match`) is honoured when present. The record is shaped to project onto JasperFx's
+`SpecificationDescriptor` later, so a console can draw a declared slice's examples before any spec exists.
+
+**What the EM Spec export adds over emlang.** A step is resolved to its element by `linkedId`/`id`, following
+a linked copy to its origin, before its title is read. A command's `apiEndpoint` makes the act an HTTP
+request. `generated` fields are left out of the event comparison and `tag` fields tag the event. A slice's
+`status`, `description` (carried into the slice's notes) and `actors` are read, and a scenario's `contextNote`
+is carried as a comment. `Custom` fields with `subfields` still sketch as text; typing them is bobcat#851.
+
 ### Aggregates: declared, or inferred and called out
 
 A command that does not only start a stream needs a DCB decider or one or more single-stream

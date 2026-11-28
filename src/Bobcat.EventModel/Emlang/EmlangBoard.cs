@@ -52,6 +52,21 @@ public sealed record EmlangStep(
     /// field's <c>idAttribute</c>. Emlang has no such marker.
     /// </summary>
     public IReadOnlyList<string> Identities { get; init; } = [];
+
+    /// <summary>The props the model marks <c>generated</c> (bobcat#846): the system fills them, so a comparison leaves them out.</summary>
+    public IReadOnlyList<string> Generated { get; init; } = [];
+
+    /// <summary>The props the model marks as DCB tags (<c>tag: true</c>), whose values tag the event.</summary>
+    public IReadOnlyList<string> TagFields { get; init; } = [];
+
+    /// <summary>A command's HTTP endpoint as the board writes it (<c>apiEndpoint</c>, e.g. <c>POST /carts/{cartId}/items</c>); null when none.</summary>
+    public string? ApiEndpoint { get; init; }
+
+    /// <summary>The element's description, when the board has one.</summary>
+    public string? Description { get; init; }
+
+    /// <summary>The board's id for the element, when it has one, so a scenario step can be resolved to it.</summary>
+    public string? SourceId { get; init; }
 }
 
 /// <summary>
@@ -72,7 +87,21 @@ public sealed record EmlangTest(
     string Name,
     IReadOnlyList<EmlangRef> Given,
     IReadOnlyList<EmlangRef> When,
-    IReadOnlyList<EmlangRef> Then);
+    IReadOnlyList<EmlangRef> Then)
+{
+    private Scenarios.ScenarioModel? _model;
+
+    /// <summary>
+    /// The example as a specification states it (bobcat#846): the typed given/act/outcome record every
+    /// reader produces. A reader that knows more than the element names (an EM Spec export) sets it;
+    /// otherwise it is <see cref="Scenarios.ScenarioModel.From"/> this test.
+    /// </summary>
+    public Scenarios.ScenarioModel Model
+    {
+        get => _model ??= Scenarios.ScenarioModel.From(this);
+        init => _model = value;
+    }
+}
 
 /// <summary>
 /// One emlang slice as the file writes it, which this importer treats as a chapter — a run of
@@ -101,7 +130,30 @@ public sealed record EmlangChapter(
 
     /// <summary>What the imported slice is stamped with as its chapter: the board's, else this slice's own name.</summary>
     public string ChapterTitle => BoardChapter is { Length: > 0 } ? BoardChapter : Name;
+
+    /// <summary>The slice's status as the board has it (<c>Planned</c>, <c>Done</c>, <c>Blocked</c>, <c>Informational</c>…); null when the source has none (bobcat#846).</summary>
+    public string? Status { get; init; }
+
+    /// <summary>The slice's documentation, markdown as the board holds it; null when the source has none.</summary>
+    public string? Description { get; init; }
+
+    /// <summary>Who acts on the slice, when the board says (an EM Spec slice's <c>actors[]</c>).</summary>
+    public IReadOnlyList<EmlangActor> Actors { get; init; } = [];
+
+    /// <summary>
+    /// What a generated specification's status is for this slice's examples (bobcat#846): a <c>Blocked</c>
+    /// slice is pending, an <c>Informational</c> one informational, anything else normal.
+    /// </summary>
+    public Scenarios.ScenarioStatus ScenarioStatus => Status?.Trim().ToLowerInvariant() switch
+    {
+        "blocked" => Scenarios.ScenarioStatus.Pending,
+        "informational" => Scenarios.ScenarioStatus.Informational,
+        _ => Scenarios.ScenarioStatus.Normal,
+    };
 }
+
+/// <summary>An actor of a slice (bobcat#846): who issues the command, whether they must be signed in, and the roles required.</summary>
+public sealed record EmlangActor(string Name, bool AuthRequired, IReadOnlyList<string> Roles);
 
 public sealed record EmlangBoard(IReadOnlyList<EmlangChapter> Chapters);
 

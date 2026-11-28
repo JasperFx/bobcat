@@ -86,6 +86,24 @@ public class VendoredFixtureTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(EmlangExamples))]
+    public void every_emlang_test_lowers_to_a_scenario_model_that_says_what_the_test_says(string example)
+    {
+        var board = EmlangReader.Read(File.ReadAllText(emlang(Path.Combine("examples", example))));
+
+        foreach (var test in board.Chapters.SelectMany(c => c.Tests))
+        {
+            var model = test.Model;
+            model.Name.ShouldBe(test.Name);
+            model.GivenEvents.Count.ShouldBe(test.Given.Count(x => x.Kind == EmlangElementKind.Event));
+            model.Context.Count.ShouldBe(test.Given.Count(x => x.Kind == EmlangElementKind.View));
+            (model.Act is Scenarios.MessageReceived).ShouldBe(test.When.Any(x => x.Kind == EmlangElementKind.Command));
+            model.Outcomes.Count.ShouldBe(test.Then.Count);
+            model.Refuses.ShouldBe(test.Then.Any(x => x.Kind == EmlangElementKind.Error));
+        }
+    }
+
     [Fact]
     public void the_pizza_boards_tests_keep_their_given_when_then_and_values()
     {
