@@ -25,6 +25,9 @@ public enum EventModelFileKind
     /// <summary>A dcb.events Playground model: JSON with <c>dcbModelVersion</c>, or whose <c>$schema</c> is dcb.events' model schema (bobcat#849).</summary>
     DcbPlayground,
 
+    /// <summary>ESDM documents (<c>.esdm.yaml</c>): YAML whose documents carry an <c>apiVersion</c> under <c>schema.esdm.io/</c> (bobcat#850).</summary>
+    Esdm,
+
     Unknown,
 }
 
@@ -66,6 +69,9 @@ public static class EventModelFileSniffer
         {
             return EventModelFileKind.Unknown;
         }
+
+        // bobcat#850: an ESDM document says what it is before anything else is asked
+        if (documents.Count > 0 && documents.Any(Esdm.EsdmReader.IsEsdm)) return EventModelFileKind.Esdm;
 
         foreach (var root in documents)
         {

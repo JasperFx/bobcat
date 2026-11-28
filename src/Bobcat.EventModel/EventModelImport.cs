@@ -68,6 +68,8 @@ public static class EventModelImport
     /// <exception cref="ArgumentException">A <c>--chapter</c> names no chapter of the model (<c>ParamName</c> "chapters").</exception>
     public static EventModelImportResult Run(EmlangImportResult curated, string outDirectory, EventModelImportOptions options)
     {
+        curated = applyOverrides(curated, options.Overrides ?? []);
+
         var chapters = options.Chapters ?? [];
         if (chapters.Count == 0) return write(curated, null, outDirectory, options);
 
@@ -93,6 +95,51 @@ public static class EventModelImport
 
         var result = new EmlangImportResult(narrowed, curated.Report) { Callouts = curated.Callouts, Board = curated.Board };
         return write(result, whole.Slices.Select(ImportMerge.SliceName).ToList(), outDirectory, options);
+    }
+
+    /// <summary>
+    /// <c>--aggregate</c> and <c>--starts-stream</c> over a reader-lowered model: the flag states the slice's aggregate
+    /// outright, and the callout that asked for it goes (bobcat#850, where ESDM says which aggregate but never
+    /// whether a command starts its stream).
+    /// </summary>
+    private static EmlangImportResult applyOverrides(EmlangImportResult curated, IReadOnlyList<AggregateOverride> overrides)
+    {
+        if (overrides.Count == 0) return curated;
+
+        var callouts = curated.Callouts.ToList();
+        var report = curated.Report.ToList();
+        foreach (var @override in overrides)
+        {
+            var slice = curated.Model.Slices.FirstOrDefault(x => x.Name == @override.Slice);
+            if (slice is null)
+            {
+                report.Add($"⚠ --aggregate {@override.Slice}={@override.Aggregate}: no slice is named '{@override.Slice}', so it changes nothing.");
+                continue;
+            }
+
+            var aggregate = CSharpModelWriter.Identifiers.Sanitize(@override.Aggregate);
+            if (@override.StartsStream)
+            {
+                slice.StartsStream = aggregate;
+                slice.Aggregates.Remove(aggregate);
+            }
+            else
+            {
+                slice.StartsStream = null;
+                slice.Aggregates.Clear();
+                slice.Aggregates.Add(aggregate);
+            }
+
+            slice.Inferred.Clear();
+            slice.Callouts.Clear();
+            callouts.RemoveAll(x => x.Slice == slice.Name && x.Code is ImportCalloutCodes.StreamStartUnknown or ImportCalloutCodes.InferredAgainst
+                or ImportCalloutCodes.InferredStreamStart or ImportCalloutCodes.MissingAggregate);
+            report.Add(@override.StartsStream
+                ? $"slice '{slice.Name}': starts the {aggregate} stream (--starts-stream)."
+                : $"slice '{slice.Name}': decides against {aggregate} (--aggregate).");
+        }
+
+        return new EmlangImportResult(curated.Model, report) { Callouts = callouts, Board = curated.Board };
     }
 
     private static EventModelImportResult write(EmlangImportResult result, IReadOnlyList<string>? boardSlices, string outDirectory,

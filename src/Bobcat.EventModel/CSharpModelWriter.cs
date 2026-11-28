@@ -1447,6 +1447,10 @@ public static class CSharpModelWriter
                 opener = $"model.Translation(`{escape(name)}`)";
                 break;
 
+            case "query":
+                opener = $"model.Query(`{escape(name)}`)";
+                break;
+
             default:
                 opener = $"model.Slice(`{escape(name)}`)";
                 break;
@@ -1667,6 +1671,7 @@ public static class CSharpModelWriter
             "view" => "View",
             "automation" => "Automation",
             "translation" => "Translation",
+            "query" => "Query",
             _ => null
         };
 

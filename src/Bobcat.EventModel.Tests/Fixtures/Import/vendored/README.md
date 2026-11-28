@@ -51,3 +51,14 @@ which are CC BY-SA 4.0, not MIT (only the Playground's code is MIT). They are te
 shipped in a package, but a share-alike licence inside an MIT repository is your call. The alternative is the
 Playground repository's own `fixtures/*.dcb.json` (MIT; course-simple, course-sequence, developer-hours and five
 content-decisions variants), which are not the ten the issue names. -->
+
+## `esdm/` — ESDM, the native web's event-sourced domain model (bobcat#850)
+
+| File | Source | Commit | Licence |
+|---|---|---|---|
+| `your-first-model/*.esdm.yaml` (seven documents: a domain, a bounded context, an aggregate, a command, an event, a read model, a query) | https://github.com/thenativeweb/esdm, `documentation/guides/your-first-model/model/` — the only example documents the repository holds; its `documentation/snippets/reference/**` are schema fragments, not documents | `6307bc71cf27f94a207240008892112c5c5e58ed` (2026-11-27) | MIT with notice (`LICENSE.md`, copied from the repo root; the schema files carry the notice that must not be removed) |
+| `schema/core-v1.yaml`, `schema/given-when-then-v1.yaml` | the same repository, `schema/core/v1.yaml` (`$id` `https://schema.esdm.io/core/v1`, revision 1.0.0) and `schema/given-when-then/v1.yaml` (`https://schema.esdm.io/given-when-then/v1`, revision 1.0.0) | same | same |
+
+The repository has no example of a `dynamic-consistency-boundary`, a `policy`, a `process-manager` or a `feature`;
+`EsdmReaderTests` writes those documents itself, to the schemas above, and validates them against the schemas like
+the vendored ones.
