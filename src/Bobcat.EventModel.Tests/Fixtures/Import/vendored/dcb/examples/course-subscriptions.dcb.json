@@ -1,0 +1,683 @@
+{
+  "$schema": "https://dcb.events/schemas/model/v10.json",
+  "dcbModelVersion": "10.1",
+  "name": "Course subscriptions",
+  "customTypeDefinitions": [
+    {
+      "name": "CourseId",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    },
+    {
+      "name": "StudentId",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    }
+  ],
+  "eventDefinitions": [
+    {
+      "name": "CourseDefined",
+      "properties": [
+        {
+          "name": "courseId",
+          "propertyType": "CourseId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "capacity",
+          "propertyType": "integer",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "courseId"
+      ]
+    },
+    {
+      "name": "CourseCapacityChanged",
+      "properties": [
+        {
+          "name": "courseId",
+          "propertyType": "CourseId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "newCapacity",
+          "propertyType": "integer",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "courseId"
+      ]
+    },
+    {
+      "name": "StudentSubscribedToCourse",
+      "properties": [
+        {
+          "name": "studentId",
+          "propertyType": "StudentId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "courseId",
+          "propertyType": "CourseId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "studentId",
+        "courseId"
+      ]
+    }
+  ],
+  "entityDefinitions": [],
+  "projectionDefinitions": [
+    {
+      "name": "CourseExists",
+      "tags": [
+        {
+          "name": "courseId",
+          "tagType": "CourseId"
+        }
+      ],
+      "valueType": "boolean",
+      "isList": false,
+      "initialValue": false,
+      "handlers": [
+        {
+          "event": "CourseDefined",
+          "operation": "set",
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "CourseCapacity",
+      "tags": [
+        {
+          "name": "courseId",
+          "tagType": "CourseId"
+        }
+      ],
+      "valueType": "integer",
+      "isList": false,
+      "initialValue": 0,
+      "handlers": [
+        {
+          "event": "CourseDefined",
+          "operation": "set",
+          "value": {
+            "eventProperty": "capacity"
+          }
+        },
+        {
+          "event": "CourseCapacityChanged",
+          "operation": "set",
+          "value": {
+            "eventProperty": "newCapacity"
+          }
+        }
+      ]
+    },
+    {
+      "name": "CourseSubscriptionCount",
+      "tags": [
+        {
+          "name": "courseId",
+          "tagType": "CourseId"
+        }
+      ],
+      "valueType": "integer",
+      "isList": false,
+      "initialValue": 0,
+      "handlers": [
+        {
+          "event": "StudentSubscribedToCourse",
+          "operation": "increment",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "StudentSubscriptionCount",
+      "tags": [
+        {
+          "name": "studentId",
+          "tagType": "StudentId"
+        }
+      ],
+      "valueType": "integer",
+      "isList": false,
+      "initialValue": 0,
+      "handlers": [
+        {
+          "event": "StudentSubscribedToCourse",
+          "operation": "increment",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "StudentAlreadySubscribed",
+      "tags": [
+        {
+          "name": "studentId",
+          "tagType": "StudentId"
+        },
+        {
+          "name": "courseId",
+          "tagType": "CourseId"
+        }
+      ],
+      "valueType": "boolean",
+      "isList": false,
+      "initialValue": false,
+      "handlers": [
+        {
+          "event": "StudentSubscribedToCourse",
+          "operation": "set",
+          "value": true
+        }
+      ]
+    }
+  ],
+  "commandDefinitions": [
+    {
+      "name": "DefineCourse",
+      "properties": [
+        {
+          "name": "courseId",
+          "propertyType": "CourseId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "capacity",
+          "propertyType": "integer",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "CourseExists",
+            "tags": {
+              "courseId": {
+                "parameterName": "courseId"
+              }
+            }
+          },
+          "predicate": "isFalse",
+          "rejection": "Course already exists"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "CourseDefined",
+          "parameters": {
+            "courseId": {
+              "parameterName": "courseId"
+            },
+            "capacity": {
+              "parameterName": "capacity"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ChangeCourseCapacity",
+      "properties": [
+        {
+          "name": "courseId",
+          "propertyType": "CourseId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "newCapacity",
+          "propertyType": "integer",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "CourseExists",
+            "tags": {
+              "courseId": {
+                "parameterName": "courseId"
+              }
+            }
+          },
+          "predicate": "isTrue",
+          "rejection": "Course does not exist"
+        },
+        {
+          "leftHandSide": {
+            "projection": "CourseCapacity",
+            "tags": {
+              "courseId": {
+                "parameterName": "courseId"
+              }
+            }
+          },
+          "predicate": "equals",
+          "rightHandSide": {
+            "parameterName": "newCapacity"
+          },
+          "negate": true,
+          "rejection": "Capacity is unchanged"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "CourseCapacityChanged",
+          "parameters": {
+            "courseId": {
+              "parameterName": "courseId"
+            },
+            "newCapacity": {
+              "parameterName": "newCapacity"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "SubscribeStudentToCourse",
+      "properties": [
+        {
+          "name": "studentId",
+          "propertyType": "StudentId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "courseId",
+          "propertyType": "CourseId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "CourseExists",
+            "tags": {
+              "courseId": {
+                "parameterName": "courseId"
+              }
+            }
+          },
+          "predicate": "isTrue",
+          "rejection": "Course does not exist"
+        },
+        {
+          "leftHandSide": {
+            "projection": "CourseSubscriptionCount",
+            "tags": {
+              "courseId": {
+                "parameterName": "courseId"
+              }
+            }
+          },
+          "predicate": "lessThan",
+          "rightHandSide": {
+            "projection": "CourseCapacity",
+            "tags": {
+              "courseId": {
+                "parameterName": "courseId"
+              }
+            }
+          },
+          "rejection": "Course is full"
+        },
+        {
+          "leftHandSide": {
+            "projection": "StudentAlreadySubscribed",
+            "tags": {
+              "studentId": {
+                "parameterName": "studentId"
+              },
+              "courseId": {
+                "parameterName": "courseId"
+              }
+            }
+          },
+          "predicate": "isFalse",
+          "rejection": "Student is already subscribed"
+        },
+        {
+          "leftHandSide": {
+            "projection": "StudentSubscriptionCount",
+            "tags": {
+              "studentId": {
+                "parameterName": "studentId"
+              }
+            }
+          },
+          "predicate": "lessThan",
+          "rightHandSide": 5,
+          "rejection": "Student is subscribed to too many courses"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "StudentSubscribedToCourse",
+          "parameters": {
+            "studentId": {
+              "parameterName": "studentId"
+            },
+            "courseId": {
+              "parameterName": "courseId"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "scenarioDefinitions": [
+    {
+      "id": "8e9fc6c3-5e99-4149-bba3-d6a1c136c65d",
+      "name": "Define course with existing id",
+      "command": "DefineCourse",
+      "given": [
+        {
+          "event": "CourseDefined",
+          "data": {
+            "courseId": "c1",
+            "capacity": 10
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "courseId": "c1",
+          "capacity": 15
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Course already exists"
+      }
+    },
+    {
+      "id": "4e49fae3-7bdf-4186-be9b-c9e74b988962",
+      "name": "Define course with new id",
+      "command": "DefineCourse",
+      "given": [],
+      "when": {
+        "arguments": {
+          "courseId": "c1",
+          "capacity": 15
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "CourseDefined",
+            "data": {
+              "courseId": "c1",
+              "capacity": 15
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "b89243fb-efdf-4e10-accb-1553b564e71e",
+      "name": "Change capacity of a non-existing course",
+      "command": "ChangeCourseCapacity",
+      "given": [],
+      "when": {
+        "arguments": {
+          "courseId": "c0",
+          "newCapacity": 15
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Course does not exist"
+      }
+    },
+    {
+      "id": "13a03d33-414a-466b-9bcd-dcf1cd312203",
+      "name": "Change capacity of a course to a new value",
+      "command": "ChangeCourseCapacity",
+      "given": [
+        {
+          "event": "CourseDefined",
+          "data": {
+            "courseId": "c1",
+            "capacity": 12
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "courseId": "c1",
+          "newCapacity": 15
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "CourseCapacityChanged",
+            "data": {
+              "courseId": "c1",
+              "newCapacity": 15
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "43dfc38d-0ef0-47a4-a14c-59a28dd9d0ba",
+      "name": "Subscribe student to non-existing course",
+      "command": "SubscribeStudentToCourse",
+      "given": [],
+      "when": {
+        "arguments": {
+          "studentId": "s1",
+          "courseId": "c0"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Course does not exist"
+      }
+    },
+    {
+      "id": "0b44744b-c55a-4008-b9b0-97dbe4be91f4",
+      "name": "Subscribe student to fully booked course",
+      "command": "SubscribeStudentToCourse",
+      "given": [
+        {
+          "event": "CourseDefined",
+          "data": {
+            "courseId": "c1",
+            "capacity": 3
+          }
+        },
+        {
+          "event": "StudentSubscribedToCourse",
+          "data": {
+            "studentId": "s1",
+            "courseId": "c1"
+          }
+        },
+        {
+          "event": "StudentSubscribedToCourse",
+          "data": {
+            "studentId": "s2",
+            "courseId": "c1"
+          }
+        },
+        {
+          "event": "StudentSubscribedToCourse",
+          "data": {
+            "studentId": "s3",
+            "courseId": "c1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "studentId": "s4",
+          "courseId": "c1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Course is full"
+      }
+    },
+    {
+      "id": "db8fb82f-7fc7-44fc-949d-eadce68d4ff4",
+      "name": "Subscribe student to the same course twice",
+      "command": "SubscribeStudentToCourse",
+      "given": [
+        {
+          "event": "CourseDefined",
+          "data": {
+            "courseId": "c1",
+            "capacity": 10
+          }
+        },
+        {
+          "event": "StudentSubscribedToCourse",
+          "data": {
+            "studentId": "s1",
+            "courseId": "c1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "studentId": "s1",
+          "courseId": "c1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Student is already subscribed"
+      }
+    },
+    {
+      "id": "9fedb7e0-e0de-4637-b707-b6e7e0de2f9f",
+      "name": "Subscribe student to more than 5 courses",
+      "command": "SubscribeStudentToCourse",
+      "given": [
+        {
+          "event": "CourseDefined",
+          "data": {
+            "courseId": "c6",
+            "capacity": 10
+          }
+        },
+        {
+          "event": "StudentSubscribedToCourse",
+          "data": {
+            "studentId": "s1",
+            "courseId": "c1"
+          }
+        },
+        {
+          "event": "StudentSubscribedToCourse",
+          "data": {
+            "studentId": "s1",
+            "courseId": "c2"
+          }
+        },
+        {
+          "event": "StudentSubscribedToCourse",
+          "data": {
+            "studentId": "s1",
+            "courseId": "c3"
+          }
+        },
+        {
+          "event": "StudentSubscribedToCourse",
+          "data": {
+            "studentId": "s1",
+            "courseId": "c4"
+          }
+        },
+        {
+          "event": "StudentSubscribedToCourse",
+          "data": {
+            "studentId": "s1",
+            "courseId": "c5"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "studentId": "s1",
+          "courseId": "c6"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Student is subscribed to too many courses"
+      }
+    },
+    {
+      "id": "bad4fe29-51f1-462d-88e3-f7775a3da41d",
+      "name": "Subscribe student to course with capacity",
+      "command": "SubscribeStudentToCourse",
+      "given": [
+        {
+          "event": "CourseDefined",
+          "data": {
+            "courseId": "c1",
+            "capacity": 10
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "studentId": "s1",
+          "courseId": "c1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "StudentSubscribedToCourse",
+            "data": {
+              "studentId": "s1",
+              "courseId": "c1"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

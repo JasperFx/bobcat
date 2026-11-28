@@ -1,0 +1,618 @@
+{
+  "$schema": "https://dcb.events/schemas/model/v10.json",
+  "dcbModelVersion": "10.1",
+  "name": "Product reviews",
+  "customTypeDefinitions": [
+    {
+      "name": "ProductId",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    },
+    {
+      "name": "CustomerId",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    },
+    {
+      "name": "Rating",
+      "schema": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5
+      }
+    },
+    {
+      "name": "OrderLine",
+      "properties": [
+        {
+          "name": "productId",
+          "propertyType": "ProductId"
+        },
+        {
+          "name": "quantity",
+          "propertyType": "integer"
+        }
+      ]
+    }
+  ],
+  "eventDefinitions": [
+    {
+      "name": "ProductReviewed",
+      "properties": [
+        {
+          "name": "productId",
+          "propertyType": "ProductId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "customerId",
+          "propertyType": "CustomerId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "rating",
+          "propertyType": "Rating",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "productId",
+        "customerId"
+      ]
+    },
+    {
+      "name": "OrderPlaced",
+      "properties": [
+        {
+          "name": "customerId",
+          "propertyType": "CustomerId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "lines",
+          "propertyType": "OrderLine",
+          "isOptional": false,
+          "isList": true
+        }
+      ],
+      "tags": [
+        "customerId",
+        "lines.productId"
+      ]
+    },
+    {
+      "name": "ProductDelisted",
+      "properties": [
+        {
+          "name": "productId",
+          "propertyType": "ProductId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "productId"
+      ]
+    }
+  ],
+  "entityDefinitions": [],
+  "projectionDefinitions": [
+    {
+      "name": "ProductReviewedByCustomer",
+      "tags": [
+        {
+          "name": "productId",
+          "tagType": "ProductId"
+        },
+        {
+          "name": "customerId",
+          "tagType": "CustomerId"
+        }
+      ],
+      "valueType": "boolean",
+      "isList": false,
+      "initialValue": false,
+      "handlers": [
+        {
+          "event": "ProductReviewed",
+          "operation": "set",
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "ProductBoughtByCustomer",
+      "tags": [
+        {
+          "name": "productId",
+          "tagType": "ProductId"
+        },
+        {
+          "name": "customerId",
+          "tagType": "CustomerId"
+        }
+      ],
+      "valueType": "boolean",
+      "isList": false,
+      "initialValue": false,
+      "handlers": [
+        {
+          "event": "OrderPlaced",
+          "operation": "set",
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "ProductListed",
+      "tags": [
+        {
+          "name": "productId",
+          "tagType": "ProductId"
+        }
+      ],
+      "valueType": "boolean",
+      "isList": false,
+      "initialValue": true,
+      "handlers": [
+        {
+          "event": "ProductDelisted",
+          "operation": "set",
+          "value": false
+        }
+      ]
+    }
+  ],
+  "commandDefinitions": [
+    {
+      "name": "ReviewProduct",
+      "properties": [
+        {
+          "name": "productId",
+          "propertyType": "ProductId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "customerId",
+          "propertyType": "CustomerId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "rating",
+          "propertyType": "Rating",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "ProductListed",
+            "tags": {
+              "productId": {
+                "parameterName": "productId"
+              }
+            }
+          },
+          "predicate": "isTrue",
+          "rejection": "Product was delisted"
+        },
+        {
+          "leftHandSide": {
+            "projection": "ProductBoughtByCustomer",
+            "tags": {
+              "productId": {
+                "parameterName": "productId"
+              },
+              "customerId": {
+                "parameterName": "customerId"
+              }
+            }
+          },
+          "predicate": "isTrue",
+          "rejection": "Only customers who bought the product can review it"
+        },
+        {
+          "leftHandSide": {
+            "projection": "ProductReviewedByCustomer",
+            "tags": {
+              "productId": {
+                "parameterName": "productId"
+              },
+              "customerId": {
+                "parameterName": "customerId"
+              }
+            }
+          },
+          "predicate": "isFalse",
+          "rejection": "Customer already reviewed this product"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "ProductReviewed",
+          "parameters": {
+            "productId": {
+              "parameterName": "productId"
+            },
+            "customerId": {
+              "parameterName": "customerId"
+            },
+            "rating": {
+              "parameterName": "rating"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "DelistProduct",
+      "properties": [
+        {
+          "name": "productId",
+          "propertyType": "ProductId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "ProductListed",
+            "tags": {
+              "productId": {
+                "parameterName": "productId"
+              }
+            }
+          },
+          "predicate": "isTrue",
+          "rejection": "Product was delisted"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "ProductDelisted",
+          "parameters": {
+            "productId": {
+              "parameterName": "productId"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "scenarioDefinitions": [
+    {
+      "id": "2c3bac7e-fa26-4aef-ab5a-19515c31d20a",
+      "name": "Review a product twice",
+      "command": "ReviewProduct",
+      "given": [
+        {
+          "event": "OrderPlaced",
+          "data": {
+            "customerId": "c1",
+            "lines": [
+              {
+                "productId": "p1",
+                "quantity": 1
+              }
+            ]
+          }
+        },
+        {
+          "event": "ProductReviewed",
+          "data": {
+            "productId": "p1",
+            "customerId": "c1",
+            "rating": 4
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "productId": "p1",
+          "customerId": "c1",
+          "rating": 5
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Customer already reviewed this product"
+      }
+    },
+    {
+      "id": "86f350a6-ec1b-4fc3-aac2-ba8b442d9e51",
+      "name": "Review a product another customer has reviewed",
+      "command": "ReviewProduct",
+      "given": [
+        {
+          "event": "OrderPlaced",
+          "data": {
+            "customerId": "c1",
+            "lines": [
+              {
+                "productId": "p1",
+                "quantity": 1
+              }
+            ]
+          }
+        },
+        {
+          "event": "ProductReviewed",
+          "data": {
+            "productId": "p1",
+            "customerId": "c2",
+            "rating": 4
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "productId": "p1",
+          "customerId": "c1",
+          "rating": 5
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "ProductReviewed",
+            "data": {
+              "productId": "p1",
+              "customerId": "c1",
+              "rating": 5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "dc2c7e7f-67b7-4518-b1dd-d76d5ece304e",
+      "name": "Review another product",
+      "command": "ReviewProduct",
+      "given": [
+        {
+          "event": "OrderPlaced",
+          "data": {
+            "customerId": "c1",
+            "lines": [
+              {
+                "productId": "p1",
+                "quantity": 1
+              },
+              {
+                "productId": "p2",
+                "quantity": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": "ProductReviewed",
+          "data": {
+            "productId": "p2",
+            "customerId": "c1",
+            "rating": 4
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "productId": "p1",
+          "customerId": "c1",
+          "rating": 5
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "ProductReviewed",
+            "data": {
+              "productId": "p1",
+              "customerId": "c1",
+              "rating": 5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "1d9b278c-5ec9-4553-adbf-70dae34356af",
+      "name": "Review a product that was not bought",
+      "command": "ReviewProduct",
+      "given": [],
+      "when": {
+        "arguments": {
+          "productId": "p1",
+          "customerId": "c1",
+          "rating": 5
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Only customers who bought the product can review it"
+      }
+    },
+    {
+      "id": "adf1defa-0abf-41b0-8672-b71c67208840",
+      "name": "Review a product only another customer bought",
+      "command": "ReviewProduct",
+      "given": [
+        {
+          "event": "OrderPlaced",
+          "data": {
+            "customerId": "c2",
+            "lines": [
+              {
+                "productId": "p1",
+                "quantity": 1
+              }
+            ]
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "productId": "p1",
+          "customerId": "c1",
+          "rating": 5
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Only customers who bought the product can review it"
+      }
+    },
+    {
+      "id": "09390a47-e66c-4e2f-8a01-603b2e3ad04f",
+      "name": "Review a product the customer bought with other products",
+      "command": "ReviewProduct",
+      "given": [
+        {
+          "event": "OrderPlaced",
+          "data": {
+            "customerId": "c1",
+            "lines": [
+              {
+                "productId": "p2",
+                "quantity": 1
+              },
+              {
+                "productId": "p1",
+                "quantity": 3
+              }
+            ]
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "productId": "p1",
+          "customerId": "c1",
+          "rating": 5
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "ProductReviewed",
+            "data": {
+              "productId": "p1",
+              "customerId": "c1",
+              "rating": 5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "18b471b5-6897-4272-bd71-648c6f3ceaec",
+      "name": "Review a delisted product",
+      "command": "ReviewProduct",
+      "given": [
+        {
+          "event": "OrderPlaced",
+          "data": {
+            "customerId": "c1",
+            "lines": [
+              {
+                "productId": "p1",
+                "quantity": 1
+              }
+            ]
+          }
+        },
+        {
+          "event": "ProductDelisted",
+          "data": {
+            "productId": "p1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "productId": "p1",
+          "customerId": "c1",
+          "rating": 5
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Product was delisted"
+      }
+    },
+    {
+      "id": "02bf8d3a-4b30-41fe-934e-936659e6f5ad",
+      "name": "Delist a product twice",
+      "command": "DelistProduct",
+      "given": [
+        {
+          "event": "ProductDelisted",
+          "data": {
+            "productId": "p1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "productId": "p1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Product was delisted"
+      }
+    },
+    {
+      "id": "3c29b847-6a5e-4d1c-9386-ed75dcf4b9c7",
+      "name": "Delist a product that was reviewed",
+      "command": "DelistProduct",
+      "given": [
+        {
+          "event": "ProductReviewed",
+          "data": {
+            "productId": "p1",
+            "customerId": "c1",
+            "rating": 4
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "productId": "p1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "ProductDelisted",
+            "data": {
+              "productId": "p1"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -35,6 +35,34 @@ public sealed class ImportedEventModel
     /// for a curated file, which says <see cref="CuratedSlice.Aggregates"/> outright.
     /// </summary>
     public Dictionary<string, string> EventStreams { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The model's consistency tags (bobcat#849, jasperfx#1297): tag name → the C# type a tag value is
+    /// (<c>string</c>, <c>Guid</c>, <c>int</c>…), or null when the source does not say. A dcb.events tag type
+    /// <c>CourseId</c> is the tag <c>courseId</c>, the name JasperFx gives a tag type. Empty for a board with
+    /// no tags, which stamps nothing.
+    /// </summary>
+    public Dictionary<string, string?> Tags { get; set; } = new(StringComparer.Ordinal);
+}
+
+/// <summary>
+/// One thing a command slice reads inside its consistency boundary (bobcat#849): a decider model or a
+/// projection, by a tag whose value a command member supplies. JasperFx derives the boundary query from
+/// these; the slice never declares the query itself.
+/// </summary>
+public sealed class CuratedRead
+{
+    /// <summary><c>Model</c> (a decider model, dcb.events' entity) or <c>Projection</c>.</summary>
+    public string Kind { get; set; } = "Projection";
+
+    /// <summary>Bare type name of what is read.</summary>
+    public string Type { get; set; } = string.Empty;
+
+    /// <summary>The tag the read is by, as the catalogue names it.</summary>
+    public string Tag { get; set; } = string.Empty;
+
+    /// <summary>The command member whose value the tag takes, or null when the source binds it some other way.</summary>
+    public string? Member { get; set; }
 }
 
 /// <summary>One slice's declared roles. The name is the merge key and by convention the command's short name.</summary>
@@ -118,6 +146,27 @@ public sealed class CuratedSlice
 
     /// <summary>Prose hotspots — open questions without a specification behind them yet.</summary>
     public List<string> Hotspots { get; set; } = [];
+
+    // ---- Dynamic Consistency Boundary roles (bobcat#849, jasperfx#1297) --------------------------
+
+    /// <summary>
+    /// The slice decides inside a Dynamic Consistency Boundary rather than against an aggregate's stream: it
+    /// reads by tag (<see cref="Reads"/>) and its events carry tags. The aggregate inference leaves such a slice
+    /// alone — it has no stream to start or decide against.
+    /// </summary>
+    public bool Dcb { get; set; }
+
+    /// <summary>Emitted event → the tags it carries, by the catalogue's names (<see cref="ImportedEventModel.Tags"/>).</summary>
+    public Dictionary<string, List<string>> EventTags { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>What the slice reads inside its boundary, each by tag. A read's type is also in <see cref="ReadsFrom"/> for a projection.</summary>
+    public List<CuratedRead> Reads { get; set; } = [];
+
+    /// <summary>Projections the slice reads that sit outside any boundary: read by no tag, informational.</summary>
+    public List<string> UntaggedProjections { get; set; } = [];
+
+    /// <summary>The reasons the command can be refused with, in the source's words (<c>else reject "Course is full"</c>).</summary>
+    public List<string> RejectionReasons { get; set; } = [];
 
     /// <summary>
     /// Free text carried for the scaffolding layer (descriptions, provenance of an import, board
@@ -206,8 +255,8 @@ public sealed class CuratedField
     /// <summary>The value is personally identifiable information (<c>[Pii]</c>).</summary>
     public bool Pii { get; set; }
 
-    /// <summary>The value is a DCB tag.</summary>
-    public bool Tag { get; set; }
+    /// <summary>The DCB tag the value is, by the catalogue's name (<see cref="ImportedEventModel.Tags"/>); null for a field that is no tag.</summary>
+    public string? Tag { get; set; }
 
     /// <summary>The field on another element the value is mapped from, by name; null when none.</summary>
     public string? Mapping { get; set; }

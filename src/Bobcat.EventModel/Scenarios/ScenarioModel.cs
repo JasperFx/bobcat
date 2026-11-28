@@ -285,6 +285,12 @@ public enum RefusalKind
 /// <summary>The act was refused: the reason in the source's words, what kind, and the values the reason mentions.</summary>
 public sealed record Refusal(string Reason, RefusalKind Kind, IReadOnlyList<string> Mentioned) : ScenarioOutcome;
 
+/// <summary>
+/// The act succeeded and appended nothing (dcb.events' <c>then nothing</c>, bobcat#849): the command was accepted,
+/// no event was emitted and no refusal was given. Distinct from an example with no outcomes, which asserts nothing.
+/// </summary>
+public sealed record NothingEmitted : ScenarioOutcome;
+
 /// <summary>A message the act caused, sent now or scheduled.</summary>
 public sealed record MessageCaused(string Message, IReadOnlyDictionary<string, string> Values, bool Scheduled) : ScenarioOutcome;
 

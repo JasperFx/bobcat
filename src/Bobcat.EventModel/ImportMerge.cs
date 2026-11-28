@@ -915,7 +915,7 @@ public static class ImportMerge
                     aggregateCalls.Add(written);
                     break;
 
-                case "DeciderModel" or "DcbModel":
+                case "DeciderModel" or "DcbModel" or "Decides":
                     decider ??= Named(call);
                     aggregateCalls.Add(written);
                     break;

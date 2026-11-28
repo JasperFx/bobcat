@@ -1,0 +1,937 @@
+{
+  "$schema": "https://dcb.events/schemas/model/v10.json",
+  "dcbModelVersion": "10.1",
+  "name": "Bike rental",
+  "customTypeDefinitions": [
+    {
+      "name": "BikeId",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    },
+    {
+      "name": "MemberId",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    },
+    {
+      "name": "BikeStatus",
+      "schema": {
+        "type": "string",
+        "enum": [
+          "Unknown",
+          "Available",
+          "Rented",
+          "InRepair"
+        ]
+      }
+    }
+  ],
+  "eventDefinitions": [
+    {
+      "name": "BikeAddedToFleet",
+      "properties": [
+        {
+          "name": "bikeId",
+          "propertyType": "BikeId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "bikeId"
+      ]
+    },
+    {
+      "name": "BikeRented",
+      "properties": [
+        {
+          "name": "bikeId",
+          "propertyType": "BikeId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "bikeId",
+        "memberId"
+      ]
+    },
+    {
+      "name": "BikeReturned",
+      "properties": [
+        {
+          "name": "bikeId",
+          "propertyType": "BikeId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "bikeId",
+        "memberId"
+      ]
+    },
+    {
+      "name": "BikeSentToRepair",
+      "properties": [
+        {
+          "name": "bikeId",
+          "propertyType": "BikeId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "bikeId"
+      ]
+    },
+    {
+      "name": "BikeRepaired",
+      "properties": [
+        {
+          "name": "bikeId",
+          "propertyType": "BikeId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "bikeId"
+      ]
+    }
+  ],
+  "entityDefinitions": [
+    {
+      "name": "Bike",
+      "properties": [
+        {
+          "name": "status",
+          "projection": "BikeStatus"
+        }
+      ],
+      "lifecycle": "status",
+      "icon": "\ud83d\udeb2"
+    },
+    {
+      "name": "Member",
+      "properties": [
+        {
+          "name": "activeRentals",
+          "projection": "MemberActiveRentals"
+        }
+      ],
+      "icon": "\ud83e\uddd1"
+    }
+  ],
+  "projectionDefinitions": [
+    {
+      "name": "BikeStatus",
+      "tags": [
+        {
+          "name": "bikeId",
+          "tagType": "BikeId"
+        }
+      ],
+      "valueType": "BikeStatus",
+      "isList": false,
+      "initialValue": {
+        "enumMember": "Unknown"
+      },
+      "handlers": [
+        {
+          "event": "BikeAddedToFleet",
+          "operation": "set",
+          "value": {
+            "enumMember": "Available"
+          }
+        },
+        {
+          "event": "BikeRented",
+          "operation": "set",
+          "value": {
+            "enumMember": "Rented"
+          }
+        },
+        {
+          "event": "BikeReturned",
+          "operation": "set",
+          "value": {
+            "enumMember": "Available"
+          }
+        },
+        {
+          "event": "BikeSentToRepair",
+          "operation": "set",
+          "value": {
+            "enumMember": "InRepair"
+          }
+        },
+        {
+          "event": "BikeRepaired",
+          "operation": "set",
+          "value": {
+            "enumMember": "Available"
+          }
+        }
+      ]
+    },
+    {
+      "name": "MemberActiveRentals",
+      "tags": [
+        {
+          "name": "memberId",
+          "tagType": "MemberId"
+        }
+      ],
+      "valueType": "integer",
+      "isList": false,
+      "initialValue": 0,
+      "handlers": [
+        {
+          "event": "BikeRented",
+          "operation": "increment",
+          "value": 1
+        },
+        {
+          "event": "BikeReturned",
+          "operation": "decrement",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "BikeRentedByMember",
+      "tags": [
+        {
+          "name": "bikeId",
+          "tagType": "BikeId"
+        },
+        {
+          "name": "memberId",
+          "tagType": "MemberId"
+        }
+      ],
+      "valueType": "boolean",
+      "isList": false,
+      "initialValue": false,
+      "handlers": [
+        {
+          "event": "BikeRented",
+          "operation": "set",
+          "value": true
+        },
+        {
+          "event": "BikeReturned",
+          "operation": "set",
+          "value": false
+        }
+      ]
+    }
+  ],
+  "commandDefinitions": [
+    {
+      "name": "AddBikeToFleet",
+      "feature": "Fleet",
+      "properties": [
+        {
+          "name": "bikeId",
+          "propertyType": "BikeId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [
+        {
+          "alias": "bike",
+          "entity": "Bike",
+          "id": {
+            "parameterName": "bikeId"
+          }
+        }
+      ],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "alias": "bike",
+            "property": "status"
+          },
+          "predicate": "equals",
+          "rightHandSide": {
+            "enumMember": "Unknown"
+          },
+          "rejection": "Bike is already part of the fleet"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "BikeAddedToFleet",
+          "parameters": {
+            "bikeId": {
+              "parameterName": "bikeId"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "SendBikeToRepair",
+      "feature": "Fleet",
+      "properties": [
+        {
+          "name": "bikeId",
+          "propertyType": "BikeId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [
+        {
+          "alias": "bike",
+          "entity": "Bike",
+          "id": {
+            "parameterName": "bikeId"
+          }
+        }
+      ],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "alias": "bike",
+            "property": "status"
+          },
+          "predicate": "equals",
+          "rightHandSide": {
+            "enumMember": "Available"
+          },
+          "rejection": "Bike is not available"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "BikeSentToRepair",
+          "parameters": {
+            "bikeId": {
+              "parameterName": "bikeId"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "RepairBike",
+      "feature": "Fleet",
+      "properties": [
+        {
+          "name": "bikeId",
+          "propertyType": "BikeId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [
+        {
+          "alias": "bike",
+          "entity": "Bike",
+          "id": {
+            "parameterName": "bikeId"
+          }
+        }
+      ],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "alias": "bike",
+            "property": "status"
+          },
+          "predicate": "equals",
+          "rightHandSide": {
+            "enumMember": "InRepair"
+          },
+          "rejection": "Bike is not in repair"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "BikeRepaired",
+          "parameters": {
+            "bikeId": {
+              "parameterName": "bikeId"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "RentBike",
+      "feature": "Rentals",
+      "properties": [
+        {
+          "name": "bikeId",
+          "propertyType": "BikeId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [
+        {
+          "alias": "bike",
+          "entity": "Bike",
+          "id": {
+            "parameterName": "bikeId"
+          }
+        },
+        {
+          "alias": "member",
+          "entity": "Member",
+          "id": {
+            "parameterName": "memberId"
+          }
+        }
+      ],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "alias": "bike",
+            "property": "status"
+          },
+          "predicate": "equals",
+          "rightHandSide": {
+            "enumMember": "Available"
+          },
+          "rejection": "Bike is not available"
+        },
+        {
+          "leftHandSide": {
+            "alias": "member",
+            "property": "activeRentals"
+          },
+          "predicate": "lessThan",
+          "rightHandSide": 2,
+          "rejection": "Member already rents two bikes"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "BikeRented",
+          "parameters": {
+            "bikeId": {
+              "parameterName": "bikeId"
+            },
+            "memberId": {
+              "parameterName": "memberId"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ReturnBike",
+      "feature": "Rentals",
+      "properties": [
+        {
+          "name": "bikeId",
+          "propertyType": "BikeId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "damaged",
+          "propertyType": "boolean",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [
+        {
+          "alias": "bike",
+          "entity": "Bike",
+          "id": {
+            "parameterName": "bikeId"
+          }
+        }
+      ],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "alias": "bike",
+            "property": "status"
+          },
+          "predicate": "equals",
+          "rightHandSide": {
+            "enumMember": "Rented"
+          },
+          "rejection": "Bike is not rented"
+        },
+        {
+          "leftHandSide": {
+            "projection": "BikeRentedByMember",
+            "tags": {
+              "bikeId": {
+                "parameterName": "bikeId"
+              },
+              "memberId": {
+                "parameterName": "memberId"
+              }
+            }
+          },
+          "predicate": "isTrue",
+          "rejection": "Bike is rented by another member"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "BikeReturned",
+          "parameters": {
+            "bikeId": {
+              "parameterName": "bikeId"
+            },
+            "memberId": {
+              "parameterName": "memberId"
+            }
+          }
+        },
+        {
+          "name": "BikeSentToRepair",
+          "parameters": {
+            "bikeId": {
+              "parameterName": "bikeId"
+            }
+          },
+          "when": [
+            {
+              "leftHandSide": {
+                "parameterName": "damaged"
+              },
+              "predicate": "isTrue"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "scenarioDefinitions": [
+    {
+      "id": "0777eefc-f7cf-4b56-bb7d-08d6226713fc",
+      "name": "Send a rented bike to repair",
+      "command": "SendBikeToRepair",
+      "given": [
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b1"
+          }
+        },
+        {
+          "event": "BikeRented",
+          "data": {
+            "bikeId": "b1",
+            "memberId": "m1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "bikeId": "b1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Bike is not available"
+      }
+    },
+    {
+      "id": "a9d42948-c1a0-4e8d-a677-5dcafc09ae37",
+      "name": "Rent an available bike",
+      "command": "RentBike",
+      "given": [
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "bikeId": "b1",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "BikeRented",
+            "data": {
+              "bikeId": "b1",
+              "memberId": "m1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "5260f7a5-cc0e-4b21-a191-61d06b594992",
+      "name": "Rent a bike that is rented",
+      "command": "RentBike",
+      "given": [
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b1"
+          }
+        },
+        {
+          "event": "BikeRented",
+          "data": {
+            "bikeId": "b1",
+            "memberId": "m2"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "bikeId": "b1",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Bike is not available"
+      }
+    },
+    {
+      "id": "93c9d23b-f5fa-440f-b666-ff7825a1edeb",
+      "name": "Rent a bike that is in repair",
+      "command": "RentBike",
+      "given": [
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b1"
+          }
+        },
+        {
+          "event": "BikeSentToRepair",
+          "data": {
+            "bikeId": "b1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "bikeId": "b1",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Bike is not available"
+      }
+    },
+    {
+      "id": "5aeddec5-de92-49dd-a7ba-01385c0f11cc",
+      "name": "Rent a repaired bike",
+      "command": "RentBike",
+      "given": [
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b1"
+          }
+        },
+        {
+          "event": "BikeSentToRepair",
+          "data": {
+            "bikeId": "b1"
+          }
+        },
+        {
+          "event": "BikeRepaired",
+          "data": {
+            "bikeId": "b1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "bikeId": "b1",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "BikeRented",
+            "data": {
+              "bikeId": "b1",
+              "memberId": "m1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "619f960f-eb26-4551-8e2d-5dda73931ae5",
+      "name": "Rent a third bike",
+      "command": "RentBike",
+      "given": [
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b1"
+          }
+        },
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b2"
+          }
+        },
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b3"
+          }
+        },
+        {
+          "event": "BikeRented",
+          "data": {
+            "bikeId": "b1",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "BikeRented",
+          "data": {
+            "bikeId": "b2",
+            "memberId": "m1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "bikeId": "b3",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Member already rents two bikes"
+      }
+    },
+    {
+      "id": "2863936c-4bb7-453d-b83d-590703eaa39f",
+      "name": "Rent a bike after returning one",
+      "command": "RentBike",
+      "given": [
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b1"
+          }
+        },
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b2"
+          }
+        },
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b3"
+          }
+        },
+        {
+          "event": "BikeRented",
+          "data": {
+            "bikeId": "b1",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "BikeRented",
+          "data": {
+            "bikeId": "b2",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "BikeReturned",
+          "data": {
+            "bikeId": "b1",
+            "memberId": "m1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "bikeId": "b3",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "BikeRented",
+            "data": {
+              "bikeId": "b3",
+              "memberId": "m1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "55a9d6b5-014b-416f-8333-46accf7900b1",
+      "name": "Return a bike rented by another member",
+      "command": "ReturnBike",
+      "given": [
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b1"
+          }
+        },
+        {
+          "event": "BikeRented",
+          "data": {
+            "bikeId": "b1",
+            "memberId": "m2"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "bikeId": "b1",
+          "memberId": "m1",
+          "damaged": false
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Bike is rented by another member"
+      }
+    },
+    {
+      "id": "576bcbab-f5c4-43d6-8f31-075b947a72d8",
+      "name": "Return a rented bike",
+      "command": "ReturnBike",
+      "given": [
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b1"
+          }
+        },
+        {
+          "event": "BikeRented",
+          "data": {
+            "bikeId": "b1",
+            "memberId": "m1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "bikeId": "b1",
+          "memberId": "m1",
+          "damaged": false
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "BikeReturned",
+            "data": {
+              "bikeId": "b1",
+              "memberId": "m1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "22d8b1b1-a688-4e51-a508-55c179437860",
+      "name": "Return a damaged bike",
+      "command": "ReturnBike",
+      "given": [
+        {
+          "event": "BikeAddedToFleet",
+          "data": {
+            "bikeId": "b1"
+          }
+        },
+        {
+          "event": "BikeRented",
+          "data": {
+            "bikeId": "b1",
+            "memberId": "m1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "bikeId": "b1",
+          "memberId": "m1",
+          "damaged": true
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "BikeReturned",
+            "data": {
+              "bikeId": "b1",
+              "memberId": "m1"
+            }
+          },
+          {
+            "type": "BikeSentToRepair",
+            "data": {
+              "bikeId": "b1"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

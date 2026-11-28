@@ -1,0 +1,1455 @@
+{
+  "$schema": "https://dcb.events/schemas/model/v10.json",
+  "dcbModelVersion": "10.1",
+  "name": "Library loans",
+  "customTypeDefinitions": [
+    {
+      "name": "CopyId",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    },
+    {
+      "name": "BookId",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    },
+    {
+      "name": "MemberId",
+      "schema": {
+        "type": "string"
+      },
+      "isTag": true
+    }
+  ],
+  "eventDefinitions": [
+    {
+      "name": "CopyAddedToCatalog",
+      "properties": [
+        {
+          "name": "copyId",
+          "propertyType": "CopyId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "bookId",
+          "propertyType": "BookId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "copyId",
+        "bookId"
+      ]
+    },
+    {
+      "name": "CopyLent",
+      "properties": [
+        {
+          "name": "copyId",
+          "propertyType": "CopyId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "copyId",
+        "memberId"
+      ]
+    },
+    {
+      "name": "CopyReturned",
+      "properties": [
+        {
+          "name": "copyId",
+          "propertyType": "CopyId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "copyId",
+        "memberId"
+      ]
+    },
+    {
+      "name": "LoanRenewed",
+      "properties": [
+        {
+          "name": "copyId",
+          "propertyType": "CopyId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "copyId"
+      ]
+    },
+    {
+      "name": "MemberSuspended",
+      "properties": [
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "memberId"
+      ]
+    },
+    {
+      "name": "MemberReinstated",
+      "properties": [
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "memberId"
+      ]
+    },
+    {
+      "name": "BookReserved",
+      "properties": [
+        {
+          "name": "bookId",
+          "propertyType": "BookId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "bookId",
+        "memberId"
+      ]
+    },
+    {
+      "name": "ReservationCancelled",
+      "properties": [
+        {
+          "name": "bookId",
+          "propertyType": "BookId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "bookId",
+        "memberId"
+      ]
+    }
+  ],
+  "entityDefinitions": [],
+  "projectionDefinitions": [
+    {
+      "name": "CopyInCatalog",
+      "tags": [
+        {
+          "name": "copyId",
+          "tagType": "CopyId"
+        }
+      ],
+      "valueType": "boolean",
+      "isList": false,
+      "initialValue": false,
+      "handlers": [
+        {
+          "event": "CopyAddedToCatalog",
+          "operation": "set",
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "CopyBorrowerId",
+      "tags": [
+        {
+          "name": "copyId",
+          "tagType": "CopyId"
+        }
+      ],
+      "valueType": "MemberId",
+      "isList": false,
+      "initialValue": null,
+      "handlers": [
+        {
+          "event": "CopyLent",
+          "operation": "set",
+          "value": {
+            "eventProperty": "memberId"
+          }
+        },
+        {
+          "event": "CopyReturned",
+          "operation": "set",
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "MemberLoanCount",
+      "tags": [
+        {
+          "name": "memberId",
+          "tagType": "MemberId"
+        }
+      ],
+      "valueType": "integer",
+      "isList": false,
+      "initialValue": 0,
+      "handlers": [
+        {
+          "event": "CopyLent",
+          "operation": "increment",
+          "value": 1
+        },
+        {
+          "event": "CopyReturned",
+          "operation": "decrement",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "CopyRenewals",
+      "tags": [
+        {
+          "name": "copyId",
+          "tagType": "CopyId"
+        }
+      ],
+      "valueType": "integer",
+      "isList": false,
+      "initialValue": 0,
+      "handlers": [
+        {
+          "event": "CopyLent",
+          "operation": "set",
+          "value": 0
+        },
+        {
+          "event": "LoanRenewed",
+          "operation": "increment",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "MemberIsSuspended",
+      "tags": [
+        {
+          "name": "memberId",
+          "tagType": "MemberId"
+        }
+      ],
+      "valueType": "boolean",
+      "isList": false,
+      "initialValue": false,
+      "handlers": [
+        {
+          "event": "MemberSuspended",
+          "operation": "set",
+          "value": true
+        },
+        {
+          "event": "MemberReinstated",
+          "operation": "set",
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "CopyBookId",
+      "tags": [
+        {
+          "name": "copyId",
+          "tagType": "CopyId"
+        }
+      ],
+      "valueType": "BookId",
+      "isList": false,
+      "initialValue": null,
+      "handlers": [
+        {
+          "event": "CopyAddedToCatalog",
+          "operation": "set",
+          "value": {
+            "eventProperty": "bookId"
+          }
+        }
+      ]
+    },
+    {
+      "name": "BookReservations",
+      "tags": [
+        {
+          "name": "bookId",
+          "tagType": "BookId"
+        }
+      ],
+      "valueType": "MemberId",
+      "isList": true,
+      "initialValue": [],
+      "handlers": [
+        {
+          "event": "BookReserved",
+          "operation": "append",
+          "value": {
+            "eventProperty": "memberId"
+          }
+        },
+        {
+          "event": "ReservationCancelled",
+          "operation": "remove",
+          "value": {
+            "eventProperty": "memberId"
+          }
+        }
+      ]
+    }
+  ],
+  "commandDefinitions": [
+    {
+      "name": "AddCopyToCatalog",
+      "feature": "Catalog",
+      "properties": [
+        {
+          "name": "copyId",
+          "propertyType": "CopyId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "bookId",
+          "propertyType": "BookId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "CopyInCatalog",
+            "tags": {
+              "copyId": {
+                "parameterName": "copyId"
+              }
+            }
+          },
+          "predicate": "isFalse",
+          "rejection": "Copy is already in the catalog"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "CopyAddedToCatalog",
+          "parameters": {
+            "copyId": {
+              "parameterName": "copyId"
+            },
+            "bookId": {
+              "parameterName": "bookId"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "LendCopy",
+      "feature": "Loans",
+      "properties": [
+        {
+          "name": "copyId",
+          "propertyType": "CopyId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "CopyInCatalog",
+            "tags": {
+              "copyId": {
+                "parameterName": "copyId"
+              }
+            }
+          },
+          "predicate": "isTrue",
+          "rejection": "Copy is not in the catalog"
+        },
+        {
+          "leftHandSide": {
+            "projection": "CopyBorrowerId",
+            "tags": {
+              "copyId": {
+                "parameterName": "copyId"
+              }
+            }
+          },
+          "predicate": "isEmpty",
+          "rejection": "Copy is not available"
+        },
+        {
+          "leftHandSide": {
+            "projection": "MemberLoanCount",
+            "tags": {
+              "memberId": {
+                "parameterName": "memberId"
+              }
+            }
+          },
+          "predicate": "lessThan",
+          "rightHandSide": 3,
+          "rejection": "Member already borrows three copies"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "CopyLent",
+          "parameters": {
+            "copyId": {
+              "parameterName": "copyId"
+            },
+            "memberId": {
+              "parameterName": "memberId"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ReturnCopy",
+      "feature": "Loans",
+      "properties": [
+        {
+          "name": "copyId",
+          "propertyType": "CopyId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "CopyBorrowerId",
+            "tags": {
+              "copyId": {
+                "parameterName": "copyId"
+              }
+            }
+          },
+          "predicate": "isNotEmpty",
+          "rejection": "Copy is not lent"
+        },
+        {
+          "leftHandSide": {
+            "projection": "CopyBorrowerId",
+            "tags": {
+              "copyId": {
+                "parameterName": "copyId"
+              }
+            }
+          },
+          "predicate": "equals",
+          "rightHandSide": {
+            "parameterName": "memberId"
+          },
+          "rejection": "Copy is lent to another member"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "CopyReturned",
+          "parameters": {
+            "copyId": {
+              "parameterName": "copyId"
+            },
+            "memberId": {
+              "parameterName": "memberId"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "RenewLoan",
+      "feature": "Loans",
+      "properties": [
+        {
+          "name": "copyId",
+          "propertyType": "CopyId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [
+        {
+          "alias": "borrowerId",
+          "projection": "CopyBorrowerId",
+          "tags": {
+            "copyId": {
+              "parameterName": "copyId"
+            }
+          }
+        }
+      ],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "alias": "borrowerId"
+          },
+          "predicate": "isNotEmpty",
+          "rejection": "Copy is not lent"
+        },
+        {
+          "leftHandSide": {
+            "projection": "CopyRenewals",
+            "tags": {
+              "copyId": {
+                "parameterName": "copyId"
+              }
+            }
+          },
+          "predicate": "lessThan",
+          "rightHandSide": 2,
+          "rejection": "Loan was already renewed twice"
+        },
+        {
+          "leftHandSide": {
+            "projection": "MemberIsSuspended",
+            "tags": {
+              "memberId": {
+                "alias": "borrowerId"
+              }
+            }
+          },
+          "predicate": "isFalse",
+          "rejection": "Borrower is suspended"
+        },
+        {
+          "leftHandSide": {
+            "projection": "BookReservations",
+            "tags": {
+              "bookId": {
+                "projection": "CopyBookId",
+                "tags": {
+                  "copyId": {
+                    "parameterName": "copyId"
+                  }
+                }
+              }
+            }
+          },
+          "predicate": "isEmpty",
+          "rejection": "Book is reserved"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "LoanRenewed",
+          "parameters": {
+            "copyId": {
+              "parameterName": "copyId"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "SuspendMember",
+      "feature": "Members",
+      "properties": [
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "MemberIsSuspended",
+            "tags": {
+              "memberId": {
+                "parameterName": "memberId"
+              }
+            }
+          },
+          "predicate": "isFalse",
+          "rejection": "Member is already suspended"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "MemberSuspended",
+          "parameters": {
+            "memberId": {
+              "parameterName": "memberId"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ReinstateMember",
+      "feature": "Members",
+      "properties": [
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "MemberIsSuspended",
+            "tags": {
+              "memberId": {
+                "parameterName": "memberId"
+              }
+            }
+          },
+          "predicate": "isTrue",
+          "rejection": "Member is not suspended"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "MemberReinstated",
+          "parameters": {
+            "memberId": {
+              "parameterName": "memberId"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ReserveBook",
+      "feature": "Reservations",
+      "properties": [
+        {
+          "name": "bookId",
+          "propertyType": "BookId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "BookReservations",
+            "tags": {
+              "bookId": {
+                "parameterName": "bookId"
+              }
+            }
+          },
+          "predicate": "contains",
+          "rightHandSide": {
+            "parameterName": "memberId"
+          },
+          "negate": true,
+          "rejection": "Member already reserved the book"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "BookReserved",
+          "parameters": {
+            "bookId": {
+              "parameterName": "bookId"
+            },
+            "memberId": {
+              "parameterName": "memberId"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "CancelReservation",
+      "feature": "Reservations",
+      "properties": [
+        {
+          "name": "bookId",
+          "propertyType": "BookId",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "memberId",
+          "propertyType": "MemberId",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [],
+      "conditions": [
+        {
+          "leftHandSide": {
+            "projection": "BookReservations",
+            "tags": {
+              "bookId": {
+                "parameterName": "bookId"
+              }
+            }
+          },
+          "predicate": "contains",
+          "rightHandSide": {
+            "parameterName": "memberId"
+          },
+          "rejection": "Member has not reserved the book"
+        }
+      ],
+      "publishes": [
+        {
+          "name": "ReservationCancelled",
+          "parameters": {
+            "bookId": {
+              "parameterName": "bookId"
+            },
+            "memberId": {
+              "parameterName": "memberId"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "scenarioDefinitions": [
+    {
+      "id": "3684f24b-1ddb-423c-881b-15deee34c867",
+      "name": "Lend an available copy",
+      "command": "LendCopy",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "CopyLent",
+            "data": {
+              "copyId": "c1",
+              "memberId": "m1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "19f36865-7104-4317-b110-0605aac3a820",
+      "name": "Lend a copy that is not in the catalog",
+      "command": "LendCopy",
+      "given": [],
+      "when": {
+        "arguments": {
+          "copyId": "c1",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Copy is not in the catalog"
+      }
+    },
+    {
+      "id": "ed02a593-3135-473e-8102-4cd6cbf0b5a0",
+      "name": "Lend a copy that is lent",
+      "command": "LendCopy",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m2"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Copy is not available"
+      }
+    },
+    {
+      "id": "98114105-140a-4ec6-9c41-2572b449187b",
+      "name": "Lend a returned copy",
+      "command": "LendCopy",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m2"
+          }
+        },
+        {
+          "event": "CopyReturned",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m2"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "CopyLent",
+            "data": {
+              "copyId": "c1",
+              "memberId": "m1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "3097b448-b888-4e8d-a2e4-03564559f68a",
+      "name": "Lend a fourth copy",
+      "command": "LendCopy",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c2",
+            "bookId": "b2"
+          }
+        },
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c3",
+            "bookId": "b3"
+          }
+        },
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c4",
+            "bookId": "b4"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c2",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c3",
+            "memberId": "m1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c4",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Member already borrows three copies"
+      }
+    },
+    {
+      "id": "13d57bdf-e2f3-4b7d-a30d-0064849a8ad3",
+      "name": "Return a lent copy",
+      "command": "ReturnCopy",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "CopyReturned",
+            "data": {
+              "copyId": "c1",
+              "memberId": "m1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "ce570a3b-595d-4ecb-8b95-d837e7fc2819",
+      "name": "Return a copy that is not lent",
+      "command": "ReturnCopy",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Copy is not lent"
+      }
+    },
+    {
+      "id": "8c2d55db-30ea-4199-8950-a1399790df86",
+      "name": "Return a copy lent to another member",
+      "command": "ReturnCopy",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m2"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1",
+          "memberId": "m1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Copy is lent to another member"
+      }
+    },
+    {
+      "id": "850de30d-582d-486f-ab28-b915e913ec7a",
+      "name": "Renew a loan",
+      "command": "RenewLoan",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "LoanRenewed",
+            "data": {
+              "copyId": "c1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "b4e92c6c-f3c0-4567-8bdb-9bee754c682f",
+      "name": "Renew a copy that is not lent",
+      "command": "RenewLoan",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Copy is not lent"
+      }
+    },
+    {
+      "id": "56020312-9141-4864-8e58-c5cd02e89455",
+      "name": "Renew a loan a third time",
+      "command": "RenewLoan",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "LoanRenewed",
+          "data": {
+            "copyId": "c1"
+          }
+        },
+        {
+          "event": "LoanRenewed",
+          "data": {
+            "copyId": "c1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Loan was already renewed twice"
+      }
+    },
+    {
+      "id": "1af9dad5-9145-43a1-bf02-2d84db251952",
+      "name": "Renew a loan of a suspended member",
+      "command": "RenewLoan",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "MemberSuspended",
+          "data": {
+            "memberId": "m1"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Borrower is suspended"
+      }
+    },
+    {
+      "id": "9d108026-2d0b-4d5a-9fe2-ce26bea6f0df",
+      "name": "Renew a loan while another member is suspended",
+      "command": "RenewLoan",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "MemberSuspended",
+          "data": {
+            "memberId": "m2"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "LoanRenewed",
+            "data": {
+              "copyId": "c1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "83eb81c4-559a-4f37-8038-f709c67e9e41",
+      "name": "Renew a copy that was lent again",
+      "command": "RenewLoan",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "LoanRenewed",
+          "data": {
+            "copyId": "c1"
+          }
+        },
+        {
+          "event": "LoanRenewed",
+          "data": {
+            "copyId": "c1"
+          }
+        },
+        {
+          "event": "CopyReturned",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m2"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "LoanRenewed",
+            "data": {
+              "copyId": "c1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "d93eaf80-a295-4089-bb80-9e6b9f8e0234",
+      "name": "Renew a loan of a reserved book",
+      "command": "RenewLoan",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "BookReserved",
+          "data": {
+            "bookId": "b1",
+            "memberId": "m2"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1"
+        }
+      },
+      "then": {
+        "outcome": "rejected",
+        "events": [],
+        "rejection": "Book is reserved"
+      }
+    },
+    {
+      "id": "474f2a2f-db3f-4d88-9e6f-6a62c2ca03a5",
+      "name": "Renew a loan after the reservation was cancelled",
+      "command": "RenewLoan",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "BookReserved",
+          "data": {
+            "bookId": "b1",
+            "memberId": "m2"
+          }
+        },
+        {
+          "event": "ReservationCancelled",
+          "data": {
+            "bookId": "b1",
+            "memberId": "m2"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "LoanRenewed",
+            "data": {
+              "copyId": "c1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "eae93d3e-a719-41a1-9a94-8e41de0b6c42",
+      "name": "Renew a loan while another book is reserved",
+      "command": "RenewLoan",
+      "given": [
+        {
+          "event": "CopyAddedToCatalog",
+          "data": {
+            "copyId": "c1",
+            "bookId": "b1"
+          }
+        },
+        {
+          "event": "CopyLent",
+          "data": {
+            "copyId": "c1",
+            "memberId": "m1"
+          }
+        },
+        {
+          "event": "BookReserved",
+          "data": {
+            "bookId": "b2",
+            "memberId": "m2"
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "copyId": "c1"
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "LoanRenewed",
+            "data": {
+              "copyId": "c1"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

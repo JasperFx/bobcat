@@ -77,7 +77,8 @@ public sealed class ModelLayout
         foreach (var slice in model.Slices)
         {
             var chapter = ChapterFolder(slice.Chapter);
-            foreach (var name in CSharpModelWriter.AggregatesOf(slice).Concat(slice.ConsumedEvents).Concat(slice.ReadsFrom))
+            foreach (var name in CSharpModelWriter.AggregatesOf(slice).Concat(slice.ConsumedEvents).Concat(slice.ReadsFrom)
+                         .Concat(slice.Reads.Select(r => r.Type)).Concat(slice.UntaggedProjections))
             {
                 var type = CSharpModelWriter.Identifiers.Sanitize(name ?? "");
                 if (type.Length > 0) layout.place(type, chapter, typeFile(chapter, type));

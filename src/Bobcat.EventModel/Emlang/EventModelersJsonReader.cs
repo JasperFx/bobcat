@@ -49,6 +49,9 @@ public static class EventModelersJsonReader
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return null;
 
+            // bobcat#849: a dcb.events Playground envelope says what it is
+            if (Dcb.DcbPlaygroundReader.Sniff(root)) return EventModelFileKind.DcbPlayground;
+
             if (root.TryGetProperty("nodes", out _) && root.TryGetProperty("metadata", out _))
                 return EventModelFileKind.EventModelersBoard;
 

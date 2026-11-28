@@ -57,6 +57,47 @@ public static class EventModelImport
             ? null
             : EmlangImport.ToCurated(board, options.Model, options.Namespace).Model.Slices.Select(ImportMerge.SliceName).ToList();
 
+        return write(result, boardSlices, outDirectory, options);
+    }
+
+    /// <summary>
+    /// The same import over a model a reader lowered itself (a dcb.events Playground model, bobcat#849): nothing to
+    /// segment or infer, so the C# is written from <paramref name="curated"/> as it is. <c>--chapter</c> keeps the
+    /// slices of the named chapters.
+    /// </summary>
+    /// <exception cref="ArgumentException">A <c>--chapter</c> names no chapter of the model (<c>ParamName</c> "chapters").</exception>
+    public static EventModelImportResult Run(EmlangImportResult curated, string outDirectory, EventModelImportOptions options)
+    {
+        var chapters = options.Chapters ?? [];
+        if (chapters.Count == 0) return write(curated, null, outDirectory, options);
+
+        var known = curated.Model.Slices.Select(x => x.Chapter).OfType<string>().Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+        var unknown = chapters.Where(x => !known.Contains(x, StringComparer.Ordinal)).ToList();
+        if (unknown.Count > 0)
+        {
+            throw new ArgumentException(
+                $"No chapter named {string.Join(", ", unknown.Select(x => $"'{x}'"))}. The model has: {string.Join(", ", known)}",
+                "chapters");
+        }
+
+        var whole = curated.Model;
+        var narrowed = new ImportedEventModel
+        {
+            Schema = whole.Schema,
+            Model = whole.Model,
+            Namespace = whole.Namespace,
+            Slices = whole.Slices.Where(x => x.Chapter is { } chapter && chapters.Contains(chapter, StringComparer.Ordinal)).ToList(),
+            EventStreams = whole.EventStreams,
+            Tags = whole.Tags,
+        };
+
+        var result = new EmlangImportResult(narrowed, curated.Report) { Callouts = curated.Callouts, Board = curated.Board };
+        return write(result, whole.Slices.Select(ImportMerge.SliceName).ToList(), outDirectory, options);
+    }
+
+    private static EventModelImportResult write(EmlangImportResult result, IReadOnlyList<string>? boardSlices, string outDirectory,
+        EventModelImportOptions options)
+    {
         var ns = options.Namespace ?? CSharpModelWriter.Identifiers.Sanitize(options.Model);
 
         var identities = options.StrongTypedIds

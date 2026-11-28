@@ -1,0 +1,162 @@
+{
+  "$schema": "https://dcb.events/schemas/model/v10.json",
+  "dcbModelVersion": "10.1",
+  "name": "Invoice number",
+  "customTypeDefinitions": [
+    {
+      "name": "InvoiceNumber",
+      "schema": {
+        "type": "integer"
+      },
+      "isTag": true
+    },
+    {
+      "name": "InvoiceData",
+      "schema": {
+        "type": "object"
+      }
+    }
+  ],
+  "eventDefinitions": [
+    {
+      "name": "InvoiceCreated",
+      "properties": [
+        {
+          "name": "invoiceNumber",
+          "propertyType": "InvoiceNumber",
+          "isOptional": false,
+          "isList": false
+        },
+        {
+          "name": "invoiceData",
+          "propertyType": "InvoiceData",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "tags": [
+        "invoiceNumber"
+      ]
+    }
+  ],
+  "entityDefinitions": [],
+  "projectionDefinitions": [
+    {
+      "name": "NextInvoiceNumber",
+      "tags": [],
+      "valueType": "InvoiceNumber",
+      "isList": false,
+      "initialValue": 1,
+      "handlers": [
+        {
+          "event": "InvoiceCreated",
+          "operation": "set",
+          "value": {
+            "successor": {
+              "eventProperty": "invoiceNumber"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "commandDefinitions": [
+    {
+      "name": "CreateInvoice",
+      "properties": [
+        {
+          "name": "invoiceData",
+          "propertyType": "InvoiceData",
+          "isOptional": false,
+          "isList": false
+        }
+      ],
+      "boundary": [
+        {
+          "alias": "next",
+          "projection": "NextInvoiceNumber"
+        }
+      ],
+      "conditions": [],
+      "publishes": [
+        {
+          "name": "InvoiceCreated",
+          "parameters": {
+            "invoiceNumber": {
+              "alias": "next"
+            },
+            "invoiceData": {
+              "parameterName": "invoiceData"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "scenarioDefinitions": [
+    {
+      "id": "1fe81ab5-1544-4ae5-842a-7be7a8e807b5",
+      "name": "Create first invoice",
+      "command": "CreateInvoice",
+      "given": [],
+      "when": {
+        "arguments": {
+          "invoiceData": {
+            "foo": "bar"
+          }
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "InvoiceCreated",
+            "data": {
+              "invoiceNumber": 1,
+              "invoiceData": {
+                "foo": "bar"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "ae185925-790e-4b61-a10e-2acf6ca64104",
+      "name": "Create second invoice",
+      "command": "CreateInvoice",
+      "given": [
+        {
+          "event": "InvoiceCreated",
+          "data": {
+            "invoiceNumber": 1,
+            "invoiceData": {
+              "foo": "bar"
+            }
+          }
+        }
+      ],
+      "when": {
+        "arguments": {
+          "invoiceData": {
+            "bar": "baz"
+          }
+        }
+      },
+      "then": {
+        "outcome": "published",
+        "events": [
+          {
+            "type": "InvoiceCreated",
+            "data": {
+              "invoiceNumber": 2,
+              "invoiceData": {
+                "bar": "baz"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

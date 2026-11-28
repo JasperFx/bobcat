@@ -183,8 +183,9 @@ public static class AggregateInference
         }
     }
 
+    // A DCB slice (bobcat#849) decides by tag, not against a stream: nothing to infer, nothing missing
     private static bool isDecider(CuratedSlice slice)
-        => slice.Pattern is "Command" or "Automation" || (slice.Pattern is null && slice.Command is not null);
+        => !slice.Dcb && (slice.Pattern is "Command" or "Automation" || (slice.Pattern is null && slice.Command is not null));
 
     private static IEnumerable<CuratedScenario> actingScenarios(CuratedSlice slice)
         => (slice.Specifications?.Scenarios ?? []).Where(x => x.When is not null);

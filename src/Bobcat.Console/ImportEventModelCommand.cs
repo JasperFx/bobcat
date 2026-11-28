@@ -114,6 +114,7 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         {
             EventModelFileKind.Emlang => importEmlang(input, yaml, run),
             EventModelFileKind.EventModelersBoard or EventModelFileKind.EventModelersConfig => importEmlang(input, yaml, run),
+            EventModelFileKind.DcbPlayground => importDcb(input, yaml, run),
             EventModelFileKind.Curated => refuseCurated(input.FilePath),
             _ => describeUnrecognized(input.FilePath),
         };
@@ -157,7 +158,8 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
     {
         System.Console.Error.WriteLine(
             $"{path} is not an emlang file. Expected a top-level `slices:` map, each slice a list of "
-            + "steps or a map of `steps:` and `tests:`. (An eventmodelers.ai export is a board backup or a config.json.)");
+            + "steps or a map of `steps:` and `tests:`. (An eventmodelers.ai export is a board backup or a config.json; "
+            + "a dcb.events Playground model says dcbModelVersion.)");
         return null;
     }
 
@@ -193,6 +195,32 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
 
         var model = input.ModelFlag
                     ?? EmlangImport.PascalName(Path.GetFileName(input.FilePath).Split('.')[0]);
+        return import(input, run, model, (options, outDirectory) => EventModelImport.Run(board, outDirectory, options));
+    }
+
+    /// <summary>
+    /// bobcat#849: a dcb.events Playground model, lowered by its own reader (there is nothing to segment), then
+    /// written exactly as a board import is. The model is named for the envelope's <c>name</c> unless <c>--model</c> says.
+    /// </summary>
+    private static Imported? importDcb(ImportEventModelInput input, string json, ImportRun run)
+    {
+        EmlangImportResult curated;
+        try
+        {
+            curated = Bobcat.EventModel.Dcb.DcbPlaygroundReader.ToCurated(json, input.ModelFlag, input.NamespaceFlag);
+        }
+        catch (EmlangFormatException e)
+        {
+            System.Console.Error.WriteLine($"Not readable: {e.Message}");
+            return null;
+        }
+
+        return import(input, run, curated.Model.Model, (options, outDirectory) => EventModelImport.Run(curated, outDirectory, options));
+    }
+
+    private static Imported? import(ImportEventModelInput input, ImportRun run, string model,
+        Func<EventModelImportOptions, string, EventModelImportResult> importer)
+    {
         IReadOnlyList<AggregateOverride> overrides;
         try
         {
@@ -212,9 +240,9 @@ public class ImportEventModelCommand : JasperFxAsyncCommand<ImportEventModelInpu
         EventModelImportResult import;
         try
         {
-            import = EventModelImport.Run(board, outDirectoryOf(input), new EventModelImportOptions(
+            import = importer(new EventModelImportOptions(
                 model, input.NamespaceFlag, overrides, input.ChapterFlag,
-                SingleDefinition: input.SingleDefinitionFlag, StrongTypedIds: input.StrongTypedIdsFlag, Force: input.ForceFlag));
+                SingleDefinition: input.SingleDefinitionFlag, StrongTypedIds: input.StrongTypedIdsFlag, Force: input.ForceFlag), outDirectoryOf(input));
         }
         catch (ArgumentException e) when (e.ParamName == "chapters")
         {

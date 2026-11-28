@@ -484,7 +484,8 @@ is null (no chapter, a pattern nothing can tell) is left off rather than project
 bobcat import-event-model board.yaml --model K9Crush
 ```
 
-Reads an [eventmodelers.ai](https://eventmodelers.ai) board export, segments it into slices, and
+Reads an [eventmodelers.ai](https://eventmodelers.ai) board export (or a
+[dcb.events Playground model](#dcb-playground)), segments it into slices, and
 writes the design out as **C#**:
 
 ```
@@ -543,6 +544,32 @@ the new stream takes it.
 
 **A swimlane is not a stream.** In `Admin / Volunteer approved`, `Admin` is who acts, not where the
 event is stored.
+
+### A dcb.events Playground model {#dcb-playground}
+
+The import also reads a [dcb.events Playground](https://dcb.events/) model (`model/v10` JSON, the file the
+Playground exports and the one its `#model=` links carry), the one published notation that carries the
+Dynamic Consistency Boundary primitives (bobcat#849, jasperfx#1297). The file says what it is
+(`dcbModelVersion`, or a `$schema` of `https://dcb.events/schemas/model/v10.json`), so no flag is needed.
+There is nothing to segment: a Playground model has no screens, chapters or step order, and no aggregate to
+infer, because a command decides by tag.
+
+| In the Playground | In the import |
+|---|---|
+| `tag type CourseId = string` | the model's tag catalogue: `model.Tag("courseId", typeof(string))`, named as JasperFx names a tag type |
+| `event StudentSubscribed { tag courseId: CourseId, … }` | `.Emits<StudentSubscribed>().TaggedBy("courseId")`, and the field knows its tag |
+| `command SubscribeStudent(…) { require CourseStatus(courseId) == Existent else reject "Course is not active" … }` | a Command slice, `.Reads<CourseStatus>().By("courseId", "CourseId")` for every projection the command reads, in its boundary or in a condition, and `.Refuses("Course is not active")` per rejection |
+| an entity in the boundary (`entity Bike`) | a decider model read by the entity's identity tag: `.Decides<Bike>().ByTag("bikeId", "BikeId")` |
+| `untagged projection` read by a command | `.UntaggedProjection<TotalCourses>()`: informational, outside the boundary |
+| `projection CourseCapacity (tag courseId: CourseId): integer { on CourseDefined … }` | a View slice folding the handlers' events, whose read model has one member per tag and a `Value` |
+| a command's `feature` | the slice's chapter, so a model that groups its commands gets a definition per feature |
+| `scenarios { given … when … then E \| nothing \| rejected "…" }` | the scenario model: given events with their tag values, the command as the act, and an emitted event, a `NothingEmitted` outcome, or a `Refusal` naming the rejection |
+| a projection scenario (`given … then 5`) | a scenario on the View slice asserting what the projection folds to |
+
+The slices carry no `.Against` and no `.StartsStream`: the **consistency boundary is derived** by JasperFx from
+the reads (`EventModelDescriptor.BoundaryQueryFor`), never declared by the import, which is the dcb.events
+rule too. The nine worked examples on dcb.events import this way; `DcbPlaygroundReaderTests` runs them
+(see the vendored fixtures' README for their provenance).
 
 ### Typed stubs from the field model {#typed-stubs}
 

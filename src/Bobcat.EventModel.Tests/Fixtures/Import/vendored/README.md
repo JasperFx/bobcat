@@ -33,3 +33,21 @@ in a package, but it is a non-commercial licence inside an MIT repository. (2) T
 repository carries no licence at all, so this copy rests on nothing but the author having published
 it; if you would rather not carry it, delete the file and the one theory row that names it in
 VendoredFixtureTests. -->
+
+## `dcb/` — the dcb.events Playground model (`model/v10`, bobcat#849)
+
+| File | Source | Commit | Licence |
+|---|---|---|---|
+| `dcb-model.schema.json` | https://github.com/dcb-events/dcb-playground (`dcb-model.schema.json`, `$id` `https://dcb.events/schemas/model/v10.json`, revision 10.1.0) | `b937e55322239a75cace670ed12415e17f36646e` (2026-11-27) | MIT (`LICENSE`, copied from the same repo) |
+| `examples/*.dcb.json` (nine files) | https://dcb.events/examples/ — the model behind each worked example, as the page's "open in the playground" link carries it (`#model=`, gzip + base64url of the envelope), decoded and pretty-printed; the last model on each page, which is the complete one. Website source https://github.com/dcb-events/dcb-events.github.io | `56378a4175022b3cccd69ac05d2f44fe7cfda655` (2026-11-27; pages fetched the same day) | **CC BY-SA 4.0** (the site's `LICENSE` puts everything under `docs/` under it; the Playground's own code is MIT) |
+
+The ten examples the issue names are nine files: the tenth, *event-sourced aggregate*, is a JavaScript walkthrough with
+no Playground model on its page. `library-loans.dcb.json` carries one handler whose value is `null` (`set null`), which
+the schema's `HandlerOperand` does not admit; `DcbPlaygroundReaderTests` records that as a known deviation rather than
+editing the file.
+
+<!-- JEREMY: a third licence question. The nine example models are decoded from the dcb.events documentation pages,
+which are CC BY-SA 4.0, not MIT (only the Playground's code is MIT). They are test inputs, attributed above, never
+shipped in a package, but a share-alike licence inside an MIT repository is your call. The alternative is the
+Playground repository's own `fixtures/*.dcb.json` (MIT; course-simple, course-sequence, developer-hours and five
+content-decisions variants), which are not the ten the issue names. -->
